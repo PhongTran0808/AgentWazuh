@@ -1,0 +1,42 @@
+<!-- Wazuh Custom Rules for Local SOC Incident Investigation Assistant Demo -->
+<group name="local,syslog,sshd,web,syscheck,">
+
+  <!-- Scenario 1: SSH Brute Force Attack -->
+  <rule id="100001" level="10">
+    <if_sid>5716</if_sid>
+    <same_source_ip />
+    <frequency>6</frequency>
+    <timeframe>120</timeframe>
+    <description>SOC Alert: Multiple SSH authentication failures detected from single source IP (Possible Brute Force Attack).</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failures,pci_dss_10.2.4,pci_dss_10.2.5,gpg13_7.8,</group>
+  </rule>
+
+  <!-- Scenario 2: Web Shell / Unauthorized Command Execution -->
+  <rule id="100011" level="12">
+    <if_group>web|accesslog</if_group>
+    <match>whoami|uname -a|cat /etc/passwd|cmd.exe|powershell -enc</match>
+    <description>SOC Alert: Potential Web Shell / Unauthorized Command Execution payload detected in Web Server Access Log.</description>
+    <mitre>
+      <id>T1059</id>
+      <id>T1059.004</id>
+    </mitre>
+    <group>web_attack,pci_dss_6.5,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- Scenario 3: Simulated Ransomware Behavior -->
+  <rule id="100021" level="14">
+    <if_group>syscheck</if_group>
+    <match>\.locked$|\.crypto$|\.enc$|vssadmin delete shadows</match>
+    <description>CRITICAL SOC Alert: Simulated Ransomware Activity / Shadow Copy Deletion or Bulk File Encryption detected.</description>
+    <mitre>
+      <id>T1486</id>
+      <id>T1490</id>
+    </mitre>
+    <group>syscheck_entry_modified,ransomware_threat,</group>
+  </rule>
+
+</group>

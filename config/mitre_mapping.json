@@ -1,0 +1,36 @@
+{
+  "mappings": {
+    "100001": {
+      "technique_id": "T1110.001",
+      "technique_name": "Brute Force: Password Guessing",
+      "tactic": "Credential Access",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Chặn địa chỉ IP nguồn trên Firewall, vô hiệu hóa tài khoản bị nhắm mục tiêu nếu có dấu hiệu đăng nhập thành công, và kiểm tra log SSH server."
+    },
+    "100011": {
+      "technique_id": "T1059.004",
+      "technique_name": "Command and Scripting Interpreter: Unix Shell",
+      "tactic": "Execution",
+      "severity": "High",
+      "level": 12,
+      "recommended_action": "Cách ly Web Server nghi vấn, kiểm tra các tệp script lạ trong thư mục webroot, thu hồi quyền ghi tệp của dịch vụ webserver."
+    },
+    "100021": {
+      "technique_id": "T1486",
+      "technique_name": "Data Encrypted for Impact (Ransomware)",
+      "tactic": "Impact",
+      "severity": "Critical",
+      "level": 14,
+      "recommended_action": "CÁCH LY THIẾT BỊ KHỎI MẠNG NGAY LẬP TỨC. Ngắt kết nối các ổ đĩa sao lưu, thu thập dump RAM để phân tích tiến trình mã hóa và khôi phục từ bản backup an toàn."
+    },
+    "5716": {
+      "technique_id": "T1110",
+      "technique_name": "Brute Force",
+      "tactic": "Credential Access",
+      "severity": "Medium",
+      "level": 5,
+      "recommended_action": "Theo dõi tần suất thất bại đăng nhập SSH từ tài khoản người dùng."
+    }
+  }
+}

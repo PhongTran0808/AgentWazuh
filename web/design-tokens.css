@@ -1,0 +1,42 @@
+/* SOC Assistant UI Design Tokens - Cyber Security Aesthetics */
+:root {
+  --bg-dark: #0b0f19;
+  --bg-panel: #111827;
+  --bg-card: #1f2937;
+  --bg-glass: rgba(17, 24, 39, 0.75);
+  
+  --border-color: #374151;
+  --border-glow: rgba(59, 130, 246, 0.3);
+
+  --text-main: #f9fafb;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  --accent-blue: #3b82f6;
+  --accent-cyan: #06b6d4;
+
+  /* Severity Level Color System */
+  --level-info: #3b82f6;        /* Level 1-4 */
+  --level-medium: #f59e0b;      /* Level 5-7 */
+  --level-high: #f97316;        /* Level 8-11 */
+  --level-critical: #ef4444;    /* Level 12-15 */
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}

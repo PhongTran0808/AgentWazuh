@@ -38,7 +38,8 @@ class IncidentAssistant:
         alert_data: Optional[Dict[str, Any]] = None,
         system_context: Optional[Dict[str, Any]] = None,
         is_global_chat: bool = False,
-        scope_filter: Optional[Dict[str, Any]] = None
+        scope_filter: Optional[Dict[str, Any]] = None,
+        recent_alerts: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
         static_info = self.lookup_static_rule(rule_id) if rule_id else None
@@ -76,6 +77,11 @@ class IncidentAssistant:
             stats = system_context.get("alert_stats", {})
             context_lines.append(f"- Registered Agents Count: {len(agents)} [[DRILLDOWN:agent:0]]")
             context_lines.append(f"- Last 24h Alerts: Total {stats.get('total_24h', 164)} [[DRILLDOWN:severity:total]], Critical {stats.get('critical', 0)} [[DRILLDOWN:severity:critical]], High {stats.get('high', 1)} [[DRILLDOWN:severity:high]], Medium {stats.get('medium', 26)} [[DRILLDOWN:severity:medium]], Low {stats.get('low', 137)} [[DRILLDOWN:severity:low]]")
+
+        if is_global_chat and recent_alerts:
+            context_lines.append(f"- Thông tin {len(recent_alerts)} Cảnh báo gần đây nhất (để hỗ trợ phân tích):")
+            for a in recent_alerts[:10]: # Limit to 10 to save context window
+                context_lines.append(f"  + Alert {a.get('id')} (Rule {a.get('rule', {}).get('id')} - Lvl {a.get('rule', {}).get('level')}): {a.get('rule', {}).get('description')} | Agent: {a.get('agent', {}).get('name')} | Payload: {json.dumps(a.get('data', {}))}")
 
         context_str = "\n".join(context_lines)
 
@@ -161,10 +167,11 @@ Khi trả lời, LUÔN tuân thủ các quy tắc định dạng sau:
                 "stream": False,
                 "options": {"num_predict": 450, "temperature": 0.2}
             }
-            res = requests.post(self.ollama_url, json=payload, timeout=3.0)
+            res = requests.post(self.ollama_url, json=payload, timeout=60.0)
             if res.status_code == 200:
                 return res.json().get("response", "Không nhận được phản hồi từ Ollama.")
-        except Exception:
+        except Exception as e:
+            print(f"[Ollama Error] {e}")
             pass
 
         q_lower = query.lower()

@@ -203,7 +203,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 5. Investigate Call with Steppers & Markdown
     async function investigateAlert(query, alertObj = null) {
-        const loadingId = appendChatBot("Đang tra cứu Ground-Truth MITRE ATT&CK & tổng hợp báo cáo bằng chứng...");
+        const progressBarHtml = `
+            <div class="ai-loading-container" style="margin-bottom: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9em; color: #10b981; font-weight: 600;">
+                    <span id="loading-text-phase"><i class="fa-solid fa-microchip"></i> Đang khởi tạo AI Model...</span>
+                    <span id="loading-percent">0%</span>
+                </div>
+                <div class="progress-bar-bg" style="width: 100%; height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);">
+                    <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);"></div>
+                </div>
+            </div>
+        `;
+        const loadingId = appendChatBot(progressBarHtml);
+        
+        const progressBarFill = document.getElementById("progress-bar-fill");
+        const loadingPercent = document.getElementById("loading-percent");
+        const loadingTextPhase = document.getElementById("loading-text-phase");
+        
+        let progress = 0;
+        const phases = [
+            "<i class='fa-solid fa-database'></i> Đang trích xuất log từ Wazuh...",
+            "<i class='fa-solid fa-sitemap'></i> Đang tra cứu Ground-Truth MITRE...",
+            "<i class='fa-solid fa-shield-halved'></i> Đang phân loại Threat Classification...",
+            "<i class='fa-solid fa-brain'></i> Đang nạp ngữ cảnh cho Qwen2.5-3B...",
+            "<i class='fa-solid fa-laptop-code'></i> LLM đang suy luận giải pháp..."
+        ];
+        
+        const progressInterval = setInterval(() => {
+            if (progress < 95) {
+                progress += Math.random() * 8 + 2; 
+                if (progress > 95) progress = 95;
+                if (progressBarFill && loadingPercent && loadingTextPhase) {
+                    progressBarFill.style.width = progress + "%";
+                    loadingPercent.textContent = Math.floor(progress) + "%";
+                    
+                    let phaseIndex = Math.floor((progress / 100) * phases.length);
+                    if (phaseIndex >= phases.length) phaseIndex = phases.length - 1;
+                    loadingTextPhase.innerHTML = phases[phaseIndex];
+                }
+            }
+        }, 500);
 
         try {
             const res = await fetch("/api/wazuh/investigate", {
@@ -220,9 +259,20 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             const inv = data.investigation;
 
-            updateChatBot(loadingId, inv.layer_2_llm_reasoning, inv.reasoning_steps);
-            renderEvidenceDetail(inv, alertObj);
+            clearInterval(progressInterval);
+            if (progressBarFill && loadingPercent && loadingTextPhase) {
+                progressBarFill.style.width = "100%";
+                loadingPercent.textContent = "100%";
+                loadingTextPhase.innerHTML = "<i class='fa-solid fa-check-circle'></i> Hoàn tất phân tích!";
+            }
+
+            setTimeout(() => {
+                updateChatBot(loadingId, inv.layer_2_llm_reasoning, inv.reasoning_steps);
+                renderEvidenceDetail(inv, alertObj);
+            }, 600);
+            
         } catch (err) {
+            clearInterval(progressInterval);
             updateChatBot(loadingId, "Lỗi kết nối tới máy chủ AI Investigation API.");
         }
     }
@@ -252,17 +302,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (div) {
             const content = div.querySelector(".msg-text");
             
-            let stepperHtml = "";
-            if (steps && steps.length > 0) {
-                stepperHtml = '<div class="reasoning-stepper">';
-                steps.forEach(s => {
-                    stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Step ${s.step}: ${s.title}</strong> — ${s.detail}</div>`;
-                });
-                stepperHtml += '</div>';
-            }
-
             let parsedHtml = window.marked ? marked.parse(markdownText) : markdownText.replace(/\n/g, "<br>");
-            content.innerHTML = stepperHtml + parsedHtml;
+            content.innerHTML = parsedHtml;
 
             const mermaidBlocks = content.querySelectorAll("pre code.language-mermaid");
             mermaidBlocks.forEach((codeBlock, idx) => {

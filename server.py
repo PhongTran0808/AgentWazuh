@@ -225,9 +225,9 @@ async def get_topology():
 @app.post("/api/wazuh/investigate")
 @app.post("/api/wazuh/investigate/scoped")
 async def investigate(req: InvestigateRequest):
+    alerts = wazuh_client.get_latest_alerts()
     alert_to_use = req.alert_data
     if not alert_to_use and req.alert_id:
-        alerts = wazuh_client.get_latest_alerts()
         alert_to_use = next((a for a in alerts if a.get("id") == req.alert_id), None)
     
     if not alert_to_use and not req.query:
@@ -239,7 +239,8 @@ async def investigate(req: InvestigateRequest):
         alert_to_use,
         system_context=system_status,
         is_global_chat=bool(req.is_global_chat),
-        scope_filter=req.scope_filter
+        scope_filter=req.scope_filter,
+        recent_alerts=alerts
     )
     return {"status": "success", "investigation": result}
 

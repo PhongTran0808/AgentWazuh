@@ -15,10 +15,17 @@ app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="1.0.0")
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 
+# Default client
 wazuh_client = WazuhClient(host="192.168.1.240")
 assistant = IncidentAssistant()
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+
+class ConnectRequest(BaseModel):
+    host: str
+    port: Optional[int] = 55000
+    user: Optional[str] = "admin"
+    password: Optional[str] = "admin"
 
 class InvestigateRequest(BaseModel):
     query: str
@@ -32,6 +39,19 @@ async def serve_index():
     if index_path.exists():
         return FileResponse(str(index_path))
     return HTMLResponse("<h2>AgentWazuh SOC Assistant Dashboard</h2>")
+
+@app.post("/api/wazuh/connect")
+async def connect_wazuh(req: ConnectRequest):
+    global wazuh_client
+    clean_host = req.host.strip().replace("https://", "").replace("http://", "").split("/")[0]
+    wazuh_client = WazuhClient(host=clean_host, port=req.port or 55000, user=req.user or "admin", password=req.password or "admin")
+    
+    status = wazuh_client.get_system_status()
+    return {
+        "status": "success",
+        "connected": status.get("status") == "online",
+        "wazuh_status": status
+    }
 
 @app.get("/api/wazuh/status")
 async def get_status():

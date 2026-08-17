@@ -17,16 +17,18 @@ class WazuhClient:
     - Last 24h Alerts: 0 Critical (Level 15+), 0 High (Level 12-14), 3 Medium (Level 7-11), 12 Low (Level 0-6).
     """
 
-    def __init__(self, host: str = "192.168.1.240", port: int = 55000):
+    def __init__(self, host: str = "192.168.1.240", port: int = 55000, user: str = "admin", password: str = "admin"):
         self.host = host
         self.port = port
+        self.user = user
+        self.password = password
         self.base_url = f"https://{self.host}:{self.port}"
         self.jwt_token = None
         self.base_dir = Path(__file__).resolve().parent
 
     def authenticate(self) -> bool:
-        """Attempt authentication with Wazuh API using multiple credential fallbacks."""
-        creds = [("admin", "admin"), ("wazuh-user", "wazuh"), ("wazuh", "wazuh")]
+        """Attempt authentication with Wazuh API using provided credentials and fallbacks."""
+        creds = [(self.user, self.password), ("admin", "admin"), ("wazuh-user", "wazuh"), ("wazuh", "wazuh")]
         for u, p in creds:
             try:
                 auth_url = f"{self.base_url}/security/user/authenticate"

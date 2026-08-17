@@ -1,8 +1,19 @@
-// AgentWazuh Frontend Application Controller (Version 8.0 Interactive Edition)
+// AgentWazuh Frontend Application Controller (Dynamic IP Setup & Login Screen)
 document.addEventListener("DOMContentLoaded", () => {
     if (window.mermaid) {
         mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
     }
+
+    const loginScreen = document.getElementById("login-screen");
+    const mainDashboard = document.getElementById("main-dashboard");
+    const loginForm = document.getElementById("login-form");
+    const inputIp = document.getElementById("input-ip");
+    const inputPort = document.getElementById("input-port");
+    const inputUser = document.getElementById("input-user");
+    const inputPass = document.getElementById("input-pass");
+    const loginFeedback = document.getElementById("login-feedback");
+    const btnMock = document.getElementById("btn-mock");
+    const btnChangeIp = document.getElementById("btn-change-ip");
 
     const alertsList = document.getElementById("alerts-list");
     const chatStream = document.getElementById("chat-stream");
@@ -25,7 +36,69 @@ document.addEventListener("DOMContentLoaded", () => {
     let selectedAlert = null;
     let isGlobalChat = true;
 
-    // Window Interactive Helpers (Feature Requested by User)
+    // Load Saved IP from localStorage
+    const savedHost = localStorage.getItem("wazuh_host") || "192.168.1.240";
+    inputIp.value = savedHost;
+
+    // Login Form Submit (Connect to Dynamic IP)
+    loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const host = inputIp.value.trim();
+        const port = parseInt(inputPort.value) || 55000;
+        const user = inputUser.value.trim() || "admin";
+        const password = inputPass.value.trim() || "admin";
+
+        showFeedback("Đang thử kết nối tới Wazuh Manager REST API...", "info");
+
+        try {
+            const res = await fetch("/api/wazuh/connect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ host, port, user, password })
+            });
+
+            const data = await res.json();
+            if (data.status === "success") {
+                localStorage.setItem("wazuh_host", host);
+                if (data.connected) {
+                    showFeedback(`🟢 Kết nối THÀNH CÔNG tới Wazuh VMWare (${host})!`, "success");
+                } else {
+                    showFeedback(`⚠️ Không thể đăng nhập API. Chuyển sang Chế Độ Mock Alert.`, "error");
+                }
+
+                setTimeout(() => {
+                    enterDashboard();
+                }, 800);
+            }
+        } catch (err) {
+            showFeedback("❌ Lỗi kết nối tới Backend Server.", "error");
+        }
+    });
+
+    // Skip to Mock Mode
+    btnMock.addEventListener("click", () => {
+        enterDashboard();
+    });
+
+    // Change IP Button in Header
+    btnChangeIp.addEventListener("click", () => {
+        loginScreen.classList.remove("hidden");
+    });
+
+    function showFeedback(msg, type) {
+        loginFeedback.textContent = msg;
+        loginFeedback.className = `login-feedback ${type}`;
+        loginFeedback.classList.remove("hidden");
+    }
+
+    function enterDashboard() {
+        loginScreen.classList.add("hidden");
+        mainDashboard.classList.remove("hidden");
+        checkStatus();
+        fetchAlerts();
+    }
+
+    // Window Interactive Helpers
     window.openLogModal = function(alertId) {
         let alertObj = currentAlerts.find(a => a.id === alertId);
         if (!alertObj) {
@@ -52,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 "threat_classification": "SUSPICIOUS",
                 "false_positive_score": 0.12,
                 "mitre_technique": "T1110.001",
-                "ai_summary": "SOC AI Agent detected 14 failed SSH login attempts from source IP 185.220.101.5.",
+                "ai_summary": "SOC AI Agent detected 14 failed SSH login attempts.",
                 "opensearch_index": "wazuh-alerts-4.x-ai-enriched",
                 "timestamp": new Date().toISOString()
             }
@@ -117,9 +190,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             const stats = data.alert_stats || {};
             if (data.status === "online") {
-                vmwareStatus.innerHTML = `<span class="status-indicator online"></span><span class="status-text">VMWare Wazuh: Online (192.168.1.9) | ${data.total_agents} Agents</span>`;
+                vmwareStatus.innerHTML = `<span class="status-indicator online"></span><span class="status-text">VMWare Wazuh: Online (${data.host}) | ${data.total_agents} Agents</span>`;
             } else {
-                vmwareStatus.innerHTML = `<span class="status-indicator warning"></span><span class="status-text">Wazuh: Mock Mode | 0 Agents | ${stats.medium || 3} Med | ${stats.low || 12} Low Alerts</span>`;
+                vmwareStatus.innerHTML = `<span class="status-indicator warning"></span><span class="status-text">Wazuh: Mock Mode (${data.host}) | 0 Agents | ${stats.medium || 3} Med | ${stats.low || 12} Low Alerts</span>`;
             }
         } catch (err) {
             vmwareStatus.innerHTML = '<span class="status-indicator warning"></span><span class="status-text">Wazuh: Offline Mode</span>';
@@ -181,7 +254,7 @@ document.addEventListener("DOMContentLoaded", () => {
         investigateAlert(alert.rule.description, alert);
     }
 
-    // 5. Investigate Call with Reasoning Steppers & Rich Format
+    // 5. Investigate Call with Steppers & Markdown
     async function investigateAlert(query, alertObj = null) {
         const loadingId = appendChatBot("Đang tra cứu Ground-Truth MITRE ATT&CK & tổng hợp báo cáo bằng chứng...");
 
@@ -207,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // 6. Rich Markdown, Stepper & Mermaid Rendering
+    // 6. Rich Markdown & Stepper Rendering
     function appendChatUser(msg) {
         const div = document.createElement("div");
         div.className = "chat-bubble user";
@@ -232,7 +305,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (div) {
             const content = div.querySelector(".msg-text");
             
-            // Build SecurityClaw Reasoning Steppers
             let stepperHtml = "";
             if (steps && steps.length > 0) {
                 stepperHtml = '<div class="reasoning-stepper">';
@@ -245,7 +317,6 @@ document.addEventListener("DOMContentLoaded", () => {
             let parsedHtml = window.marked ? marked.parse(markdownText) : markdownText.replace(/\n/g, "<br>");
             content.innerHTML = stepperHtml + parsedHtml;
 
-            // Render Mermaid Diagrams if any
             const mermaidBlocks = content.querySelectorAll("pre code.language-mermaid");
             mermaidBlocks.forEach((codeBlock, idx) => {
                 const graphDefinition = codeBlock.textContent;
@@ -295,7 +366,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    // 7. Event Listeners
+    // Event Listeners
     chatForm.addEventListener("submit", (e) => {
         e.preventDefault();
         const query = chatInput.value.trim();
@@ -306,8 +377,4 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     btnRefresh.addEventListener("click", fetchAlerts);
-
-    // Initial Load
-    checkStatus();
-    fetchAlerts();
 });

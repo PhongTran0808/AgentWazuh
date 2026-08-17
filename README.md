@@ -28,7 +28,7 @@ Hệ thống cho phép người dùng đặt câu hỏi bằng **ngôn ngữ t�
                                 ▼
  ┌─────────────────────────────────────────────────────────────┐
  │                 Wazuh REST API Client                       │
- │        (VMWare https://192.168.1.9/ + Fallback Engine)      │
+ │        (VMWare https://192.168.1.240/ + Fallback Engine)      │
  └──────────────┬──────────────────────────────┬───────────────┘
                 │                              │
                 ▼                              ▼

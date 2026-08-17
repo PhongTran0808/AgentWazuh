@@ -172,11 +172,11 @@ Danh sách bao gồm 12 cảnh báo nhật ký hệ thống định kỳ. Bạn 
 
 | Hostname | IP | Trạng Thái | Thao Tác Tương Tác |
 | :--- | :--- | :--- | :--- |
-| *Wazuh Manager* | `192.168.1.9` | 🟢 Active | <button class="interactive-chip" onclick="window.openLogModal('sys_manager')">🔍 Chi Tiết Node</button> |
+| *Wazuh Manager* | `192.168.1.240` | 🟢 Active | <button class="interactive-chip" onclick="window.openLogModal('sys_manager')">🔍 Chi Tiết Node</button> |
 
 #### 🛡️ Lệnh Triển Khai Wazuh Agent Nhanh (Click 1-Click Copy):
 ```bash
-sudo WAZUH_MANAGER='192.168.1.9' WAZUH_AGENT_NAME='ubuntu-agent-01' dpkg -i wazuh-agent_4.7.2-1_amd64.deb
+sudo WAZUH_MANAGER='192.168.1.240' WAZUH_AGENT_NAME='ubuntu-agent-01' dpkg -i wazuh-agent_4.7.2-1_amd64.deb
 ```"""
 
         # 3. Explicit Diagram Query

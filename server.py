@@ -15,7 +15,7 @@ app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="1.0.0")
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 
-wazuh_client = WazuhClient(host="192.168.1.9")
+wazuh_client = WazuhClient(host="192.168.1.240")
 assistant = IncidentAssistant()
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")

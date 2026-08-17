@@ -12,12 +12,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class WazuhClient:
     """
     Wazuh Manager REST API Client (Synced with Real Wazuh Dashboard):
-    Real Wazuh Instance State (VMWare https://192.168.1.9/):
+    Real Wazuh Instance State (VMWare https://192.168.1.240/):
     - 0 Agents registered.
     - Last 24h Alerts: 0 Critical (Level 15+), 0 High (Level 12-14), 3 Medium (Level 7-11), 12 Low (Level 0-6).
     """
 
-    def __init__(self, host: str = "192.168.1.9", port: int = 55000):
+    def __init__(self, host: str = "192.168.1.240", port: int = 55000):
         self.host = host
         self.port = port
         self.base_url = f"https://{self.host}:{self.port}"

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWazuh — Dynamic Log Drill-down Inspector</title>
+    <link rel="stylesheet" href="/static/design-tokens.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Marked.js & Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body class="dashboard-body">
+
+    <!-- Top Header Navigation -->
+    <header class="soc-header">
+        <div class="header-brand">
+            <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
+                <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard Tổng
+            </button>
+            <div style="margin-left: 0.5rem;">
+                <h1 class="header-title" id="drilldown-title"><i class="fa-solid fa-filter"></i> Log Drill-down Inspector</h1>
+                <p class="header-subtitle" id="drilldown-subtitle">Phân vùng theo dõi danh sách log chi tiết và hỏi đáp AI Scoped Context</p>
+            </div>
+        </div>
+        <div class="header-status" id="vmware-status">
+            <span class="status-indicator online"></span>
+            <span class="status-text" id="status-host">Wazuh Server: 172.16.10.254</span>
+        </div>
+    </header>
+
+    <!-- 2-Column Drill-down Layout -->
+    <main class="soc-layout" style="grid-template-columns: 1fr 420px;">
+        
+        <!-- Left Column: Detailed Filtered Logs Table -->
+        <section class="soc-pane">
+            <div class="pane-header">
+                <i class="fa-solid fa-list-check"></i>
+                <h2 id="table-header-title">Danh Sách Log Chi Tiết Trong Phân Vùng</h2>
+                <button id="btn-refresh-logs" class="btn-icon" title="Tải lại Log"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+
+            <div class="evidence-body" style="padding: 0.5rem; overflow-y: auto;">
+                <table class="drilldown-table" id="logs-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Rule ID</th>
+                            <th>Severity</th>
+                            <th>Mô Tả Cảnh Báo</th>
+                            <th>Source IP / Agent</th>
+                            <th>Thao Tác</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-tbody">
+                        <tr><td colspan="6" class="loading-state">Đang tải dữ liệu log chi tiết...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Right Column: Scoped AI Chat Inspector -->
+        <section class="soc-pane pane-chat">
+            <div class="pane-header">
+                <i class="fa-solid fa-robot"></i>
+                <h2>AI Scoped Chat (Chỉ Trong Phạm Vi Log)</h2>
+            </div>
+
+            <div id="chat-stream" class="chat-messages">
+                <div class="chat-bubble system">
+                    <i class="fa-solid fa-robot avatar"></i>
+                    <div class="bubble-content">
+                        <strong>AgentWazuh Scoped Inspector:</strong>
+                        <p>Chào Analyst! Tôi đang chạy ở chế độ **Scoped Context**. Mọi câu hỏi của bạn tại đây CHỈ được giới hạn và trả lời dựa trên tập log bạn vừa lọc.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scoped Preset Chips -->
+            <div class="preset-chips">
+                <button class="chip-btn" data-query="Tóm tắt các log này có pattern tấn công chung không?"><i class="fa-solid fa-wand-magic-sparkles"></i> Tóm tắt Pattern Log</button>
+                <button class="chip-btn" data-query="Có log nào trong nhóm này cần nâng mức độ severity không?"><i class="fa-solid fa-triangle-exclamation"></i> Kiểm tra Nâng Level</button>
+            </div>
+
+            <form id="chat-form" class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Hỏi AI về tập log này..." autocomplete="off">
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Gửi</button>
+            </form>
+        </section>
+
+    </main>
+
+    <!-- Modals -->
+    <div id="log-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code"></i> Full Alert JSON Inspector</h3>
+                <button class="btn-close" onclick="window.closeLogModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <pre><code id="modal-log-json">Loading...</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/drilldown.js"></script>
+</body>
+</html>

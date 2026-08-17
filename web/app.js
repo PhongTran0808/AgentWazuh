@@ -5,8 +5,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const btnBackLogin = document.getElementById("btn-back-login");
+    const btnOpenNetmap = document.getElementById("btn-open-netmap");
     const alertsList = document.getElementById("alerts-list");
     const chatStream = document.getElementById("chat-stream");
+
+    if (btnOpenNetmap) {
+        btnOpenNetmap.addEventListener("click", () => {
+            window.location.href = "/network-map";
+        });
+    }
+
+    // Dynamic Drilldown Link Handler for Prompt 1 & Prompt 2
+    window.openDrilldown = function(type, value) {
+        window.location.href = `/drilldown?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`;
+    };
     const chatForm = document.getElementById("chat-form");
     const chatInput = document.getElementById("chat-input");
     const evidenceDetail = document.getElementById("evidence-detail");

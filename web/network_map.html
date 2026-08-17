@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWazuh — Monitored Network Topology Map</title>
+    <link rel="stylesheet" href="/static/design-tokens.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body class="dashboard-body">
+
+    <!-- Header Navigation -->
+    <header class="soc-header">
+        <div class="header-brand">
+            <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
+                <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard Tổng
+            </button>
+            <div style="margin-left: 0.5rem;">
+                <h1 class="header-title"><i class="fa-solid fa-network-wired"></i> Sơ Đồ Mạng Đang Giám Sát (Network Topology)</h1>
+                <p class="header-subtitle">Trực quan hóa danh sách máy chủ, endpoint agent và các kết nối port đang hoạt động</p>
+            </div>
+        </div>
+        <div class="header-status">
+            <span class="status-indicator online"></span>
+            <span class="status-text">Wazuh Server: 172.16.10.254</span>
+        </div>
+    </header>
+
+    <main class="soc-layout" style="grid-template-columns: 1fr;">
+        <section class="soc-pane" style="padding: 1.5rem; overflow-y: auto;">
+            <div class="preset-chips" style="margin-bottom: 1rem; border: none;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">GHI CHÚ CHÚ GIẢI THIẾT BỊ:</span>
+                <span class="badge-level" style="background-color: #0284c7;">🖥️ Wazuh Manager Server</span>
+                <span class="badge-level" style="background-color: #10b981;">💻 Endpoint Agent (Active)</span>
+                <span class="badge-level" style="background-color: #f59e0b;">⚠️ Attacker / Unverified Subnet IP</span>
+            </div>
+
+            <!-- Interactive Mermaid Topology Container -->
+            <div class="mermaid" id="topology-diagram" style="min-height: 500px; display: flex; justify-content: center; align-items: center;">
+graph TD
+    subgraph ManagerZone ["🔴 Wazuh Management Node"]
+        Manager["🖥️ Wazuh Manager Server<br/>(172.16.10.254)<br/>OS: Amazon Linux / Port: 55000"]
+    end
+
+    subgraph InternalSubnet ["🌐 Internal Subnet (172.16.10.0/24)"]
+        Manager ---|Port 22 / SSH| SSHClient["💻 SSH Client<br/>(172.16.10.45)"]
+        Manager ---|Port 80/443 / Web| WebScanner["🌐 Web Scanner Host<br/>(172.16.10.99)"]
+    end
+
+    subgraph ThreatZone ["🚨 External Threat Zone"]
+        AttackerHost["🚨 Malicious Shell Attacker<br/>(172.16.10.88)<br/><i>Unverified Subnet IP</i>"] -.->|Exploit /shell.php| Manager
+    end
+
+    classDef managerStyle fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef agentStyle fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff;
+    classDef threatStyle fill:#dc2626,stroke:#ef4444,stroke-width:2px,color:#fff;
+
+    class Manager managerStyle;
+    class SSHClient,WebScanner agentStyle;
+    class AttackerHost threatStyle;
+            </div>
+        </section>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            if (window.mermaid) {
+                mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });
+            }
+            document.getElementById("btn-back-dash").addEventListener("click", () => {
+                window.location.href = "/dashboard";
+            });
+        });
+    </script>
+</body>
+</html>

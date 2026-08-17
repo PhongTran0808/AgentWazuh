@@ -3,16 +3,31 @@
 
 * { box-sizing: border-box; }
 
-/* Dynamic Login & IP Setup Screen */
-.login-overlay {
-  position: fixed;
-  top: 0; left: 0; width: 100vw; height: 100vh;
-  background: radial-gradient(circle at center, #111827 0%, #030712 100%);
-  display: flex; justify-content: center; align-items: center;
-  z-index: 2000;
-  transition: opacity 0.4s ease, visibility 0.4s ease;
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-main);
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  overflow: hidden;
 }
-.login-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* Dedicated Login Page (Trang 1) */
+.login-body {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+}
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+}
 
 .login-card {
   width: 480px; max-width: 90%;
@@ -53,6 +68,7 @@
   font-size: 0.8rem;
   text-align: center;
 }
+.login-feedback.info { background-color: rgba(59, 130, 246, 0.15); border: 1px solid var(--accent-blue); color: var(--accent-cyan); }
 .login-feedback.success { background-color: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #34d399; }
 .login-feedback.error { background-color: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #fca5a5; }
 
@@ -86,8 +102,12 @@
 
 .login-footer { margin-top: 1.2rem; text-align: center; font-size: 0.72rem; color: var(--text-dim); }
 
-/* Main Wrapper */
-.main-wrapper.hidden { display: none; }
+/* Dedicated Dashboard Page (Trang 2) */
+.dashboard-body {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
 
 .soc-header {
   height: 60px;

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWazuh — Đăng Nhập Kết Nối Wazuh SIEM</title>
+    <link rel="stylesheet" href="/static/design-tokens.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="login-body">
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fa-solid fa-shield-halved login-logo"></i>
+                <h1 class="login-title">AgentWazuh SOC Assistant</h1>
+                <p class="login-subtitle">Trợ lý AI Cục bộ Điều tra Sự cố SOC (Dynamic IP Setup)</p>
+            </div>
+
+            <form id="login-form" class="login-form">
+                <div class="input-group">
+                    <label for="input-ip"><i class="fa-solid fa-network-wired"></i> Wazuh Server IP Address / Host</label>
+                    <input type="text" id="input-ip" placeholder="Ví dụ: 192.168.1.240 hoặc 192.168.1.9" required autocomplete="off">
+                </div>
+
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="input-port"><i class="fa-solid fa-plug"></i> REST API Port</label>
+                        <input type="number" id="input-port" value="55000" required>
+                    </div>
+                    <div class="input-group">
+                        <label for="input-user"><i class="fa-solid fa-user-lock"></i> Username</label>
+                        <input type="text" id="input-user" value="admin" required>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label for="input-pass"><i class="fa-solid fa-key"></i> Password</label>
+                    <input type="password" id="input-pass" value="admin" required>
+                </div>
+
+                <div id="login-feedback" class="login-feedback hidden"></div>
+
+                <div class="button-row">
+                    <button type="submit" id="btn-connect" class="btn-login-primary">
+                        <i class="fa-solid fa-bolt"></i> Kết Nối Đến Wazuh VMWare
+                    </button>
+                    <button type="button" id="btn-mock" class="btn-login-secondary">
+                        <i class="fa-solid fa-flask"></i> Dùng Chế Độ Offline Mock
+                    </button>
+                </div>
+            </form>
+
+            <div class="login-footer">
+                <span><i class="fa-solid fa-lock"></i> SSL verify=False (Known Lab Environment Limitation)</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/login.js"></script>
+</body>
+</html>

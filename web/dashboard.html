@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWazuh — SOC AI Incident Assistant Dashboard</title>
+    <link rel="stylesheet" href="/static/design-tokens.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Marked.js & Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body class="dashboard-body">
+
+    <header class="soc-header">
+        <div class="header-brand">
+            <i class="fa-solid fa-shield-halved logo-icon"></i>
+            <div>
+                <h1 class="header-title">AgentWazuh SOC Assistant</h1>
+                <p class="header-subtitle">Local LLM-based Security Incident Investigation Assistant</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="btn-back-login" class="btn-chip-action" title="Quay lại trang nhập IP"><i class="fa-solid fa-gear"></i> Quản Lý Kết Nối IP</button>
+            <div class="header-status" id="vmware-status">
+                <span class="status-indicator warning"></span>
+                <span class="status-text">VMWare: Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="soc-layout">
+        <!-- Pane 1: Live Wazuh Alert Feed -->
+        <section class="soc-pane pane-alerts">
+            <div class="pane-header">
+                <i class="fa-solid fa-bell-concierge"></i>
+                <h2>Wazuh Live Alerts (24h)</h2>
+                <button id="btn-refresh" class="btn-icon" title="Tải lại Alert"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+            <div id="alerts-list" class="alerts-feed">
+                <div class="loading-state">Đang tải danh sách cảnh báo từ Wazuh...</div>
+            </div>
+        </section>
+
+        <!-- Pane 2: AI Incident Triage Chat & Master SOC Advisor -->
+        <section class="soc-pane pane-chat">
+            <div class="pane-header">
+                <i class="fa-solid fa-brain"></i>
+                <h2>SOC AI Master Advisor</h2>
+                
+                <!-- Chat Mode Selector -->
+                <div class="mode-toggle">
+                    <button id="mode-global" class="mode-btn active"><i class="fa-solid fa-globe"></i> Chat Tổng SOC Master</button>
+                    <button id="mode-single" class="mode-btn"><i class="fa-solid fa-magnifying-glass"></i> Single Alert Deep-Dive</button>
+                </div>
+            </div>
+            
+            <div id="chat-stream" class="chat-messages">
+                <div class="chat-bubble system">
+                    <i class="fa-solid fa-robot avatar"></i>
+                    <div class="bubble-content">
+                        <strong>AgentWazuh AI Master Advisor:</strong>
+                        <p>Chào Analyst! Tôi là Con Chat Tổng SOC Master. Bạn có thể nhấp chuột vào các thẻ tương tác, nút gợi ý hoặc chọn một alert bên trái để điều tra sâu.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Preset Chips -->
+            <div class="preset-chips">
+                <button class="chip-btn" data-query="Báo cáo 24h qua"><i class="fa-solid fa-chart-pie"></i> Báo cáo 24h qua</button>
+                <button class="chip-btn" data-query="Danh sách 12 Low alerts đó là gì, trích xuất 1 log điển hình"><i class="fa-solid fa-file-code"></i> Trích xuất 1 Log Low</button>
+                <button class="chip-btn" data-query="Danh sách thiết bị đang giám sát"><i class="fa-solid fa-server"></i> Kiểm tra Agents</button>
+                <button class="chip-btn" data-query="Thống kê cảnh báo Medium và High"><i class="fa-solid fa-triangle-exclamation"></i> Thống kê Severity</button>
+                <button class="chip-btn" data-query="Vẽ sơ đồ luồng xử lý sự cố an ninh"><i class="fa-solid fa-diagram-project"></i> Vẽ Sơ Đồ Mermaid</button>
+            </div>
+
+            <form id="chat-form" class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Hỏi Con Chat Tổng SOC Master: 'Báo cáo tổng quan', '12 Low đó là gì?'..." autocomplete="off">
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Gửi</button>
+            </form>
+        </section>
+
+        <!-- Pane 3: Evidence Detail & Ground-Truth Summary -->
+        <section class="soc-pane pane-evidence">
+            <div class="pane-header">
+                <i class="fa-solid fa-magnifying-glass-chart"></i>
+                <h2>Investigation Summary</h2>
+            </div>
+            <div id="evidence-detail" class="evidence-body">
+                <div class="empty-state">
+                    <i class="fa-solid fa-file-shield empty-icon"></i>
+                    <p>Bấm chọn một alert card hoặc gửi câu hỏi để xem chi tiết bằng chứng, luồng suy luận Steppers và sơ đồ ATT&CK.</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    <div id="log-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code"></i> Interactive Log JSON Detail Viewer</h3>
+                <button class="btn-close" onclick="window.closeLogModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <pre><code id="modal-log-json">Loading...</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <div id="export-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-cloud-arrow-up"></i> Export Payload for Wazuh OpenSearch Index</h3>
+                <button class="btn-close" onclick="window.closeExportModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p>Payload JSON chuẩn hóa sẵn sàng gửi vào OpenSearch Index của Wazuh Dashboard (Wazuh_claude_analyst standard):</p>
+                <pre><code id="modal-export-json">Loading...</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

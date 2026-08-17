@@ -33,12 +33,22 @@ class InvestigateRequest(BaseModel):
     alert_data: Optional[Dict[str, Any]] = None
     is_global_chat: Optional[bool] = False
 
+# Trang 1: Page Login & Dynamic IP Setup
 @app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    index_path = WEB_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(str(index_path))
-    return HTMLResponse("<h2>AgentWazuh SOC Assistant Dashboard</h2>")
+@app.get("/login", response_class=HTMLResponse)
+async def serve_login():
+    login_path = WEB_DIR / "login.html"
+    if login_path.exists():
+        return FileResponse(str(login_path))
+    return HTMLResponse("<h2>AgentWazuh Login Page</h2>")
+
+# Trang 2: Page Main Dashboard & Chat Screen
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_dashboard():
+    dash_path = WEB_DIR / "dashboard.html"
+    if dash_path.exists():
+        return FileResponse(str(dash_path))
+    return HTMLResponse("<h2>AgentWazuh Dashboard Page</h2>")
 
 @app.post("/api/wazuh/connect")
 async def connect_wazuh(req: ConnectRequest):

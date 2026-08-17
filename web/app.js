@@ -1,20 +1,10 @@
-// AgentWazuh Frontend Application Controller (Dynamic IP Setup & Login Screen)
+// AgentWazuh Frontend Application Controller for Dashboard Page (Trang 2)
 document.addEventListener("DOMContentLoaded", () => {
     if (window.mermaid) {
         mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
     }
 
-    const loginScreen = document.getElementById("login-screen");
-    const mainDashboard = document.getElementById("main-dashboard");
-    const loginForm = document.getElementById("login-form");
-    const inputIp = document.getElementById("input-ip");
-    const inputPort = document.getElementById("input-port");
-    const inputUser = document.getElementById("input-user");
-    const inputPass = document.getElementById("input-pass");
-    const loginFeedback = document.getElementById("login-feedback");
-    const btnMock = document.getElementById("btn-mock");
-    const btnChangeIp = document.getElementById("btn-change-ip");
-
+    const btnBackLogin = document.getElementById("btn-back-login");
     const alertsList = document.getElementById("alerts-list");
     const chatStream = document.getElementById("chat-stream");
     const chatForm = document.getElementById("chat-form");
@@ -36,66 +26,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let selectedAlert = null;
     let isGlobalChat = true;
 
-    // Load Saved IP from localStorage
-    const savedHost = localStorage.getItem("wazuh_host") || "192.168.1.240";
-    inputIp.value = savedHost;
-
-    // Login Form Submit (Connect to Dynamic IP)
-    loginForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const host = inputIp.value.trim();
-        const port = parseInt(inputPort.value) || 55000;
-        const user = inputUser.value.trim() || "admin";
-        const password = inputPass.value.trim() || "admin";
-
-        showFeedback("Đang thử kết nối tới Wazuh Manager REST API...", "info");
-
-        try {
-            const res = await fetch("/api/wazuh/connect", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ host, port, user, password })
-            });
-
-            const data = await res.json();
-            if (data.status === "success") {
-                localStorage.setItem("wazuh_host", host);
-                if (data.connected) {
-                    showFeedback(`🟢 Kết nối THÀNH CÔNG tới Wazuh VMWare (${host})!`, "success");
-                } else {
-                    showFeedback(`⚠️ Không thể đăng nhập API. Chuyển sang Chế Độ Mock Alert.`, "error");
-                }
-
-                setTimeout(() => {
-                    enterDashboard();
-                }, 800);
-            }
-        } catch (err) {
-            showFeedback("❌ Lỗi kết nối tới Backend Server.", "error");
-        }
-    });
-
-    // Skip to Mock Mode
-    btnMock.addEventListener("click", () => {
-        enterDashboard();
-    });
-
-    // Change IP Button in Header
-    btnChangeIp.addEventListener("click", () => {
-        loginScreen.classList.remove("hidden");
-    });
-
-    function showFeedback(msg, type) {
-        loginFeedback.textContent = msg;
-        loginFeedback.className = `login-feedback ${type}`;
-        loginFeedback.classList.remove("hidden");
-    }
-
-    function enterDashboard() {
-        loginScreen.classList.add("hidden");
-        mainDashboard.classList.remove("hidden");
-        checkStatus();
-        fetchAlerts();
+    // Back to Login Page (Trang 1)
+    if (btnBackLogin) {
+        btnBackLogin.addEventListener("click", () => {
+            window.location.href = "/login";
+        });
     }
 
     // Window Interactive Helpers
@@ -377,4 +312,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     btnRefresh.addEventListener("click", fetchAlerts);
+
+    // Initial Load
+    checkStatus();
+    fetchAlerts();
 });

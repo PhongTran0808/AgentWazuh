@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentWazuh — Device Inventory & Topology Verification (Tầng 0)</title>
+    <link rel="stylesheet" href="/static/design-tokens.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="dashboard-body">
+
+    <!-- Top Header Navigation -->
+    <header class="soc-header">
+        <div class="header-brand">
+            <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
+                <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard
+            </button>
+            <button id="btn-open-netmap" class="btn-chip-action" title="Xem sơ đồ mạng">
+                <i class="fa-solid fa-network-wired"></i> Xem Sơ Đồ Mạng
+            </button>
+            <div style="margin-left: 0.5rem;">
+                <h1 class="header-title"><i class="fa-solid fa-clipboard-check"></i> Kiểm Kê Thiết Bị Thủ Công (Device Inventory - Tầng 0)</h1>
+                <p class="header-subtitle">Nguồn sự thật cao nhất (Ground Truth): Quản lý danh sách IP thiết bị mạng thật & xác nhận IP chưa biết</p>
+            </div>
+        </div>
+        <div class="header-status">
+            <span class="status-indicator online"></span>
+            <span class="status-text">Wazuh Server: 172.16.10.254</span>
+        </div>
+    </header>
+
+    <main class="soc-layout" style="grid-template-columns: 1fr 450px;">
+        
+        <!-- Left Pane: Known Devices Inventory List -->
+        <section class="soc-pane">
+            <div class="pane-header">
+                <i class="fa-solid fa-server"></i>
+                <h2>Danh Sách Thiết Bị Đã Xác Nhận (Ground Truth)</h2>
+                <button id="btn-refresh-inv" class="btn-icon" title="Tải lại"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+
+            <div class="evidence-body" style="padding: 0.8rem; overflow-y: auto;">
+                <table class="drilldown-table" id="inventory-table">
+                    <thead>
+                        <tr>
+                            <th>Địa Chỉ IP</th>
+                            <th>Tên Thiết Bị</th>
+                            <th>Loại (Type)</th>
+                            <th>Vai Trò (Role)</th>
+                            <th>Xác Minh Bởi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-tbody">
+                        <tr><td colspan="5" class="loading-state">Đang tải danh sách kiểm kê...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Right Pane: Unverified Candidates & Confirmation Form -->
+        <section class="soc-pane pane-evidence">
+            <div class="pane-header">
+                <i class="fa-solid fa-circle-question"></i>
+                <h2>Xác Nhận Thiết Bị Chưa Biết (Tầng 2)</h2>
+            </div>
+            
+            <div class="evidence-body" style="padding: 1.2rem; overflow-y: auto;">
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Các IP bên dưới xuất hiện trong log Wazuh nhưng chưa có trong danh sách kiểm kê. Chọn một IP để xác nhận vai trò:
+                </p>
+
+                <div id="unverified-chips-container" class="preset-chips" style="margin-bottom: 1.5rem; border: none;">
+                    <span class="loading-state">Đang tìm IP chưa xác minh...</span>
+                </div>
+
+                <form id="confirm-device-form" class="modal-body" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <h3 style="font-size: 0.95rem; margin-bottom: 1rem; color: var(--accent-cyan);"><i class="fa-solid fa-pen-to-square"></i> Xác Nhận Thiết Bị</h3>
+                    
+                    <div style="margin-bottom: 0.8rem;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Địa chỉ IP:</label>
+                        <input type="text" id="form-ip" placeholder="VD: 172.16.10.99" required style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
+                    </div>
+
+                    <div style="margin-bottom: 0.8rem;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Tên Thiết Bị (Name):</label>
+                        <input type="text" id="form-name" placeholder="VD: Firewall 1 (LAN side)" required style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
+                    </div>
+
+                    <div style="margin-bottom: 0.8rem;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Loại Thiết Bị (Type):</label>
+                        <select id="form-type" style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
+                            <option value="firewall">🔥 Firewall (Tường Lửa)</option>
+                            <option value="router">📡 Router / Gateway</option>
+                            <option value="switch">🔌 Switch (Bộ Chuyển Mạch)</option>
+                            <option value="server">🖥️ Server (Máy Chủ)</option>
+                            <option value="endpoint">💻 Endpoint PC (Máy Trạm)</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 1.2rem;">
+                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Vai Trò Kỹ Thuật (Role):</label>
+                        <input type="text" id="form-role" placeholder="VD: fortinet, gateway, user_workstation" style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
+                    </div>
+
+                    <button type="submit" class="btn-primary" style="width: 100%;"><i class="fa-solid fa-check"></i> Xác Nhận & Đẩy Vào Known Devices</button>
+                </form>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="/static/device_inventory.js"></script>
+</body>
+</html>

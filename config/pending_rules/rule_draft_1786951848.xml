@@ -1,0 +1,12 @@
+<group name="sshd,authentication_failures,">
+  <rule id="100026" level="10">
+    <if_matched_sid>5716</if_matched_sid>
+    <same_source_ip />
+    <frequency>5</frequency>
+    <timeframe>120</timeframe>
+    <description>AI Generated Rule: SSH Brute Force (5 failures in 120s)</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+  </rule>
+</group>

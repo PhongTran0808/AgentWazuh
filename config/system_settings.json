@@ -1,0 +1,12 @@
+{
+  "session_timeout_minutes": 30,
+  "icmp_ping_interval_seconds": 15,
+  "ping_retry_threshold": 3,
+  "wazuh_host": "172.16.10.254",
+  "wazuh_port": 55000,
+  "wazuh_user": "admin",
+  "uptime_kuma_push_token": "agentwazuh-push-secret-999",
+  "ui_theme": "cyber_dark",
+  "ai_temperature": 0.2,
+  "ai_max_tokens": 450
+}

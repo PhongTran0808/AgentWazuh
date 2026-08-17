@@ -1,58 +1,52 @@
-// AgentWazuh Dedicated Login Page Controller (Trang 1)
+// AgentWazuh Single Account Auth Controller (Version 10.3 Enterprise)
 document.addEventListener("DOMContentLoaded", () => {
-    const loginForm = document.getElementById("login-form");
-    const inputIp = document.getElementById("input-ip");
-    const inputPort = document.getElementById("input-port");
-    const inputUser = document.getElementById("input-user");
-    const inputPass = document.getElementById("input-pass");
-    const loginFeedback = document.getElementById("login-feedback");
-    const btnMock = document.getElementById("btn-mock");
+    const loginForm = document.getElementById("login-form-v2") || document.getElementById("auth-login-form");
+    const wazuhHostInput = document.getElementById("wazuh_host");
+    const wazuhPortInput = document.getElementById("wazuh_port");
+    const usernameInput = document.getElementById("username");
+    const passwordInput = document.getElementById("password");
+    const loginError = document.getElementById("login-error-msg") || document.getElementById("login-error");
+    const errorText = document.getElementById("error-text");
+    const btnSubmit = document.getElementById("btn-submit-login") || document.getElementById("btn-login");
 
-    // Load saved IP from localStorage
-    const savedHost = localStorage.getItem("wazuh_host") || "192.168.1.240";
-    inputIp.value = savedHost;
+    if (!loginForm) return;
 
     loginForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        const host = inputIp.value.trim();
-        const port = parseInt(inputPort.value) || 55000;
-        const user = inputUser.value.trim() || "admin";
-        const password = inputPass.value.trim() || "admin";
+        if (loginError) loginError.classList.add("hidden");
+        if (btnSubmit) {
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Đang kết nối Wazuh & xác thực...</span>';
+        }
 
-        showFeedback("Đang thử kết nối tới Wazuh Manager REST API...", "info");
+        const wazuh_host = wazuhHostInput ? wazuhHostInput.value.trim() : "172.16.10.254";
+        const wazuh_port = wazuhPortInput ? parseInt(wazuhPortInput.value.trim()) || 55000 : 55000;
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value.trim();
 
         try {
-            const res = await fetch("/api/wazuh/connect", {
+            const res = await fetch("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ host, port, user, password })
+                body: JSON.stringify({ username, password, wazuh_host, wazuh_port }),
+                credentials: "same-origin"
             });
 
             const data = await res.json();
-            if (data.status === "success") {
-                localStorage.setItem("wazuh_host", host);
-                if (data.connected) {
-                    showFeedback(`🟢 Kết nối THÀNH CÔNG (${host})! Đang chuyển sang màn hình Chat...`, "success");
-                } else {
-                    showFeedback(`⚠️ Không thể xác thực API. Chuyển sang màn hình Chat ở Chế Độ Mock.`, "error");
-                }
-
-                setTimeout(() => {
-                    window.location.href = "/dashboard";
-                }, 800);
+            if (res.ok && data.authenticated) {
+                window.location.href = data.redirect || "/dashboard";
+            } else {
+                if (errorText) errorText.textContent = data.detail || "Tên đăng nhập hoặc mật khẩu không chính xác.";
+                if (loginError) loginError.classList.remove("hidden");
             }
         } catch (err) {
-            showFeedback("❌ Lỗi kết nối tới Backend Server.", "error");
+            if (errorText) errorText.textContent = "Không thể kết nối đến máy chủ xác thực API.";
+            if (loginError) loginError.classList.remove("hidden");
+        } finally {
+            if (btnSubmit) {
+                btnSubmit.disabled = false;
+                btnSubmit.innerHTML = '<span><i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập Hệ Thống SOC</span><i class="fa-solid fa-arrow-right arrow-icon"></i>';
+            }
         }
     });
-
-    btnMock.addEventListener("click", () => {
-        window.location.href = "/dashboard";
-    });
-
-    function showFeedback(msg, type) {
-        loginFeedback.textContent = msg;
-        loginFeedback.className = `login-feedback ${type}`;
-        loginFeedback.classList.remove("hidden");
-    }
 });

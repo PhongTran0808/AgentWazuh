@@ -3,71 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — Đăng Nhập Kết Nối Wazuh SIEM</title>
+    <title>AgentWazuh — SOC Master Portal Login</title>
     <link rel="stylesheet" href="/static/design-tokens.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 </head>
-<body class="login-body">
+<body class="login-body-v2">
 
-    <!-- Glowing Background Ambient Grid -->
-    <div class="cyber-bg">
-        <div class="cyber-grid"></div>
-        <div class="glow-orb orb-1"></div>
-        <div class="glow-orb orb-2"></div>
+    <!-- Cyberpunk Animated Grid & Ambient Lights Background -->
+    <div class="cyber-bg-overlay">
+        <div class="ambient-glow glow-cyan"></div>
+        <div class="ambient-glow glow-emerald"></div>
+        <div class="grid-lines"></div>
     </div>
 
-    <div class="login-container">
-        <div class="login-card">
-            <div class="login-header">
-                <div class="logo-wrapper">
-                    <i class="fa-solid fa-shield-halved login-logo"></i>
-                    <div class="logo-pulse"></div>
-                </div>
-                <h1 class="login-title">AgentWazuh SOC Assistant</h1>
-                <p class="login-subtitle">Trợ lý AI Cục bộ Điều tra Sự cố SOC (Dynamic IP Setup)</p>
+    <!-- Center Login Glassmorphism Card -->
+    <main class="login-card-container">
+        
+        <!-- Header Shield Branding -->
+        <div class="login-brand-header">
+            <div class="logo-shield-wrapper">
+                <i class="fa-solid fa-shield-halved logo-shield-icon"></i>
+                <div class="pulse-ring"></div>
             </div>
-
-            <form id="login-form" class="login-form">
-                <div class="input-group">
-                    <label for="input-ip"><i class="fa-solid fa-network-wired"></i> Wazuh Server IP / Host</label>
-                    <input type="text" id="input-ip" placeholder="Ví dụ: 192.168.1.240 hoặc 192.168.1.9" required autocomplete="off">
-                </div>
-
-                <div class="input-row">
-                    <div class="input-group">
-                        <label for="input-port"><i class="fa-solid fa-plug"></i> API Port</label>
-                        <input type="number" id="input-port" value="55000" required>
-                    </div>
-                    <div class="input-group">
-                        <label for="input-user"><i class="fa-solid fa-user-lock"></i> Username</label>
-                        <input type="text" id="input-user" value="admin" required>
-                    </div>
-                </div>
-
-                <div class="input-group">
-                    <label for="input-pass"><i class="fa-solid fa-key"></i> Password</label>
-                    <input type="password" id="input-pass" value="admin" required>
-                </div>
-
-                <div id="login-feedback" class="login-feedback hidden"></div>
-
-                <div class="button-row">
-                    <button type="submit" id="btn-connect" class="btn-login-primary">
-                        <i class="fa-solid fa-bolt-lightning"></i> Kết Nối Đến Wazuh VMWare
-                    </button>
-                    <button type="button" id="btn-mock" class="btn-login-secondary">
-                        <i class="fa-solid fa-flask"></i> Dùng Chế Độ Offline Mock
-                    </button>
-                </div>
-            </form>
-
-            <div class="login-footer">
-                <span><i class="fa-solid fa-shield-cat"></i> SSL verify=False (Known Lab Environment Limitation)</span>
-            </div>
+            <h1 class="login-title">AgentWazuh <span class="accent-text">SOC Portal</span></h1>
+            <p class="login-subtitle">Hệ Thống Trợ Lý AI Giám Sát & Điều Tra Sự Cố An Ninh Mạng</p>
         </div>
-    </div>
+
+        <!-- Live Status Badges -->
+        <div class="login-status-pills">
+            <span class="status-pill pill-online"><i class="fa-solid fa-network-wired"></i> Single Account Admin Auth</span>
+            <span class="status-pill pill-secure"><i class="fa-solid fa-lock"></i> PBKDF2 HMAC SHA-256</span>
+        </div>
+
+        <!-- Login Form with Wazuh IP Field -->
+        <form id="login-form-v2" class="login-form-body">
+            <div id="login-error-msg" class="login-error-alert hidden">
+                <i class="fa-solid fa-circle-exclamation"></i> <span id="error-text">Tên đăng nhập hoặc mật khẩu không chính xác.</span>
+            </div>
+
+            <!-- Wazuh Manager IP & Port Inputs -->
+            <div class="input-group-v2">
+                <label for="wazuh_host"><i class="fa-solid fa-server"></i> Địa Chỉ IP Máy Chủ Wazuh Manager</label>
+                <div style="display: flex; gap: 0.5rem;">
+                    <div class="input-field-wrapper" style="flex: 1;">
+                        <i class="fa-solid fa-globe field-icon"></i>
+                        <input type="text" id="wazuh_host" name="wazuh_host" placeholder="172.16.10.254" value="172.16.10.254" required>
+                    </div>
+                    <div class="input-field-wrapper" style="width: 110px;">
+                        <i class="fa-solid fa-plug field-icon"></i>
+                        <input type="number" id="wazuh_port" name="wazuh_port" placeholder="55000" value="55000" required>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Username Input -->
+            <div class="input-group-v2">
+                <label for="username"><i class="fa-solid fa-user-shield"></i> Tên Đăng Nhập Admin</label>
+                <div class="input-field-wrapper">
+                    <i class="fa-solid fa-user field-icon"></i>
+                    <input type="text" id="username" name="username" placeholder="Nhập admin..." value="admin" required autocomplete="username">
+                </div>
+            </div>
+
+            <!-- Admin Password Input -->
+            <div class="input-group-v2">
+                <label for="password"><i class="fa-solid fa-key"></i> Mật Khẩu Khóa Bảo Mật</label>
+                <div class="input-field-wrapper">
+                    <i class="fa-solid fa-lock field-icon"></i>
+                    <input type="password" id="password" name="password" placeholder="••••••••" value="admin123" required autocomplete="current-password">
+                </div>
+            </div>
+
+            <button type="submit" id="btn-submit-login" class="btn-cyber-submit">
+                <span><i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập Hệ Thống SOC</span>
+                <i class="fa-solid fa-arrow-right arrow-icon"></i>
+            </button>
+        </form>
+
+        <!-- Footer Meta -->
+        <footer class="login-card-footer">
+            <span><i class="fa-solid fa-clock-rotate-left"></i> Inactivity Session Expiry: <strong>30 Phút</strong></span>
+            <span><i class="fa-solid fa-shield-check"></i> Kết nối trực tiếp Wazuh REST API Server</span>
+        </footer>
+
+    </main>
 
     <script src="/static/login.js"></script>
 </body>

@@ -1,0 +1,9 @@
+{
+  "mode": "ollama",
+  "ollama_url": "http://localhost:11434/api/generate",
+  "ollama_model": "qwen2.5:3b",
+  "cloud_api_enabled": false,
+  "cloud_api_url": "https://api.openai.com/v1/chat/completions",
+  "cloud_api_key": "",
+  "cloud_model": "gpt-4o-mini"
+}

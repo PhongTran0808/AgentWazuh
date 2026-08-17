@@ -74,29 +74,38 @@ Hệ thống cho phép người dùng đặt câu hỏi bằng **ngôn ngữ t�
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt & Chạy Dự Án
+## 🤖 Thông Tin Model AI & Cấu Hình Ollama
 
-### 1. Yêu cầu hệ thống
-- Python 3.10+
-- Ollama (`ollama pull qwen2.5:3b`)
-- Wazuh SIEM 4.x (VMWare hoặc Server Standalone)
+Dự án sử dụng **Local LLM** được tối ưu dung lượng RAM tối đa **~2.5GB**:
+- **Tên Model**: **`Qwen2.5-3B-Instruct`** (Quantized `Q4_K_M`)
+- **Nền tảng chạy**: **Ollama API** (`http://localhost:11434`)
+- **Yêu cầu phần cứng**: RAM trống từ **2.5GB - 3.5GB** (Tương thích máy cấu hình thấp).
 
-### 2. Tải về và Cài đặt
+### Lệnh Cài Đặt Model Cho Đồng Đội:
 ```bash
-# Clone dự án từ GitHub
-git clone https://github.com/PhongTran0808/AgentWazuh.git
-cd AgentWazuh
+# 1. Cài đặt Ollama (Linux/macOS/Windows)
+curl -fsSL https://ollama.com/install.sh | sh
 
-# Cài đặt các thư viện phụ thuộc
-pip install -r requirements.txt
+# 2. Tải Model Qwen2.5-3B về máy
+ollama pull qwen2.5:3b
+
+# 3. Khởi chạy Ollama Service
+ollama serve
 ```
 
-### 3. Khởi chạy Server
-```bash
-python server.py
-```
+---
 
-Mở trình duyệt truy cập: **`http://127.0.0.1:8080`**
+## 🛠️ Hướng Dẫn Khắc Phục Lỗi Máy Ảo VMWare Chưa Có IP (`eth0`)
+
+Nếu kiểm tra trong VMWare gõ `ip a` thấy card `eth0` chưa được cấp IP v4:
+1. **Cấp IP động nhanh**:
+   ```bash
+   sudo dhclient eth0
+   ```
+2. **Cấu hình Card Mạng VMWare**:
+   - Vào menu VMWare: `VM` ➔ `Settings` ➔ `Network Adapter`.
+   - Chọn chế độ **Bridged (Replicate physical network connection state)** hoặc **NAT**.
+   - Khởi động lại dịch vụ mạng: `sudo systemctl restart NetworkManager`.
 
 ---
 

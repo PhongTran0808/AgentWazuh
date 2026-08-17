@@ -68,9 +68,9 @@ class IncidentAssistant:
             agents = system_context.get("agents", [])
             stats = system_context.get("alert_stats", {})
             context_lines.append(f"- Registered Agents Count: {len(agents)} (Note: 0 agents registered in active Wazuh dashboard)")
-            context_lines.append(f"- Last 24h Alerts: Total {stats.get('total_24h', 15)}, Critical {stats.get('critical', 0)}, High {stats.get('high', 0)}, Medium {stats.get('medium', 3)}, Low {stats.get('low', 12)}")
+            context_lines.append(f"- Last 24h Alerts: Total {stats.get('total_24h', 164)}, Critical {stats.get('critical', 0)}, High {stats.get('high', 1)}, Medium {stats.get('medium', 26)}, Low {stats.get('low', 137)}")
 
-        context_str = "\n".join(context_lines) if context_lines else "Trạng thái: 0 agents kết nối, 15 alerts 24h qua (0 Critical, 0 High, 3 Medium, 12 Low)."
+        context_str = "\n".join(context_lines) if context_lines else "Trạng thái: 0 agents kết nối, 164 alerts 24h qua (0 Critical, 1 High, 26 Medium, 137 Low)."
 
         system_prompt = (
             "Bạn là CON CHAT TỔNG SOC MASTER (SOC Incident & Architecture Advisor).\n"
@@ -193,28 +193,29 @@ flowchart TD
 ```"""
 
         # 4. Severity Statistics
-        if "critical" in q_lower or "mức độ" in q_lower or "severity" in q_lower:
-            return """### 📊 Thống Kê Cảnh Báo An Ninh 24 Giờ Qua (Nhấp vào thẻ để lọc):
+        if "critical" in q_lower or "mức độ" in q_lower or "severity" in q_lower or "high" in q_lower:
+            return """### 📊 Thống Kê Cảnh Báo An Ninh 24 Giờ Qua (IP: 172.16.10.254):
 
 <div class="interactive-chip-group">
   <button class="interactive-chip chip-critical" onclick="window.filterAlertsByLevel('critical')">🚨 Critical: 0 Alerts</button>
-  <button class="interactive-chip chip-high" onclick="window.filterAlertsByLevel('high')">🟠 High: 0 Alerts</button>
-  <button class="interactive-chip chip-medium" onclick="window.filterAlertsByLevel('medium')">🟡 Medium: 3 Alerts (Click xem)</button>
-  <button class="interactive-chip chip-low" onclick="window.filterAlertsByLevel('low')">🔵 Low: 12 Alerts (Click xem)</button>
+  <button class="interactive-chip chip-high" onclick="window.filterAlertsByLevel('high')">🟠 High: 1 Alert (Rule 100011 Web Shell)</button>
+  <button class="interactive-chip chip-medium" onclick="window.filterAlertsByLevel('medium')">🟡 Medium: 26 Alerts (SSH/Web Scans)</button>
+  <button class="interactive-chip chip-low" onclick="window.filterAlertsByLevel('low')">🔵 Low: 137 Alerts (System Logs)</button>
 </div>"""
 
         # 5. Global Overview Query
         if "báo cáo 24h" in q_lower or "tổng quan" in q_lower or "bảng tổng hợp" in q_lower:
             return """### 🌐 Báo Cáo Tổng Quan Hệ Thống SOC Wazuh (Master Advisor):
 
-- **Tổng số Cảnh Báo**: `15 alerts` (0 Critical, 0 High, 3 Medium, 12 Low)
+- **Địa chỉ IP Wazuh Server**: `172.16.10.254`
+- **Tổng số Cảnh Báo 24h**: `164 alerts` (0 Critical, 1 High, 26 Medium, 137 Low)
 - **Tổng số Agent Giám Sát**: `0 agents` (Cần kết nối thêm máy trạm)
 
 | Alert ID | Rule ID | Level | Mô Tả Cảnh Báo | Chi Tiết Log Tương Tác |
 | :--- | :--- | :--- | :--- | :--- |
-| `alert_med_01` | `5716` | **10** | Multiple SSH auth failures (185.220.101.5) | <button class="interactive-chip" onclick="window.openLogModal('alert_med_01')">🔍 Xem JSON</button> |
-| `alert_med_02` | `31101` | **8** | Web server 404 access scan (`/admin/config.php`) | <button class="interactive-chip" onclick="window.openLogModal('alert_med_02')">🔍 Xem JSON</button> |
-| `alert_med_03` | `550` | **7** | Integrity checksum modified `/etc/hosts` | <button class="interactive-chip" onclick="window.openLogModal('alert_med_03')">🔍 Xem JSON</button> |"""
+| `alert_high_01` | `100011` | **13** | Critical Web Shell Execution Attempt (`/shell.php`) | <button class="interactive-chip" onclick="window.openLogModal('alert_high_01')">🔍 Xem JSON High</button> |
+| `alert_med_01` | `5716` | **10** | Multiple SSH auth failures (172.16.10.45) | <button class="interactive-chip" onclick="window.openLogModal('alert_med_01')">🔍 Xem JSON</button> |
+| `alert_med_02` | `31101` | **8** | Web server 404 access scan (`/admin/config.php`) | <button class="interactive-chip" onclick="window.openLogModal('alert_med_02')">🔍 Xem JSON</button> |"""
 
         if not alert_data:
             return "Không đủ dữ liệu để kết luận."

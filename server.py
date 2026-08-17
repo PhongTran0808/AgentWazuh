@@ -16,7 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 
 # Default client
-wazuh_client = WazuhClient(host="192.168.1.240")
+wazuh_client = WazuhClient(host="172.16.10.254")
 assistant = IncidentAssistant()
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")

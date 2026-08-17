@@ -3,76 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — Monitored Network Topology Map</title>
+    <title>AgentWazuh — Interactive Monitored Network Topology Map</title>
     <link rel="stylesheet" href="/static/design-tokens.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <!-- vis-network standalone library -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body class="dashboard-body">
 
-    <!-- Header Navigation -->
+    <!-- Top Header Navigation -->
     <header class="soc-header">
         <div class="header-brand">
             <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
                 <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard Tổng
             </button>
             <div style="margin-left: 0.5rem;">
-                <h1 class="header-title"><i class="fa-solid fa-network-wired"></i> Sơ Đồ Mạng Đang Giám Sát (Network Topology)</h1>
-                <p class="header-subtitle">Trực quan hóa danh sách máy chủ, endpoint agent và các kết nối port đang hoạt động</p>
+                <h1 class="header-title"><i class="fa-solid fa-network-wired"></i> Sơ Đồ Mạng Đang Giám Sát (Vis.js Interactive Topology)</h1>
+                <p class="header-subtitle">Bản đồ mạng thực tế: Tự do kéo thả nút, xem nhãn Port liên kết, lưu tọa độ & kiểm tra thông tin thiết bị</p>
             </div>
         </div>
-        <div class="header-status">
-            <span class="status-indicator online"></span>
-            <span class="status-text">Wazuh Server: 172.16.10.254</span>
+        <div class="header-actions">
+            <button id="btn-zoom-fit" class="btn-chip-action"><i class="fa-solid fa-expand"></i> Fit View</button>
+            <button id="btn-reset-layout" class="btn-chip-action"><i class="fa-solid fa-arrows-rotate"></i> Physics Auto-Layout</button>
+            <div class="header-status">
+                <span class="status-indicator online"></span>
+                <span class="status-text" id="status-host">Wazuh Server: 172.16.10.254</span>
+            </div>
         </div>
     </header>
 
-    <main class="soc-layout" style="grid-template-columns: 1fr;">
-        <section class="soc-pane" style="padding: 1.5rem; overflow-y: auto;">
-            <div class="preset-chips" style="margin-bottom: 1rem; border: none;">
-                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted);">GHI CHÚ CHÚ GIẢI THIẾT BỊ:</span>
-                <span class="badge-level" style="background-color: #0284c7;">🖥️ Wazuh Manager Server</span>
-                <span class="badge-level" style="background-color: #10b981;">💻 Endpoint Agent (Active)</span>
-                <span class="badge-level" style="background-color: #f59e0b;">⚠️ Attacker / Unverified Subnet IP</span>
+    <!-- Main Canvas & Detail Panel Layout -->
+    <main class="soc-layout" style="grid-template-columns: 1fr 340px; position: relative;">
+        
+        <!-- Interactive Vis.js Topology Canvas -->
+        <section class="soc-pane" style="position: relative; background-color: #0b0f19;">
+            <div class="preset-chips" style="border-bottom: 1px solid var(--border-color); padding: 0.6rem 1rem;">
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted);">CHÚ GIẢI THIẾT BỊ (CLICK NÚT XEM CHI TIẾT / KÉO THẢ TỰ DO):</span>
+                <span class="interactive-chip chip-low" style="background-color: rgba(2, 132, 199, 0.2); border-color: #38bdf8; color: #7dd3fc;"><i class="fa-solid fa-server"></i> Server (Wazuh Node)</span>
+                <span class="interactive-chip chip-low" style="background-color: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #6ee7b7;"><i class="fa-solid fa-desktop"></i> Endpoint PC</span>
+                <span class="interactive-chip chip-medium" style="background-color: rgba(245, 158, 11, 0.2); border-color: #f59e0b; color: #fde047;"><i class="fa-solid fa-shield-halved"></i> Firewall / Gateway Router</span>
+                <span class="interactive-chip chip-critical" style="background-color: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #fca5a5;"><i class="fa-solid fa-triangle-exclamation"></i> Suspicious / Attacker IP (Viền Đỏ)</span>
             </div>
 
-            <!-- Interactive Mermaid Topology Container -->
-            <div class="mermaid" id="topology-diagram" style="min-height: 500px; display: flex; justify-content: center; align-items: center;">
-graph TD
-    subgraph ManagerZone ["🔴 Wazuh Management Node"]
-        Manager["🖥️ Wazuh Manager Server<br/>(172.16.10.254)<br/>OS: Amazon Linux / Port: 55000"]
-    end
+            <!-- Canvas Container -->
+            <div id="vis-netmap-container" style="width: 100%; height: calc(100vh - 110px); background: radial-gradient(circle at center, #111827 0%, #030712 100%);"></div>
+        </section>
 
-    subgraph InternalSubnet ["🌐 Internal Subnet (172.16.10.0/24)"]
-        Manager ---|Port 22 / SSH| SSHClient["💻 SSH Client<br/>(172.16.10.45)"]
-        Manager ---|Port 80/443 / Web| WebScanner["🌐 Web Scanner Host<br/>(172.16.10.99)"]
-    end
-
-    subgraph ThreatZone ["🚨 External Threat Zone"]
-        AttackerHost["🚨 Malicious Shell Attacker<br/>(172.16.10.88)<br/><i>Unverified Subnet IP</i>"] -.->|Exploit /shell.php| Manager
-    end
-
-    classDef managerStyle fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#fff;
-    classDef agentStyle fill:#059669,stroke:#10b981,stroke-width:2px,color:#fff;
-    classDef threatStyle fill:#dc2626,stroke:#ef4444,stroke-width:2px,color:#fff;
-
-    class Manager managerStyle;
-    class SSHClient,WebScanner agentStyle;
-    class AttackerHost threatStyle;
+        <!-- Right Side Panel: Node Detail Inspector -->
+        <section class="soc-pane pane-evidence">
+            <div class="pane-header">
+                <i class="fa-solid fa-circle-info"></i>
+                <h2>Thông Tin Thiết Bị (Node Inspector)</h2>
+            </div>
+            <div id="node-detail-panel" class="evidence-body">
+                <div class="empty-state">
+                    <i class="fa-solid fa-network-wired empty-icon"></i>
+                    <p>Nhấp chuột vào bất kỳ thiết bị (Node) nào trên bản đồ để xem địa chỉ IP, hệ điều hành, danh sách Port đang mở và trạng thái giám sát Wazuh.</p>
+                </div>
             </div>
         </section>
+
     </main>
 
-    <script>
-        document.addEventListener("DOMContentLoaded", () => {
-            if (window.mermaid) {
-                mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose' });
-            }
-            document.getElementById("btn-back-dash").addEventListener("click", () => {
-                window.location.href = "/dashboard";
-            });
-        });
-    </script>
+    <script src="/static/network_map.js"></script>
 </body>
 </html>

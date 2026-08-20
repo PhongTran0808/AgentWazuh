@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "context-mode": "^1.0.169",
+    "pi-mcp-adapter": "^2.26.1",
+    "pi-memory": "^0.4.2",
+    "pi-subagents": "^0.52.1",
+    "pi-web-access": "^0.24.0"
+  }
+}

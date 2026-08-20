@@ -25,7 +25,7 @@
             <form id="login-form" class="login-form">
                 <div class="input-group">
                     <label for="input-ip"><i class="fa-solid fa-network-wired"></i> Wazuh Server IP Address / Host</label>
-                    <input type="text" id="input-ip" placeholder="Ví dụ: 192.168.1.240 hoặc 192.168.1.9" required autocomplete="off">
+                    <input type="text" id="input-ip" placeholder="Ví dụ: 192.168.1.248" required autocomplete="off">
                 </div>
 
                 <div class="input-row">
@@ -69,7 +69,7 @@
                 <i class="fa-solid fa-shield-halved logo-icon"></i>
                 <div>
                     <h1 class="header-title">AgentWazuh SOC Assistant</h1>
-                    <p class="header-subtitle">Local LLM-based Security Incident Investigation Assistant</p>
+                    <p class="header-subtitle">PI Agent-based Security Incident Investigation System</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -84,10 +84,21 @@
         <main class="soc-layout">
             <!-- Pane 1: Live Wazuh Alert Feed -->
             <section class="soc-pane pane-alerts">
-                <div class="pane-header">
-                    <i class="fa-solid fa-bell-concierge"></i>
-                    <h2>Wazuh Live Alerts (24h)</h2>
+                <div class="pane-header" style="justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fa-solid fa-bell-concierge" style="color: var(--accent-cyan);"></i>
+                        <h2 style="font-size: 0.92rem; font-weight: 700; margin: 0;">Wazuh Live Alerts (24h)</h2>
+                    </div>
                     <button id="btn-refresh" class="btn-icon" title="Tải lại Alert"><i class="fa-solid fa-rotate-right"></i></button>
+                </div>
+                <div class="feed-controls-bar" style="padding: 0.4rem 0.6rem; background: #0b0f19; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                    <div class="mode-toggle" style="margin: 0; padding: 2px; flex: 1;">
+                        <button id="view-mode-single" class="mode-btn active" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-list"></i> Riêng lẻ</button>
+                        <button id="view-mode-group" class="mode-btn" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-layer-group"></i> Gộp Incident</button>
+                    </div>
+                    <button id="btn-open-import" class="btn-chip-action" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; white-space: nowrap;" title="Nhập dữ liệu Alert (JSON thô)">
+                        <i class="fa-solid fa-file-import"></i> Nhập JSON
+                    </button>
                 </div>
                 <div id="alerts-list" class="alerts-feed">
                     <div class="loading-state">Đang tải danh sách cảnh báo từ Wazuh...</div>
@@ -96,11 +107,11 @@
 
             <!-- Pane 2: AI Incident Triage Chat & Master SOC Advisor -->
             <section class="soc-pane pane-chat">
-                <div class="pane-header">
-                    <i class="fa-solid fa-brain"></i>
-                    <h2>SOC AI Master Advisor</h2>
-                    
-                    <!-- Chat Mode Selector -->
+                <div class="pane-header" style="justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fa-solid fa-brain" style="color: #38bdf8;"></i>
+                        <h2 style="font-size: 0.95rem; font-weight: 700; margin: 0;">SOC AI Master Advisor</h2>
+                    </div>
                     <div class="mode-toggle">
                         <button id="mode-global" class="mode-btn active"><i class="fa-solid fa-globe"></i> Chat Tổng SOC Master</button>
                         <button id="mode-single" class="mode-btn"><i class="fa-solid fa-magnifying-glass"></i> Single Alert Deep-Dive</button>

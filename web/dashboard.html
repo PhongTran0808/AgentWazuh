@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="dashboard-body">
 
@@ -17,7 +18,7 @@
             <i class="fa-solid fa-shield-halved logo-icon"></i>
             <div>
                 <h1 class="header-title">AgentWazuh SOC Assistant</h1>
-                <p class="header-subtitle">Enterprise Security Operations & Settings Portal (Version 11.1)</p>
+                <p class="header-subtitle">Enterprise Security Operations & Settings Portal (Version 14.0)</p>
             </div>
         </div>
         <div class="header-actions">
@@ -26,7 +27,7 @@
             <button id="btn-back-login" class="btn-chip-action" title="Quay lại đăng nhập"><i class="fa-solid fa-right-from-bracket"></i> Đăng Xuất</button>
             <div class="header-status" id="vmware-status">
                 <span class="status-indicator online"></span>
-                <span class="status-text" id="status-wazuh-ip">Wazuh Server: 172.16.10.254</span>
+                <span class="status-text" id="status-wazuh-ip">Wazuh Server: N/A</span>
             </div>
         </div>
     </header>
@@ -34,10 +35,21 @@
     <main class="soc-layout">
         <!-- Pane 1: Live Wazuh Alert Feed -->
         <section class="soc-pane pane-alerts">
-            <div class="pane-header">
-                <i class="fa-solid fa-bell-concierge"></i>
-                <h2>Wazuh Live Alerts (24h)</h2>
+            <div class="pane-header" style="justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-bell-concierge" style="color: var(--accent-cyan);"></i>
+                    <h2 style="font-size: 0.92rem; font-weight: 700; margin: 0;">Wazuh Live Alerts (24h)</h2>
+                </div>
                 <button id="btn-refresh" class="btn-icon" title="Tải lại Alert"><i class="fa-solid fa-rotate-right"></i></button>
+            </div>
+            <div class="feed-controls-bar" style="padding: 0.4rem 0.6rem; background: #0b0f19; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
+                <div class="mode-toggle" style="margin: 0; padding: 2px; flex: 1;">
+                    <button id="view-mode-single" class="mode-btn active" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-list"></i> Riêng lẻ</button>
+                    <button id="view-mode-group" class="mode-btn" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-layer-group"></i> Gộp Incident</button>
+                </div>
+                <button id="btn-open-import" class="btn-chip-action" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; white-space: nowrap;" title="Nhập dữ liệu Alert (JSON thô)">
+                    <i class="fa-solid fa-file-import"></i> Nhập JSON
+                </button>
             </div>
             <div id="alerts-list" class="alerts-feed">
                 <div class="loading-state">Đang tải danh sách cảnh báo từ Wazuh...</div>
@@ -46,9 +58,11 @@
 
         <!-- Pane 2: AI Incident Triage Chat & Master SOC Advisor -->
         <section class="soc-pane pane-chat">
-            <div class="pane-header">
-                <i class="fa-solid fa-brain"></i>
-                <h2>SOC AI Master Advisor</h2>
+            <div class="pane-header" style="justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-brain" style="color: #38bdf8;"></i>
+                    <h2 style="font-size: 0.95rem; font-weight: 700; margin: 0;">SOC AI Master Advisor</h2>
+                </div>
                 <div class="mode-toggle">
                     <button id="mode-global" class="mode-btn active"><i class="fa-solid fa-globe"></i> Chat Tổng SOC Master</button>
                     <button id="mode-single" class="mode-btn"><i class="fa-solid fa-magnifying-glass"></i> Single Alert Deep-Dive</button>
@@ -60,17 +74,18 @@
                     <i class="fa-solid fa-robot avatar"></i>
                     <div class="bubble-content">
                         <strong>AgentWazuh AI Master Advisor:</strong>
-                        <p>Chào Analyst! Nhấp nút <strong>[⚙️ Settings]</strong> ➔ tab <strong>AI Engine & Cloud Integration</strong> để dán Google Gemini API Key hoặc cấu hình Local Ollama.</p>
+                        <p>Chào Analyst! Hệ thống đang sử dụng <strong>PI.dev Agent Engine (Mặc Định)</strong> để phân tích & diễn giải sự cố an ninh mạng từ Wazuh SIEM. Nhấp nút <strong>[⚙️ Settings]</strong> để xem cấu hình AI Engine và Audit Log.</p>
                     </div>
                 </div>
             </div>
 
             <div class="preset-chips">
                 <button class="chip-btn" data-query="Báo cáo 24h qua"><i class="fa-solid fa-chart-pie"></i> Báo cáo 24h qua</button>
-                <button class="chip-btn" data-query="Danh sách 137 Low alerts đó là gì, trích xuất 1 log điển hình"><i class="fa-solid fa-file-code"></i> Trích xuất Log Low</button>
+                <button class="chip-btn" data-query="Danh sách các cảnh báo mức độ Low (thấp) hiện tại là gì, trích xuất 1 log mẫu"><i class="fa-solid fa-file-code"></i> Trích xuất Log Low</button>
                 <button class="chip-btn" data-query="Danh sách thiết bị đang giám sát"><i class="fa-solid fa-server"></i> Kiểm tra Agents</button>
                 <button class="chip-btn" data-query="Thống kê cảnh báo Medium và High"><i class="fa-solid fa-triangle-exclamation"></i> Thống kê Severity</button>
-                <button class="chip-btn" data-query="Vẽ sơ đồ luồng xử lý sự cố an ninh"><i class="fa-solid fa-diagram-project"></i> Vẽ Sơ Đồ Mermaid</button>
+                <button class="chip-btn" data-query="Vẽ sơ đồ luồng xử lý sự cố an ninh"><i class="fa-solid fa-diagram-project"></i> Sơ Đồ Mermaid</button>
+                <button class="chip-btn" data-query="Vẽ biểu đồ trực quan thống kê cảnh báo theo mức độ"><i class="fa-solid fa-chart-column"></i> Trực Quan Biểu Đồ Chart.js</button>
             </div>
 
             <form id="chat-form" class="chat-input-area">
@@ -117,7 +132,7 @@
                     <button class="nav-item" data-tab="tab-heartbeat"><i class="fa-solid fa-heart-pulse"></i> Heartbeat & ICMP Ping</button>
 
                     <div class="sidebar-section-label">INTELLIGENCE</div>
-                    <button class="nav-item" data-tab="tab-ai"><i class="fa-solid fa-robot"></i> AI Engine & Gemini API</button>
+                    <button class="nav-item" data-tab="tab-ai"><i class="fa-solid fa-robot"></i> AI Engine & Cloud Providers</button>
 
                     <div class="sidebar-section-label">SECURITY</div>
                     <button class="nav-item" data-tab="tab-vault"><i class="fa-solid fa-shield-halved"></i> AES-256 Vault</button>
@@ -152,7 +167,7 @@
                                 <strong>Wazuh Server IP Address</strong>
                                 <span>Địa chỉ IP máy chủ Wazuh Manager thật.</span>
                             </div>
-                            <input type="text" id="setting-wazuh-host" value="172.16.10.254" class="input-setting-control">
+                            <input type="text" id="setting-wazuh-host" value="" placeholder="Ví dụ: 192.168.1.10" class="input-setting-control">
                         </div>
 
                         <div class="setting-box-card">
@@ -187,82 +202,44 @@
                         </div>
                     </div>
 
-                    <!-- AI Engine Tab with Dedicated Gemini API Option -->
+                    <!-- AI Engine Tab: PI.dev Agent Framework & OpenRouter Models -->
                     <div id="tab-ai" class="settings-tab-content hidden">
                         <div class="setting-card-title">
-                            <h2>AI Engine & Gemini API Integration</h2>
-                            <p>Cấu hình chuyển đổi giữa Local Ollama Engine, Google Gemini API, và Custom Cloud API.</p>
+                            <h2>AI Engine Management (PI.dev Powered)</h2>
+                            <p>Mặc định sử dụng <strong>PI.dev Agent CLI Framework</strong> để diễn giải sự cố. Tích hợp Audit Logging ghi nhận mọi truy vấn.</p>
                         </div>
 
-                        <div class="mode-toggle" style="margin-bottom: 1.2rem; display: flex; gap: 0.3rem;">
-                            <button id="tab-btn-gemini" class="mode-btn active" style="flex: 1;"><i class="fa-solid fa-wand-magic-sparkles"></i> ✨ Google Gemini API</button>
-                            <button id="tab-btn-ollama" class="mode-btn" style="flex: 1;"><i class="fa-solid fa-laptop-code"></i> 💻 Local Ollama Engine</button>
-                            <button id="tab-btn-cloud" class="mode-btn" style="flex: 1;"><i class="fa-solid fa-cloud"></i> ☁️ Custom OpenAI API</button>
+                        <!-- Step 1: Choose Engine Mode -->
+                        <div style="margin-bottom: 1.2rem;">
+                            <label style="font-size: 0.85rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.5rem;">
+                                CHẾ ĐỘ ENGINE HIỆN TẠI
+                            </label>
+                            <div class="mode-toggle" style="display: flex; gap: 0.5rem;">
+                                <button id="engine-mode-pi" class="mode-btn active" style="flex: 1;"><i class="fa-solid fa-terminal"></i> ⚡ PI.dev Agent CLI (Mặc Định - Official Framework)</button>
+                            </div>
                         </div>
 
-                        <!-- 1. Dedicated Google Gemini API Box -->
-                        <div id="box-gemini-api">
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Google Gemini API Key</strong>
-                                    <span>Tự nhập khóa API cá nhân của bạn (Google AI Studio Key). Key được xử lý bảo mật trong bộ nhớ.</span>
+                        <!-- Step 2: PI.dev Details -->
+                        <div id="panel-pi-dev" class="engine-panel">
+                            <div class="setting-box-card" style="flex-direction: column; align-items: flex-start; gap: 0.8rem;">
+                                <div id="pi-status-badge" class="interactive-chip chip-low" style="width: 100%; text-align: center; padding: 0.6rem;">
+                                    <i class="fa-solid fa-circle-check"></i> 🟢 PI.dev Agent Framework Đã Sẵn Sàng (pi CLI v0.84.2 Active)
                                 </div>
-                                <input type="password" id="input-gemini-key" placeholder="AIzaSy... (Nhập Gemini Key của bạn tại đây)" class="input-setting-control" style="width: 280px;" autocomplete="off">
                             </div>
 
                             <div class="setting-box-card">
                                 <div class="setting-row-label">
-                                    <strong>Chọn Google Gemini Model</strong>
-                                    <span>Tự động kết nối tới mô hình suy luận tốc độ cao của Google.</span>
+                                    <strong>PI.dev Default Model Selection</strong>
+                                    <span>Mô hình mặc định chạy qua PI.dev Framework.</span>
                                 </div>
-                                <select id="select-gemini-model" class="input-setting-control" style="width: 280px;">
-                                    <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh & Tối Ưu)</option>
-                                    <option value="gemini-2.0-flash">gemini-2.0-flash (Mới Nhất)</option>
-                                    <option value="gemini-1.5-pro">gemini-1.5-pro (Suy Luận Sâu)</option>
+                                <select id="select-pi-model" class="input-setting-control" style="width: 320px;">
+                                    <option value="github-copilot/gpt-4.1" selected>github-copilot / gpt-4.1 (Hiện Tại - Sync Active)</option>
+                                    <option value="openrouter/free">openrouter/free (Miễn phí - OpenRouter)</option>
+                                    <option value="google/gemini-2.5-flash">google/gemini-2.5-flash</option>
+                                    <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
+                                    <option value="google/gemma-4-31b-it:free">google/gemma-4-31b-it:free</option>
+                                    <option value="openai/gpt-oss-20b:free">openai/gpt-oss-20b:free</option>
                                 </select>
-                            </div>
-                        </div>
-
-                        <!-- 2. Local Ollama Engine Box -->
-                        <div id="box-ollama-engine" class="hidden">
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Bật Ollama Service Daemon</strong>
-                                    <span>Khởi chạy 'ollama serve' trong background.</span>
-                                </div>
-                                <button id="btn-start-ollama-drawer" class="interactive-chip chip-low" style="padding: 0.5rem 1rem;"><i class="fa-solid fa-play"></i> Bật Ollama Engine</button>
-                            </div>
-
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Model Ollama Đã Chọn</strong>
-                                    <span>Mô hình local chạy trên máy tính.</span>
-                                </div>
-                                <select id="select-ollama-model-drawer" class="input-setting-control" style="width: 280px;">
-                                    <option value="qwen2.5:3b">qwen2.5:3b (Khuyên dùng - RAM ~2.5GB)</option>
-                                    <option value="qwen2.5:7b">qwen2.5:7b (RAM ~5GB)</option>
-                                    <option value="llama3">llama3:8b</option>
-                                    <option value="mistral">mistral:7b</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- 3. Custom OpenAI Cloud API Box -->
-                        <div id="box-cloud-api" class="hidden">
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Custom Cloud API Endpoint URL</strong>
-                                    <span>Đường dẫn OpenAI hoặc Custom Gateway endpoint.</span>
-                                </div>
-                                <input type="text" id="input-cloud-url-drawer" value="https://api.openai.com/v1/chat/completions" class="input-setting-control" style="width: 280px;">
-                            </div>
-
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Cloud API Key</strong>
-                                    <span>Tự nhập API Key (sk-...).</span>
-                                </div>
-                                <input type="password" id="input-cloud-key-drawer" placeholder="sk-..." class="input-setting-control" style="width: 280px;" autocomplete="off">
                             </div>
                         </div>
                     </div>
@@ -291,6 +268,64 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+
+    <!-- OLLAMA ON-DEMAND CONFIRMATION MODAL -->
+    <div id="ollama-confirm-modal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 480px; text-align: center; padding: 1.8rem;">
+            <div style="font-size: 2.8rem; color: #f59e0b; margin-bottom: 0.8rem;">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <h3 style="margin: 0 0 0.6rem 0; font-size: 1.15rem; color: #f8fafc;">Xác Nhận Kích Hoạt Tiến Trình Ollama</h3>
+            <p style="font-size: 0.88rem; color: #94a3b8; line-height: 1.5; margin-bottom: 1.5rem;">
+                Bạn có chắc chắn muốn kích hoạt dịch vụ Ollama cục bộ (`ollama serve`) không?<br>
+                <span style="color: #cbd5e1; font-size: 0.82rem;">(Lưu ý: Tiến trình Ollama sẽ chiếm dụng khoảng 2GB - 5GB RAM của máy tính).</span>
+            </p>
+
+            <div style="display: flex; gap: 0.8rem;">
+                <button id="btn-cancel-ollama" class="btn-chip-action" style="flex: 1; padding: 0.7rem;" onclick="document.getElementById('ollama-confirm-modal').classList.add('hidden')">
+                    Hủy Bỏ
+                </button>
+                <button id="btn-confirm-start-ollama" class="btn-primary" style="flex: 1; padding: 0.7rem;">
+                    <i class="fa-solid fa-check"></i> Đồng Ý Kích Hoạt
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- IMPORT RAW ALERT JSON MODAL -->
+    <div id="import-modal" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width: 620px; padding: 1.8rem;">
+            <div style="display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;">
+                <i class="fa-solid fa-file-import" style="font-size: 1.5rem; color: #38bdf8;"></i>
+                <div>
+                    <h3 style="margin: 0; font-size: 1.15rem; color: #f8fafc;">Nhập Dữ Liệu Cảnh Báo (Import Raw Alert JSON)</h3>
+                    <span style="font-size: 0.8rem; color: #94a3b8;">Dán chuỗi JSON Alert (Object, Mảng, hoặc từng dòng alerts.json từ Wazuh)</span>
+                </div>
+            </div>
+            
+            <textarea id="import-json-text" placeholder='Dán dữ liệu JSON vào đây. Ví dụ:
+[
+  {
+    "id": "1698765432.1001",
+    "timestamp": "2026-08-20T08:00:00.000+0000",
+    "rule": {"id": "5712", "level": 10, "description": "sshd: Multiple authentication failures."},
+    "agent": {"id": "001", "name": "wazuh-agent-test", "ip": "10.0.0.50"},
+    "data": {"srcip": "1.1.1.1", "dstuser": "root"}
+  }
+]' style="width: 100%; height: 200px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #38bdf8; font-family: monospace; font-size: 0.82rem; padding: 0.8rem; margin-bottom: 1rem; resize: vertical; box-sizing: border-box;"></textarea>
+
+            <div id="import-status-msg" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
+
+            <div style="display: flex; gap: 0.8rem; justify-content: flex-end;">
+                <button id="btn-cancel-import" class="btn-chip-action" style="padding: 0.6rem 1.2rem;" onclick="document.getElementById('import-modal').classList.add('hidden')">
+                    Hủy Bỏ
+                </button>
+                <button id="btn-submit-import" class="btn-primary" style="padding: 0.6rem 1.4rem;">
+                    <i class="fa-solid fa-file-arrow-up"></i> Nạp Dữ Liệu Vào System
+                </button>
+            </div>
         </div>
     </div>
 

@@ -1,4 +1,4 @@
-// AgentWazuh Dynamic Network Topology Map Controller (Version 10.3 - Clean UI & Settings Support)
+// AgentWazuh Dynamic Real-Time Topology Controller (Version 14.0 Enterprise)
 document.addEventListener("DOMContentLoaded", async () => {
     const container = document.getElementById("vis-netmap-container");
     const nodeDetailPanel = document.getElementById("node-detail-panel");
@@ -9,32 +9,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const presetSelector = document.getElementById("preset-selector");
 
     const btnOpenSettings = document.getElementById("btn-open-settings");
-    const btnOpenAIConfig = document.getElementById("btn-open-ai-config");
-
-    // Modal AI elements
-    const aiModal = document.getElementById("ai-modal");
-    const tabOllama = document.getElementById("tab-ollama");
-    const tabCloud = document.getElementById("tab-cloud");
-    const contentOllama = document.getElementById("content-ollama");
-    const contentCloud = document.getElementById("content-cloud");
-    const btnStartOllama = document.getElementById("btn-start-ollama");
-    const btnSaveAIConfig = document.getElementById("btn-save-ai-config");
-    const selectOllamaModel = document.getElementById("select-ollama-model");
-    const inputOllamaUrl = document.getElementById("input-ollama-url");
-    const inputCloudUrl = document.getElementById("input-cloud-url");
-    const inputCloudKey = document.getElementById("input-cloud-key");
-    const inputCloudModel = document.getElementById("input-cloud-model");
-
-    // Modal Settings elements
     const settingsModal = document.getElementById("settings-modal");
-    const settingTimeoutMin = document.getElementById("setting-timeout-min");
-    const settingPingInterval = document.getElementById("setting-ping-interval");
-    const settingPingRetry = document.getElementById("setting-ping-retry");
-    const settingWazuhHost = document.getElementById("setting-wazuh-host");
-    const settingWazuhPort = document.getElementById("setting-wazuh-port");
-    const btnSaveSettings = document.getElementById("btn-save-settings");
-
-    let currentAIMode = "ollama";
 
     btnBackDash.addEventListener("click", () => {
         window.location.href = "/dashboard";
@@ -42,152 +17,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (btnOpenSettings) {
         btnOpenSettings.addEventListener("click", () => {
-            loadSystemSettings();
-            settingsModal.classList.remove("hidden");
+            if (settingsModal) settingsModal.classList.remove("hidden");
         });
     }
-
-    if (btnOpenAIConfig) {
-        btnOpenAIConfig.addEventListener("click", () => {
-            loadAIConfig();
-            aiModal.classList.remove("hidden");
-        });
-    }
-
-    window.closeAIModal = function() {
-        if (aiModal) aiModal.classList.add("hidden");
-    };
 
     window.closeSettingsModal = function() {
         if (settingsModal) settingsModal.classList.add("hidden");
     };
-
-    if (tabOllama && tabCloud) {
-        tabOllama.addEventListener("click", () => {
-            currentAIMode = "ollama";
-            tabOllama.classList.add("active");
-            tabCloud.classList.remove("active");
-            contentOllama.classList.remove("hidden");
-            contentCloud.classList.add("hidden");
-        });
-
-        tabCloud.addEventListener("click", () => {
-            currentAIMode = "cloud_api";
-            tabCloud.classList.add("active");
-            tabOllama.classList.remove("active");
-            contentCloud.classList.remove("hidden");
-            contentOllama.classList.add("hidden");
-        });
-    }
-
-    if (btnStartOllama) {
-        btnStartOllama.addEventListener("click", async () => {
-            try {
-                const res = await fetch("/api/ai/ollama/start", { method: "POST", credentials: "same-origin" });
-                const data = await res.json();
-                alert(data.message || "Đã kiểm tra Ollama daemon.");
-            } catch (err) {
-                alert("Không thể bật Ollama tự động. Vui lòng gõ 'ollama serve' trong terminal.");
-            }
-        });
-    }
-
-    async function loadAIConfig() {
-        try {
-            const res = await fetch("/api/ai/config", { credentials: "same-origin" });
-            const config = await res.json();
-            currentAIMode = config.mode || "ollama";
-            if (currentAIMode === "cloud_api") {
-                if (tabCloud) tabCloud.click();
-            } else {
-                if (tabOllama) tabOllama.click();
-            }
-            if (config.ollama_model) selectOllamaModel.value = config.ollama_model;
-            if (config.ollama_url) inputOllamaUrl.value = config.ollama_url;
-            if (config.cloud_api_url) inputCloudUrl.value = config.cloud_api_url;
-            if (config.cloud_api_key) inputCloudKey.value = config.cloud_api_key;
-            if (config.cloud_model) inputCloudModel.value = config.cloud_model;
-        } catch (err) {
-            console.error("Failed to load AI config:", err);
-        }
-    }
-
-    if (btnSaveAIConfig) {
-        btnSaveAIConfig.addEventListener("click", async () => {
-            const payload = {
-                mode: currentAIMode,
-                ollama_url: inputOllamaUrl.value.trim(),
-                ollama_model: selectOllamaModel.value,
-                cloud_api_enabled: currentAIMode === "cloud_api",
-                cloud_api_url: inputCloudUrl.value.trim(),
-                cloud_api_key: inputCloudKey.value.trim(),
-                cloud_model: inputCloudModel.value.trim()
-            };
-
-            try {
-                const res = await fetch("/api/ai/config", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                    credentials: "same-origin"
-                });
-                const data = await res.json();
-                if (data.status === "success") {
-                    alert(`🟢 Đã lưu cấu hình AI Mode [${currentAIMode.toUpperCase()}] thành công!`);
-                    window.closeAIModal();
-                }
-            } catch (err) {
-                alert("❌ Lỗi khi lưu cấu hình AI.");
-            }
-        });
-    }
-
-    async function loadSystemSettings() {
-        try {
-            const res = await fetch("/api/settings", { credentials: "same-origin" });
-            const json = await res.json();
-            const s = json.settings || {};
-            if (s.session_timeout_minutes) settingTimeoutMin.value = s.session_timeout_minutes;
-            if (s.icmp_ping_interval_seconds) settingPingInterval.value = s.icmp_ping_interval_seconds;
-            if (s.ping_retry_threshold) settingPingRetry.value = s.ping_retry_threshold;
-            if (s.wazuh_host) {
-                settingWazuhHost.value = s.wazuh_host;
-                if (statusHost) statusHost.textContent = `Wazuh Server: ${s.wazuh_host}`;
-            }
-            if (s.wazuh_port) settingWazuhPort.value = s.wazuh_port;
-        } catch (err) {
-            console.error("Failed to load system settings:", err);
-        }
-    }
-
-    if (btnSaveSettings) {
-        btnSaveSettings.addEventListener("click", async () => {
-            const payload = {
-                session_timeout_minutes: parseInt(settingTimeoutMin.value) || 30,
-                icmp_ping_interval_seconds: parseInt(settingPingInterval.value) || 15,
-                ping_retry_threshold: parseInt(settingPingRetry.value) || 3,
-                wazuh_host: settingWazuhHost.value.trim(),
-                wazuh_port: parseInt(settingWazuhPort.value) || 55000
-            };
-
-            try {
-                const res = await fetch("/api/settings", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload),
-                    credentials: "same-origin"
-                });
-                const data = await res.json();
-                if (data.status === "success") {
-                    alert(data.message || "🟢 Đã lưu thông số hệ thống!");
-                    if (statusHost) statusHost.textContent = `Wazuh Server: ${payload.wazuh_host}`;
-                    window.closeSettingsModal();
-                }
-            } catch (err) {
-                alert("❌ Lỗi khi lưu thông số hệ thống.");
-            }
-        });
-    }
 
     let network = null;
     let nodesDataSet = null;
@@ -211,13 +47,36 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
 
             rawNodesData = data.nodes || [];
-            renderVisNetwork(data.nodes, data.edges);
+            renderVisNetwork(data.nodes, data.edges, data.empty_state);
         } catch (err) {
             console.error("Failed to load topology:", err);
         }
     }
 
-    function renderVisNetwork(nodesList, edgesList) {
+    function renderVisNetwork(nodesList, edgesList, isEmptyState = false) {
+        if (isEmptyState || !nodesList || nodesList.length === 0) {
+            container.innerHTML = `
+                <div class="empty-topology-overlay" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; text-align: center; padding: 2rem;">
+                    <div class="radar-pulse-ring" style="font-size: 3.5rem; color: #38bdf8; margin-bottom: 1.2rem; animation: pulse 2s infinite;">
+                        <i class="fa-solid fa-radar fa-spin"></i>
+                    </div>
+                    <h3 style="color: #f8fafc; font-size: 1.2rem; margin-bottom: 0.5rem;">Chưa phát hiện thiết bị kết nối (Real-time Discovery)</h3>
+                    <p style="font-size: 0.88rem; max-width: 480px; color: #64748b; line-height: 1.5;">Toàn bộ sơ đồ giả lập cũ đã được gỡ bỏ 100%. Sơ đồ mạng sẽ tự động khởi tạo ngay khi hệ thống ghi nhận có Wazuh Agent active hoặc thiết bị thực tế cắm vào hạ tầng.</p>
+                </div>
+            `;
+            if (nodeDetailPanel) {
+                nodeDetailPanel.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fa-solid fa-network-wired empty-icon"></i>
+                        <p>Hệ thống mạng hiện chưa có thiết bị kết nối. Trạng thái hiển thị rỗng theo đúng thực tế Wazuh API.</p>
+                    </div>
+                `;
+            }
+            return;
+        }
+
+        container.innerHTML = ""; // Clear canvas container for vis.js
+
         const formattedNodes = nodesList.map(n => {
             let iconCode = "\uf233";
             let iconColor = "#0284c7";
@@ -264,7 +123,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             return nodeObj;
         });
 
-        const formattedEdges = edgesList.map(e => ({
+        const formattedEdges = (edgesList || []).map(e => ({
             from: e.from,
             to: e.to,
             label: e.label,
@@ -317,14 +176,14 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <h3><i class="fa-solid fa-server"></i> ${n.label.replace(/\n/g, " ")}</h3>
                 <p><strong>Loại Thiết Bị:</strong> <span class="badge-level level-low">${n.device_type}</span></p>
                 <p><strong>Địa Chỉ IP Phân Giải:</strong> <code>${n.ip}</code> ${n.secondary_ip ? `| <code>${n.secondary_ip}</code>` : ""}</p>
-                <p><strong>Hệ Điều Hành / Firmware:</strong> ${n.os || "FortiOS v7.2"}</p>
+                <p><strong>Hệ Điều Hành / Firmware:</strong> ${n.os || "Linux / Wazuh OS"}</p>
                 <p><strong>Trạng Thái Giám Sát:</strong> <span style="color: #10b981;">🟢 ${n.agent_status || "Active Device"}</span></p>
             </div>
 
             <div class="evidence-section" style="margin-top: 1.2rem;">
-                <h3><i class="fa-solid fa-plug"></i> Interface & Open Ports</h3>
+                <h3><i class="fa-solid fa-plug"></i> Interface & Real Ports</h3>
                 <ul style="padding-left: 1.2rem; margin: 0.5rem 0; font-size: 0.85rem; color: var(--accent-cyan);">
-                    ${portsList || "<li>LAN Port3: 172.16.10.99/24</li><li>WAN: 172.16.30.3/24</li>"}
+                    ${portsList}
                 </ul>
             </div>
         `;

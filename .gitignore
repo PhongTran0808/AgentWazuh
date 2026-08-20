@@ -21,6 +21,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# Node
+node_modules/
+
 # Virtual Environment
 venv/
 ENV/
@@ -28,4 +31,3 @@ ENV/
 # Antigravity & OS Scratch
 .DS_Store
 *.log
-.ai/sandbox_staging/

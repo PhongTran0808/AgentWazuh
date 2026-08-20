@@ -1,25 +1,42 @@
-# AgentWazuh — Local LLM-based Security Incident Investigation Assistant
+# AgentWazuh — SOC AI Incident Assistant
 
-> **Xây dựng Trợ lý AI Cục bộ Hỗ trợ Điều tra Sự cố Trong Hệ Thống SOC Wazuh**  
+> **Xây dựng hệ thống AI hỗ trợ phân tích, tương quan và ưu tiên cảnh báo an ninh mạng trong SOC**  
 > *Đề tài Tiểu luận Chuyên ngành An toàn Thông tin*
 
 ---
 
 ## 📌 Giới Thiệu Đề Tài
 
-**AgentWazuh** là một trợ lý AI được triển khai cục bộ (Local LLM), tích hợp trực tiếp vào môi trường **Wazuh SIEM / SOC** nhằm hỗ trợ nhà phân tích an toàn thông tin (SOC Analyst) trong quá trình đọc hiểu, tóm tắt bằng chứng, và điều tra các cảnh báo an ninh.
+**AgentWazuh** là một hệ thống Trợ lý AI và nền tảng xử lý cảnh báo, được triển khai tích hợp trực tiếp vào môi trường **Wazuh SIEM / SOC**. Dự án hỗ trợ nhà phân tích an toàn thông tin (SOC Analyst) trong quá trình đọc hiểu, tóm tắt bằng chứng, tương quan cảnh báo (Correlation), và đánh giá độ ưu tiên (Priority Scoring) hoàn toàn tự động.
 
-Hệ thống cho phép người dùng đặt câu hỏi bằng **ngôn ngữ tự nhiên**, tự động đối chiếu dữ liệu log thực tế từ **Wazuh Manager REST API** với ma trận **MITRE ATT&CK**, từ đó đưa ra câu trả lời giải thích được, minh bạch và có căn cứ.
+Hệ thống kết hợp sức mạnh tính toán logic thuần (Python) để xử lý dữ liệu và sức mạnh của AI (qua PI Agent / OpenRouter API) để diễn giải ngữ nghĩa, đảm bảo câu trả lời minh bạch, giải thích được và hoàn toàn dựa trên dữ liệu thật.
 
 ---
 
-## 🏛️ Kiến Trúc 2 Lớp (2-Layer Hybrid Architecture)
+## 🏗️ Phạm Vi Dự Án (Project Scope)
+
+Dự án được thiết kế dưới 2 khía cạnh rõ ràng để đáp ứng yêu cầu chấm điểm học thuật lẫn giá trị thực tiễn:
+
+### 1. [CORE-THESIS] — Trọng Tâm Chấm Điểm
+Đây là 3 module logic lõi (thuần Python, không phụ thuộc AI), quyết định tính chuyên môn của đề tài:
+- **Deduplication Engine**: Lọc và loại bỏ cảnh báo trùng lặp (giảm nhiễu) trong khung thời gian 60 giây.
+- **Correlation Engine**: Nhóm các cảnh báo liên quan lại với nhau dựa trên IP nguồn/đích hoặc Rule ID, tạo thành **Incident Group** thay vì từng cảnh báo riêng lẻ.
+- **Priority Scoring System**: Tính điểm ưu tiên (0-100) cho từng nhóm sự cố dựa trên mức độ nghiêm trọng của Rule, ma trận MITRE ATT&CK (Static Lookup) và độ quan trọng của tài sản (Asset Criticality).
+
+### 2. [EXTENSION] — Tính Năng Bổ Trợ (Điểm Cộng Thực Tiễn)
+- **AI Master Advisor**: Chatbot AI diễn giải dữ liệu sử dụng mô hình qua OpenRouter (hoặc Local Ollama) thông qua công cụ PI CLI offload. Không cho phép AI tự động chặn IP (1-Click Remediation giữ thủ công).
+- **Giao diện SOC Dashboard**: Web UI hiện đại với các biểu đồ, chế độ xem gộp (Incident Group) hoặc đơn lẻ (Single Alert), tích hợp cơ chế bảo mật xác thực phiên.
+- **Dynamic Network Map**: Vẽ tự động cấu trúc mạng từ dữ liệu thiết bị (Node/Link) và IP thu thập được.
+
+---
+
+## 🏛️ Kiến Trúc Hệ Thống (Hybrid Architecture)
 
 ```text
  ┌─────────────────────────────────────────────────────────────┐
- │               User / SOC Analyst Query                      │
+ │               User / SOC Analyst Web Dashboard              │
  └──────────────────────────────┬──────────────────────────────┘
-                                │
+                                │ (HTTP REST API)
                                 ▼
  ┌─────────────────────────────────────────────────────────────┐
  │                FastAPI Web Server (Port 8080)               │
@@ -27,92 +44,31 @@ Hệ thống cho phép người dùng đặt câu hỏi bằng **ngôn ngữ t�
                                 │
                                 ▼
  ┌─────────────────────────────────────────────────────────────┐
- │                 Wazuh REST API Client                       │
- │        (VMWare https://192.168.1.240/ + Fallback Engine)      │
+ │        [CORE-THESIS] Python Correlation Engine (Logic)      │
+ │  (Deduplicate -> Correlate (Incident) -> Priority Score)    │
  └──────────────┬──────────────────────────────┬───────────────┘
                 │                              │
                 ▼                              ▼
  ┌──────────────────────────────┐ ┌────────────────────────────┐
- │  Layer 1: Static Lookup     │ │  Layer 2: Local RAG LLM    │
- │  (config/mitre_mapping.json) │ │  (Qwen2.5-3B Q4_K_M Ollama)│
- │  100% Ground-Truth Mapping   │ │  RAM Budget ~2.5GB Max     │
+ │  Wazuh REST API Client       │ │  PI Agent / OpenRouter API │
+ │  (Data Ingestion / Webhook)  │ │  (AI Semantics & Summary)  │
  └──────────────┬───────────────┘ └──────────────┬─────────────┘
                 │                              │
-                └──────────────┬───────────────┘
-                               │
-                               ▼
+                ▼                              ▼
  ┌─────────────────────────────────────────────────────────────┐
- │       Interactive SOC Web UI (Marked.js + Mermaid.js)       │
+ │                 Wazuh Manager (SIEM Server)                 │
  └─────────────────────────────────────────────────────────────┘
 ```
 
-1. **Layer 1 — Static Ground-Truth Lookup (`config/mitre_mapping.json`)**: Bảng tra cứu tĩnh gán trực tiếp Rule ID ↔ MITRE Technique ID cho các trường hợp đã biết, đạt độ chính xác tuyệt đối 100%.
-2. **Layer 2 — Local LLM RAG Reasoning (`Qwen2.5-3B-Instruct Q4_K_M`)**: Truy xuất ngữ nghĩa và suy luận ngôn ngữ tự nhiên qua Ollama API (`http://localhost:11434`), khống chế mức RAM tiêu thụ **~2.5GB Max** nhằm ngăn ngừa Out-Of-Memory (OOM).
-
 ---
 
-## ✨ Tính Năng Nổi Bật & Tích Hợp GitHub
+## ✨ Tính Năng Nổi Bật
 
-- 🌐 **Con Chat Tổng SOC Master (Global Advisor)**: Hỗ trợ 2 chế độ (Hỏi đáp toàn bộ bối cảnh hệ thống SOC hoặc Điều tra sâu từng cảnh báo đơn lẻ).
-- 🖱️ **Cơ Chế Nhấp Chuột Tương Tác (Interactive Chips)**: Các thẻ nhấp chuột tương tác (`<button class="interactive-chip">`) mở trực tiếp Modal JSON Log Viewer mà không cần nhập lại prompt.
-- 📊 **Luồng Suy Luận 4 Bước (Tích hợp từ SecurityClaw)**: Hiển thị Stepper tiến trình (`Step 1 Fetch` ➔ `Step 2 Lookup` ➔ `Step 3 Classify` ➔ `Step 4 Synthesize`) và phân loại rủi ro (`TRUE_THREAT` 🔴 | `SUSPICIOUS` 🟡 | `FALSE_POSITIVE` 🟢).
-- 📤 **Đóng Gói Xuất Wazuh OpenSearch Payload (Tích hợp từ Wazuh_claude_analyst)**: Đóng gói JSON chuẩn hóa để đẩy ngược vào OpenSearch Indexer của Wazuh Dashboard.
-- ⚡ **Lệnh Tường Lửa 1-Click Copy (Tích hợp từ ThreatSentinel)**: Hiển thị lệnh chặn IP `sudo iptables` kèm nút 1-Click Copy vào Clipboard.
-- 📐 **Vẽ Sơ Đồ Attack Chain (Mermaid.js)**: Tự động render sơ đồ luồng xử lý tấn công trực quan.
-
----
-
-## 👥 Bảng Phân Công 5 Vai Trò Chuyên Biệt
-
-| Vai Trò | Trách Nhiệm | Đầu Ra Sản Phẩm |
-| :--- | :--- | :--- |
-| **`@claude` (Architect)** | Thiết kế kiến trúc 2 Lớp, API Contract spec | Sơ đồ kiến trúc, API spec |
-| **`@rule-designer` (Rule Engineer)** | Thiết kế Wazuh Custom Rules + Tra cứu MITRE | `config/local_rules.xml`, `config/mitre_mapping.json` |
-| **`@ui-designer` (UI/UX Engineer)** | Thiết kế Wireframe 3 khung & Design Tokens | `web/design-tokens.css`, `web/style.css` |
-| **`@codex` (Implementation)** | Lập trình Python backend & Frontend JS | `wazuh_client.py`, `incident_assistant.py`, `server.py`, `web/app.js` |
-| **`@reviewer` (Security Auditor)** | Kiểm định an toàn SSL, OWASP, Anti-Hallucination | Báo cáo kiểm định 2 vòng *(Không sửa code)* |
-
----
-
-## 🤖 Thông Tin Model AI & Cấu Hình Ollama
-
-Dự án sử dụng **Local LLM** được tối ưu dung lượng RAM tối đa **~2.5GB**:
-- **Tên Model**: **`Qwen2.5-3B-Instruct`** (Quantized `Q4_K_M`)
-- **Nền tảng chạy**: **Ollama API** (`http://localhost:11434`)
-- **Yêu cầu phần cứng**: RAM trống từ **2.5GB - 3.5GB** (Tương thích máy cấu hình thấp).
-
-### Lệnh Cài Đặt Model Cho Đồng Đội:
-```bash
-# 1. Cài đặt Ollama (Linux/macOS/Windows)
-curl -fsSL https://ollama.com/install.sh | sh
-
-# 2. Tải Model Qwen2.5-3B về máy
-ollama pull qwen2.5:3b
-
-# 3. Khởi chạy Ollama Service
-ollama serve
-```
-
----
-
-## 🛠️ Hướng Dẫn Khắc Phục Lỗi Máy Ảo VMWare Chưa Có IP (`eth0`)
-
-Nếu kiểm tra trong VMWare gõ `ip a` thấy card `eth0` chưa được cấp IP v4:
-1. **Cấp IP động nhanh**:
-   ```bash
-   sudo dhclient eth0
-   ```
-2. **Cấu hình Card Mạng VMWare**:
-   - Vào menu VMWare: `VM` ➔ `Settings` ➔ `Network Adapter`.
-   - Chọn chế độ **Bridged (Replicate physical network connection state)** hoặc **NAT**.
-   - Khởi động lại dịch vụ mạng: `sudo systemctl restart NetworkManager`.
-
----
-
-## ⚠️ Giới Hạn Đã Biết (Known Limitations)
-
-- **Self-Signed SSL Certificate**: Tham số `verify=False` trong `wazuh_client.py` là **giới hạn đã biết của môi trường thử nghiệm Lab** khi kết nối đến IP VMWare (`https://192.168.1.9/`). Đây không phải là thiếu sót mã nguồn.
-- **Anti-Hallucination Guard**: Khi dữ liệu nhật ký Wazuh không đủ bằng chứng, AI bắt buộc phản hồi `"Không đủ dữ liệu để kết luận"` nhằm ngăn ngừa việc tự bịa ra thông tin bảo mật sai lệch.
+- 🔄 **Tương Quan Cảnh Báo (Correlation)**: Tự động gom nhóm hàng ngàn cảnh báo thành các Incident Group gọn gàng.
+- 🎯 **Chấm Điểm Rủi Ro (Priority Scoring)**: Mỗi nhóm sự cố đều được chấm điểm ưu tiên dựa trên tài sản (Asset Criticality) và Tactic MITRE.
+- 👁️ **Minh Bạch Dữ Liệu AI**: Hệ thống ghi nhận mọi dữ liệu chuyển ra AI bên ngoài (OpenRouter) vào file log `logs/openrouter_audit.log` (có đính kèm trạng thái lọc IP nội bộ).
+- 🌐 **Con Chat Tổng SOC Master (Global Advisor)**: Hỗ trợ 2 chế độ (Hỏi đáp toàn bộ bối cảnh hệ thống SOC hoặc Điều tra sâu). AI chỉ được phép đọc dữ liệu (Zero Hallucination).
+- ⚡ **Quản Trị Thiết Bị Tự Động**: Nạp và ghi đè known devices và vẽ topology động.
 
 ---
 

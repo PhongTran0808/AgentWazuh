@@ -33,8 +33,8 @@
 
         <!-- Live Status Badges -->
         <div class="login-status-pills">
-            <span class="status-pill pill-online"><i class="fa-solid fa-network-wired"></i> Single Account Admin Auth</span>
-            <span class="status-pill pill-secure"><i class="fa-solid fa-lock"></i> PBKDF2 HMAC SHA-256</span>
+            <span class="status-pill pill-online"><i class="fa-solid fa-network-wired"></i> Dynamic Wazuh Host IP Selector</span>
+            <span class="status-pill pill-secure"><i class="fa-solid fa-lock"></i> Enterprise Admin Auth</span>
         </div>
 
         <!-- Login Form with Wazuh IP Field -->
@@ -45,13 +45,13 @@
 
             <!-- Wazuh Manager IP & Port Inputs -->
             <div class="input-group-v2">
-                <label for="wazuh_host"><i class="fa-solid fa-server"></i> Địa Chỉ IP Máy Chủ Wazuh Manager</label>
+                <label for="wazuh_host"><i class="fa-solid fa-server"></i> Địa Chỉ IP Máy Chủ Wazuh Manager & Port REST API</label>
                 <div style="display: flex; gap: 0.5rem;">
                     <div class="input-field-wrapper" style="flex: 1;">
                         <i class="fa-solid fa-globe field-icon"></i>
-                        <input type="text" id="wazuh_host" name="wazuh_host" placeholder="172.16.10.254" value="172.16.10.254" required>
+                        <input type="text" id="wazuh_host" name="wazuh_host" placeholder="Ví dụ: 192.168.1.10 hoặc IP máy chủ của bạn" value="" required>
                     </div>
-                    <div class="input-field-wrapper" style="width: 110px;">
+                    <div class="input-field-wrapper" style="width: 140px; flex-shrink: 0;">
                         <i class="fa-solid fa-plug field-icon"></i>
                         <input type="number" id="wazuh_port" name="wazuh_port" placeholder="55000" value="55000" required>
                     </div>
@@ -85,7 +85,7 @@
         <!-- Footer Meta -->
         <footer class="login-card-footer">
             <span><i class="fa-solid fa-clock-rotate-left"></i> Inactivity Session Expiry: <strong>30 Phút</strong></span>
-            <span><i class="fa-solid fa-shield-check"></i> Kết nối trực tiếp Wazuh REST API Server</span>
+            <span><i class="fa-solid fa-shield-check"></i> Hỗ trợ kết nối động tới mọi địa chỉ IP Wazuh Manager Server</span>
         </footer>
 
     </main>

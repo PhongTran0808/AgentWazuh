@@ -1,43 +1,10 @@
 [
   {
-    "ip": "172.16.30.2",
-    "name": "FortiWiFi 60F (WAN Gateway)",
-    "type": "router",
-    "role": "fortiwifi_gateway",
-    "verified_by": "manual_sync",
-    "interfaces": ["WAN1: 172.16.30.2/24"]
-  },
-  {
-    "ip": "172.16.10.99",
-    "secondary_ip": "172.16.30.3",
-    "name": "FortiGate 40F (Firewall)",
-    "type": "firewall",
-    "role": "fortigate_firewall",
-    "verified_by": "manual_sync",
-    "interfaces": ["LAN Port3: 172.16.10.99/24", "WAN: 172.16.30.3/24"]
-  },
-  {
-    "ip": "172.16.10.2",
-    "name": "Core Switch L2/L3",
-    "type": "switch",
-    "role": "core_switch",
-    "verified_by": "manual_sync",
-    "interfaces": ["VLAN1: 172.16.10.2/24"]
-  },
-  {
-    "ip": "172.16.10.181",
-    "name": "PC Huy (Wazuh Manager)",
-    "type": "server",
-    "role": "wazuh_manager",
-    "verified_by": "manual_sync",
-    "interfaces": ["eth0: 172.16.10.181/24"]
-  },
-  {
-    "ip": "172.16.10.100",
-    "name": "PC Tu Workstation",
-    "type": "endpoint",
-    "role": "user_workstation",
-    "verified_by": "manual_sync",
-    "interfaces": ["eth0: 172.16.10.100/24"]
+    "ip": "192.168.1.248",
+    "name": "Wazuh Server",
+    "type": "SIEM",
+    "criticality": 10,
+    "verified": true,
+    "status": "up"
   }
 ]

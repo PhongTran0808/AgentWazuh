@@ -6,19 +6,27 @@ from typing import Dict, Any, List, Tuple
 
 class DynamicAITopologyParser:
     """
-    Dynamic AI Topology Discovery Engine (Combined Device Config + AI Telemetry):
-    - Multi-interface aware (Primary IP & Secondary IP mapping).
-    - Ensures WAN/LAN subnet connectivity graph is 100% connected without floating isolated nodes.
+    Dynamic Real-Time Topology Engine (Version 14.0 Enterprise):
+    - Strictly real-time discovery (No mock or hardcoded topology data).
+    - If no active devices are detected from Wazuh API, returns clean Empty State.
     """
 
     def __init__(self):
         self.base_dir = Path(__file__).resolve().parent
 
     def build_dynamic_topology(self, raw_device_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not raw_device_data:
+            return {
+                "nodes": [],
+                "edges": [],
+                "empty_state": True,
+                "message": "Chưa phát hiện thiết bị kết nối. Đang chờ kết nối từ Wazuh Agent."
+            }
+
         nodes = {}
         subnet_map: Dict[str, List[str]] = {}
 
-        # 1. Catalog Nodes & Extract All IP Interfaces (Primary & Secondary)
+        # 1. Catalog Real Nodes & Extract Interfaces
         for dev in raw_device_data:
             ip = dev.get("ip")
             if not ip:
@@ -27,19 +35,18 @@ class DynamicAITopologyParser:
             node_id = f"node_{ip.replace('.', '_')}"
             nodes[ip] = {
                 "id": node_id,
-                "label": f"{dev.get('name')}\n({ip})",
+                "label": f"{dev.get('name', 'Device')}\n({ip})",
                 "group": dev.get("type", "pc"),
                 "ip": ip,
                 "secondary_ip": dev.get("secondary_ip"),
                 "os": dev.get("os", "Linux / Network OS"),
                 "device_type": dev.get("type", "device").upper(),
-                "agent_status": dev.get("verified_by", "AI Discovered"),
-                "open_ports": dev.get("interfaces", ["Parsed Interface Net"]),
+                "agent_status": dev.get("verified_by", "Wazuh Agent Active"),
+                "open_ports": dev.get("interfaces", ["Real Active Net"]),
                 "tier": 0,
                 "verified": True
             }
 
-            # Map Primary IP to Subnet
             all_ips = [ip]
             if dev.get("secondary_ip"):
                 all_ips.append(dev.get("secondary_ip"))
@@ -54,6 +61,14 @@ class DynamicAITopologyParser:
                         subnet_map[subnet_str].append(ip)
                 except Exception:
                     pass
+
+        if not nodes:
+            return {
+                "nodes": [],
+                "edges": [],
+                "empty_state": True,
+                "message": "Chưa phát hiện thiết bị kết nối. Đang chờ kết nối từ Wazuh Agent."
+            }
 
         # 2. Build Dynamic Edges Across Subnets
         edges = []
@@ -74,32 +89,15 @@ class DynamicAITopologyParser:
                             "arrows": "to;from"
                         })
 
-        # Fallback WAN/LAN Connector if WAN router is on separate subnet
-        wan_nodes = [n for n in nodes.values() if n["group"] in ["router", "firewall"]]
-        if len(wan_nodes) >= 2:
-            ip_wan1 = wan_nodes[0]["ip"]
-            ip_wan2 = wan_nodes[1]["ip"]
-            pair_key = tuple(sorted([ip_wan1, ip_wan2]))
-            if pair_key not in edge_set:
-                edge_set.add(pair_key)
-                edges.append({
-                    "from": nodes[ip_wan1]["id"],
-                    "to": nodes[ip_wan2]["id"],
-                    "label": "WAN Link (172.16.30.0/24)",
-                    "arrows": "to;from"
-                })
-
-        return {"nodes": list(nodes.values()), "edges": edges}
+        return {
+            "nodes": list(nodes.values()),
+            "edges": edges,
+            "empty_state": False,
+            "message": "🟢 Đã tìm thấy các thiết bị đang hoạt động trên hệ thống."
+        }
 
 if __name__ == "__main__":
     parser = DynamicAITopologyParser()
-    sample_data = [
-        {"ip": "172.16.10.181", "name": "PC Huy (Wazuh Manager)", "type": "server"},
-        {"ip": "172.16.10.100", "name": "PC Tu Workstation", "type": "endpoint"},
-        {"ip": "172.16.10.2", "name": "Core Switch", "type": "switch"},
-        {"ip": "172.16.10.99", "secondary_ip": "172.16.30.3", "name": "FortiGate 40F", "type": "firewall"},
-        {"ip": "172.16.30.2", "name": "FortiWiFi 60F", "type": "router"}
-    ]
-    res = parser.build_dynamic_topology(sample_data)
-    print("🟢 Updated AI Dynamic Topology Output:")
+    res = parser.build_dynamic_topology([])
+    print("🟢 Pure Real-Time Topology Output (No Devices):")
     print(json.dumps(res, indent=2))

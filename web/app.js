@@ -1,7 +1,31 @@
-// AgentWazuh Dashboard Controller (Version 11.1 - Google Gemini API Integration)
+// AgentWazuh Dashboard Controller (Version 16.0 Strict API-Driven & User Chat Render Release)
 document.addEventListener("DOMContentLoaded", () => {
     if (window.mermaid) {
         mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+    }
+
+    let globalState = {
+        network_topology: [],
+        device_nodes: [],
+        ip_addresses: [],
+        cached_rules: [],
+        active_forms: []
+    };
+
+    function resetGlobalState() {
+        globalState = {
+            network_topology: [],
+            device_nodes: [],
+            ip_addresses: [],
+            cached_rules: [],
+            active_forms: []
+        };
+    }
+
+    let currentViewMode = "single"; // "single" or "group"
+
+    function escapeHtml(str) {
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
     const btnBackLogin = document.getElementById("btn-back-login");
@@ -24,27 +48,39 @@ document.addEventListener("DOMContentLoaded", () => {
     const settingPingRetry = document.getElementById("setting-ping-retry");
     const settingKumaToken = document.getElementById("setting-kuma-token");
     const btnSaveAllSettings = document.getElementById("btn-save-all-settings");
-    const btnTestWazuhConn = document.getElementById("btn-test-wazuh-conn");
     const statusWazuhIp = document.getElementById("status-wazuh-ip");
 
-    // AI Engine Presets
-    const tabBtnGemini = document.getElementById("tab-btn-gemini");
-    const tabBtnOllama = document.getElementById("tab-btn-ollama");
-    const tabBtnCloud = document.getElementById("tab-btn-cloud");
+    // AI Engine 2-Step Selector Elements
+    const engineModeCloud = document.getElementById("engine-mode-cloud");
+    const engineModeOllama = document.getElementById("engine-mode-ollama");
 
-    const boxGeminiApi = document.getElementById("box-gemini-api");
-    const boxOllamaEngine = document.getElementById("box-ollama-engine");
-    const boxCloudApi = document.getElementById("box-cloud-api");
+    const panelCloudApi = document.getElementById("panel-cloud-api");
+    const panelOllamaApi = document.getElementById("panel-ollama-api");
+
+    const chkGemini = document.getElementById("provider-chk-gemini");
+    const chkOpenAI = document.getElementById("provider-chk-openai");
+    const chkAnthropic = document.getElementById("provider-chk-anthropic");
+
+    const subBoxGemini = document.getElementById("sub-box-gemini");
+    const subBoxOpenAI = document.getElementById("sub-box-openai");
+    const subBoxAnthropic = document.getElementById("sub-box-anthropic");
 
     const inputGeminiKey = document.getElementById("input-gemini-key");
     const selectGeminiModel = document.getElementById("select-gemini-model");
 
-    const btnStartOllamaDrawer = document.getElementById("btn-start-ollama-drawer");
-    const selectOllamaModelDrawer = document.getElementById("select-ollama-model-drawer");
-    const inputCloudUrlDrawer = document.getElementById("input-cloud-url-drawer");
-    const inputCloudKeyDrawer = document.getElementById("input-cloud-key-drawer");
+    const inputOpenAIKey = document.getElementById("input-openai-key");
+    const selectOpenAIModel = document.getElementById("select-openai-model");
 
-    let currentAIMode = "gemini";
+    const inputAnthropicKey = document.getElementById("input-anthropic-key");
+    const selectAnthropicModel = document.getElementById("select-anthropic-model");
+
+    const ollamaStatusBadge = document.getElementById("ollama-status-badge");
+    const btnRequestStartOllama = document.getElementById("btn-request-start-ollama");
+    const ollamaConfirmModal = document.getElementById("ollama-confirm-modal");
+    const btnConfirmStartOllama = document.getElementById("btn-confirm-start-ollama");
+    const selectPiModel = document.getElementById("select-pi-model");
+
+    let currentAIMode = "pi_dev";
 
     if (btnOpenNetmap) {
         btnOpenNetmap.addEventListener("click", () => {
@@ -64,7 +100,95 @@ document.addEventListener("DOMContentLoaded", () => {
         if (settingsModal) settingsModal.classList.add("hidden");
     };
 
-    // Sidebar Tab Switching
+    const btnViewModeSingle = document.getElementById("view-mode-single");
+    const btnViewModeGroup = document.getElementById("view-mode-group");
+    
+    if (btnViewModeSingle && btnViewModeGroup) {
+        btnViewModeSingle.addEventListener("click", () => {
+            currentViewMode = "single";
+            btnViewModeSingle.classList.add("active");
+            btnViewModeGroup.classList.remove("active");
+            fetchLiveAlerts();
+        });
+        
+        btnViewModeGroup.addEventListener("click", () => {
+            currentViewMode = "group";
+            btnViewModeGroup.classList.add("active");
+            btnViewModeSingle.classList.remove("active");
+            fetchLiveAlerts();
+        });
+    }
+
+    const btnOpenImport = document.getElementById("btn-open-import");
+    const importModal = document.getElementById("import-modal");
+    const btnSubmitImport = document.getElementById("btn-submit-import");
+    const importJsonText = document.getElementById("import-json-text");
+    const importStatusMsg = document.getElementById("import-status-msg");
+
+    if (btnOpenImport && importModal) {
+        btnOpenImport.addEventListener("click", () => {
+            if (importStatusMsg) importStatusMsg.style.display = "none";
+            if (importJsonText) importJsonText.value = "";
+            importModal.classList.remove("hidden");
+        });
+    }
+
+    if (btnSubmitImport && importJsonText) {
+        btnSubmitImport.addEventListener("click", async () => {
+            const rawJson = importJsonText.value.trim();
+            if (!rawJson) {
+                if (importStatusMsg) {
+                    importStatusMsg.style.display = "block";
+                    importStatusMsg.style.color = "#ef4444";
+                    importStatusMsg.innerText = "Vui lòng nhập chuỗi JSON Alert!";
+                }
+                return;
+            }
+
+            btnSubmitImport.disabled = true;
+            btnSubmitImport.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp dữ liệu...';
+
+            try {
+                const res = await fetch("/api/wazuh/alerts/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ raw_json: rawJson }),
+                    credentials: "same-origin"
+                });
+
+                const data = await res.json();
+                if (res.status === 200 && data.status === "success") {
+                    if (importStatusMsg) {
+                        importStatusMsg.style.display = "block";
+                        importStatusMsg.style.color = "#10b981";
+                        importStatusMsg.innerText = data.message;
+                    }
+                    setTimeout(() => {
+                        importModal.classList.add("hidden");
+                        fetchLiveAlerts();
+                        fetchWazuhStatus();
+                    }, 1200);
+                } else {
+                    if (importStatusMsg) {
+                        importStatusMsg.style.display = "block";
+                        importStatusMsg.style.color = "#ef4444";
+                        importStatusMsg.innerText = data.detail || "Lỗi khi nhập dữ liệu JSON!";
+                    }
+                }
+            } catch (err) {
+                if (importStatusMsg) {
+                    importStatusMsg.style.display = "block";
+                    importStatusMsg.style.color = "#ef4444";
+                    importStatusMsg.innerText = "Lỗi kết nối server: " + err.message;
+                }
+            } finally {
+                btnSubmitImport.disabled = false;
+                btnSubmitImport.innerHTML = '<i class="fa-solid fa-file-arrow-up"></i> Nạp Dữ Liệu Vào System';
+            }
+        });
+    }
+
+    // Sidebar Tab Switching Handler
     navItems.forEach(item => {
         item.addEventListener("click", () => {
             navItems.forEach(i => i.classList.remove("active"));
@@ -76,72 +200,16 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // AI Engine 3 Presets Switcher
-    if (tabBtnGemini && tabBtnOllama && tabBtnCloud) {
-        tabBtnGemini.addEventListener("click", () => {
-            currentAIMode = "gemini";
-            tabBtnGemini.classList.add("active");
-            tabBtnOllama.classList.remove("active");
-            tabBtnCloud.classList.remove("active");
-            boxGeminiApi.classList.remove("hidden");
-            boxOllamaEngine.classList.add("hidden");
-            boxCloudApi.classList.add("hidden");
-        });
+    // PI.dev Agent Framework Initialization
+    const engineModePi = document.getElementById("engine-mode-pi");
+    const panelPiDev = document.getElementById("panel-pi-dev");
+    const piStatusBadge = document.getElementById("pi-status-badge");
 
-        tabBtnOllama.addEventListener("click", () => {
-            currentAIMode = "ollama";
-            tabBtnOllama.classList.add("active");
-            tabBtnGemini.classList.remove("active");
-            tabBtnCloud.classList.remove("active");
-            boxOllamaEngine.classList.remove("hidden");
-            boxGeminiApi.classList.add("hidden");
-            boxCloudApi.classList.add("hidden");
-        });
-
-        tabBtnCloud.addEventListener("click", () => {
-            currentAIMode = "cloud_api";
-            tabBtnCloud.classList.add("active");
-            tabBtnGemini.classList.remove("active");
-            tabBtnOllama.classList.remove("active");
-            boxCloudApi.classList.remove("hidden");
-            boxGeminiApi.classList.add("hidden");
-            boxOllamaEngine.classList.add("hidden");
-        });
-    }
-
-    if (btnStartOllamaDrawer) {
-        btnStartOllamaDrawer.addEventListener("click", async () => {
-            try {
-                const res = await fetch("/api/ai/ollama/start", { method: "POST", credentials: "same-origin" });
-                const data = await res.json();
-                alert(data.message || "Đã kiểm tra Ollama daemon.");
-            } catch (err) {
-                alert("Không thể bật Ollama tự động. Vui lòng gõ 'ollama serve' trong terminal.");
-            }
-        });
-    }
-
-    if (btnTestWazuhConn) {
-        btnTestWazuhConn.addEventListener("click", async () => {
-            const host = settingWazuhHost.value.trim();
-            const port = parseInt(settingWazuhPort.value) || 55000;
-            const user = settingWazuhUser ? settingWazuhUser.value.trim() : "admin";
-            try {
-                const res = await fetch("/api/wazuh/connect", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ host, port, user }),
-                    credentials: "same-origin"
-                });
-                const data = await res.json();
-                if (data.connected) {
-                    alert(`🟢 Kết nối Wazuh Manager (${host}:${port}) THÀNH CÔNG! Server status: ONLINE`);
-                } else {
-                    alert(`⚠️ Không thể kết nối Wazuh Manager (${host}:${port}). Trạng thái: OFFLINE / Mock Data Mode.`);
-                }
-            } catch (err) {
-                alert("❌ Lỗi kiểm tra kết nối API.");
-            }
+    if (engineModePi) {
+        engineModePi.addEventListener("click", () => {
+            currentAIMode = "pi_dev";
+            engineModePi.classList.add("active");
+            if (panelPiDev) panelPiDev.classList.remove("hidden");
         });
     }
 
@@ -161,6 +229,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (s.wazuh_user && settingWazuhUser) settingWazuhUser.value = s.wazuh_user;
             if (s.uptime_kuma_push_token && settingKumaToken) settingKumaToken.value = s.uptime_kuma_push_token;
             if (s.ui_theme && settingUITheme) settingUITheme.value = s.ui_theme;
+            const ttlEl = document.getElementById("setting-device-ttl");
+            if (ttlEl && s.device_cache_ttl_days) ttlEl.value = s.device_cache_ttl_days;
         } catch (err) {
             console.error("Failed to load system settings:", err);
         }
@@ -170,75 +240,115 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const res = await fetch("/api/ai/config", { credentials: "same-origin" });
             const config = await res.json();
-            currentAIMode = config.mode || "gemini";
-            if (currentAIMode === "gemini") {
-                if (tabBtnGemini) tabBtnGemini.click();
-            } else if (currentAIMode === "cloud_api") {
-                if (tabBtnCloud) tabBtnCloud.click();
+            currentAIMode = config.mode || "cloud_api";
+            
+            if (currentAIMode === "ollama") {
+                if (engineModeOllama) engineModeOllama.click();
             } else {
-                if (tabBtnOllama) tabBtnOllama.click();
+                if (engineModeCloud) engineModeCloud.click();
             }
 
+            const activeProvs = config.active_providers || ["gemini"];
+            if (chkGemini) chkGemini.checked = activeProvs.includes("gemini");
+            if (chkOpenAI) chkOpenAI.checked = activeProvs.includes("openai");
+            if (chkAnthropic) chkAnthropic.checked = activeProvs.includes("anthropic");
+
+            if (subBoxGemini) subBoxGemini.classList.toggle("hidden", !chkGemini.checked);
+            if (subBoxOpenAI) subBoxOpenAI.classList.toggle("hidden", !chkOpenAI.checked);
+            if (subBoxAnthropic) subBoxAnthropic.classList.toggle("hidden", !chkAnthropic.checked);
+
             if (config.gemini_model && selectGeminiModel) selectGeminiModel.value = config.gemini_model;
-            if (config.cloud_api_key && inputGeminiKey) inputGeminiKey.value = config.cloud_api_key;
+            if (config.openai_model && selectOpenAIModel) selectOpenAIModel.value = config.openai_model;
+            if (config.anthropic_model && selectAnthropicModel) selectAnthropicModel.value = config.anthropic_model;
+            if (config.pi_model && selectPiModel) selectPiModel.value = config.pi_model;
+
+            const gKey = config.cloud_api_key || config.gemini_api_key || "";
+            if (gKey && inputGeminiKey) inputGeminiKey.value = gKey;
+            if (config.openai_api_key && inputOpenAIKey) inputOpenAIKey.value = config.openai_api_key;
+            if (config.anthropic_api_key && inputAnthropicKey) inputAnthropicKey.value = config.anthropic_api_key;
+
             if (config.ollama_model && selectOllamaModelDrawer) selectOllamaModelDrawer.value = config.ollama_model;
-            if (config.cloud_api_url && inputCloudUrlDrawer) inputCloudUrlDrawer.value = config.cloud_api_url;
-            if (config.cloud_api_key && inputCloudKeyDrawer) inputCloudKeyDrawer.value = config.cloud_api_key;
         } catch (err) {
             console.error("Failed to load AI config:", err);
         }
     }
 
     btnSaveAllSettings.addEventListener("click", async () => {
+        const hostVal = (settingWazuhHost && settingWazuhHost.value.trim()) ? settingWazuhHost.value.trim() : "192.168.1.248";
         const sysPayload = {
-            session_timeout_minutes: parseInt(settingTimeoutMin.value) || 30,
-            icmp_ping_interval_seconds: parseInt(settingPingInterval.value) || 15,
-            ping_retry_threshold: parseInt(settingPingRetry.value) || 3,
-            wazuh_host: settingWazuhHost.value.trim(),
-            wazuh_port: parseInt(settingWazuhPort.value) || 55000,
-            wazuh_user: settingWazuhUser ? settingWazuhUser.value.trim() : "admin",
-            uptime_kuma_push_token: settingKumaToken ? settingKumaToken.value.trim() : "agentwazuh-push-secret-999",
+            session_timeout_minutes: parseInt(settingTimeoutMin ? settingTimeoutMin.value : 30) || 30,
+            icmp_ping_interval_seconds: parseInt(settingPingInterval ? settingPingInterval.value : 15) || 15,
+            ping_retry_threshold: parseInt(settingPingRetry ? settingPingRetry.value : 3) || 3,
+            wazuh_host: hostVal,
+            wazuh_port: parseInt(settingWazuhPort ? settingWazuhPort.value : 55000) || 55000,
+            wazuh_user: (settingWazuhUser && settingWazuhUser.value.trim()) ? settingWazuhUser.value.trim() : "agentwazuh",
+            uptime_kuma_push_token: (settingKumaToken && settingKumaToken.value.trim()) ? settingKumaToken.value.trim() : "agentwazuh-push-secret-999",
+            device_cache_ttl_days: parseInt((document.getElementById("setting-device-ttl") || {}).value) || 7,
             ui_theme: settingUITheme ? settingUITheme.value : "cyber_dark"
         };
 
-        let selectedKey = "";
-        if (currentAIMode === "gemini") {
-            selectedKey = inputGeminiKey ? inputGeminiKey.value.trim() : "";
-        } else if (currentAIMode === "cloud_api") {
-            selectedKey = inputCloudKeyDrawer ? inputCloudKeyDrawer.value.trim() : "";
+        const activeProvs = [];
+        if (chkGemini && chkGemini.checked) activeProvs.push("gemini");
+        if (chkOpenAI && chkOpenAI.checked) activeProvs.push("openai");
+        if (chkAnthropic && chkAnthropic.checked) activeProvs.push("anthropic");
+
+        if (currentAIMode === "cloud_api" && activeProvs.length === 0) {
+            activeProvs.push("gemini");
         }
+
+        const geminiKeyVal = inputGeminiKey ? inputGeminiKey.value.trim() : "";
+        const openaiKeyVal = inputOpenAIKey ? inputOpenAIKey.value.trim() : "";
+        const anthropicKeyVal = inputAnthropicKey ? inputAnthropicKey.value.trim() : "";
+        const piModelVal = selectPiModel ? selectPiModel.value : "github-copilot/gpt-4.1";
 
         const aiPayload = {
             mode: currentAIMode,
+            pi_model: piModelVal,
+            active_providers: activeProvs,
+            gemini_model: selectGeminiModel ? selectGeminiModel.value : "gemini-2.5-flash",
+            openai_model: selectOpenAIModel ? selectOpenAIModel.value : "gpt-4o-mini",
+            anthropic_model: selectAnthropicModel ? selectAnthropicModel.value : "claude-3-5-sonnet",
+            cloud_api_key: geminiKeyVal,
+            gemini_api_key: geminiKeyVal,
+            openai_api_key: openaiKeyVal,
+            anthropic_api_key: anthropicKeyVal,
             ollama_url: "http://localhost:11434/api/generate",
             ollama_model: selectOllamaModelDrawer ? selectOllamaModelDrawer.value : "qwen2.5:3b",
-            gemini_model: selectGeminiModel ? selectGeminiModel.value : "gemini-1.5-flash",
-            cloud_api_enabled: currentAIMode !== "ollama",
-            cloud_api_url: inputCloudUrlDrawer ? inputCloudUrlDrawer.value.trim() : "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            cloud_api_key: selectedKey,
-            cloud_model: "gpt-4o-mini"
+            multi_api_enabled: activeProvs.length > 1
         };
 
         try {
-            await fetch("/api/settings", {
+            const resSys = await fetch("/api/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(sysPayload),
                 credentials: "same-origin"
             });
 
-            await fetch("/api/ai/config", {
+            if (!resSys.ok) {
+                const sysErr = await resSys.json();
+                alert(`❌ Lỗi lưu Cài đặt Hệ thống: ${sysErr.detail || "Không thể kết nối Wazuh"}`);
+                return;
+            }
+
+            const resAi = await fetch("/api/ai/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(aiPayload),
                 credentials: "same-origin"
             });
 
-            alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT HỆ THỐNG THÀNH CÔNG!\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Chế độ AI Active: ${currentAIMode.toUpperCase()}`);
+            if (!resAi.ok) {
+                const aiErr = await resAi.json();
+                alert(`❌ Lỗi lưu Cài đặt AI: ${aiErr.detail || "Không thể cập nhật AI config"}`);
+                return;
+            }
+
+            alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT HỆ THỐNG THÀNH CÔNG!\n- Session Timeout: ${sysPayload.session_timeout_minutes} phút\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Mode AI: ${currentAIMode.toUpperCase()}`);
             if (statusWazuhIp) statusWazuhIp.textContent = `Wazuh Server: ${sysPayload.wazuh_host}`;
             window.closeSettingsModal();
         } catch (err) {
-            alert("❌ Lỗi khi lưu cài đặt.");
+            alert(`❌ Lỗi khi lưu cài đặt: ${err.message}`);
         }
     });
 
@@ -256,98 +366,198 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
             } catch (e) {}
+            resetGlobalState();
+            if (window.purgeAllClientState) window.purgeAllClientState();
             window.location.href = "/login";
         });
     }
 
     async function fetchLiveAlerts() {
         try {
-            const res = await fetch("/api/wazuh/alerts", { credentials: "same-origin" });
+            const endpoint = currentViewMode === "group" ? "/api/wazuh/alerts/correlated" : "/api/wazuh/alerts";
+            const res = await fetch(endpoint, { credentials: "same-origin" });
             if (res.status === 401) {
+                resetGlobalState();
+                if (window.purgeAllClientState) window.purgeAllClientState();
                 window.location.href = "/login";
                 return;
             }
             const data = await res.json();
-            renderAlertsList(data.alerts || []);
+            if (currentViewMode === "group") {
+                renderIncidentGroupsList(data.groups || []);
+            } else {
+                renderAlertsList(data.alerts || []);
+            }
         } catch (err) {
-            alertsList.innerHTML = '<div class="loading-state">Không thể kết nối đến Wazuh API.</div>';
+            const errorHtml = `
+                <div class="login-error-alert" style="margin: 1rem; border-color: #ef4444; background: rgba(239, 68, 68, 0.1); color: #f87171;">
+                    <i class="fa-solid fa-plug-circle-xmark"></i> Mất kết nối tới Wazuh Server/Backend. Đang thử kết nối lại...
+                </div>
+            `;
+            // Only update if it's not already showing the error to avoid flicker
+            if (!alertsList.innerHTML.includes("Mất kết nối tới")) {
+                alertsList.innerHTML = errorHtml;
+            }
         }
     }
 
     function renderAlertsList(alerts) {
         alertsList.innerHTML = "";
+        if (!alerts || alerts.length === 0) {
+            alertsList.innerHTML = `
+                <div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #94a3b8;">
+                    <i class="fa-solid fa-shield-check" style="font-size: 2.5rem; color: #10b981; margin-bottom: 0.8rem; display: block;"></i>
+                    <strong style="color: #f8fafc; display: block; margin-bottom: 0.4rem;">Chưa có Cảnh báo mới (0 Real Alerts)</strong>
+                    <span style="font-size: 0.8rem; color: #64748b;">Hệ thống đang ở chế độ Real-Time Fetch từ Wazuh API. Toàn bộ log giả lập cũ đã được gỡ bỏ 100%.</span>
+                </div>
+            `;
+            return;
+        }
+
+function formatLocalTime(tsStr) {
+    if (!tsStr) return "--:--:--";
+    try {
+        let str = String(tsStr).trim();
+        if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
+            str += "Z";
+        }
+        const d = new Date(str);
+        if (isNaN(d.getTime())) {
+            return tsStr.substring(11, 19) || "--:--:--";
+        }
+        return d.toLocaleTimeString("vi-VN", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        });
+    } catch (e) {
+        return (tsStr || "").substring(11, 19) || "--:--:--";
+    }
+}
+
         alerts.forEach(alert => {
             const card = document.createElement("div");
-            const level = alert.rule.level;
+            const rule = alert.rule || {};
+            const agent = alert.agent || {};
+            const data = alert.data || {};
+            const level = rule.level || 0;
+            const ts = formatLocalTime(alert.timestamp);
+            const agentIp = data.srcip || agent.ip || agent.name || "N/A";
             let levelClass = "level-low";
-            if (level >= 15) levelClass = "level-critical";
-            else if (level >= 12) levelClass = "level-high";
-            else if (level >= 7) levelClass = "level-medium";
+            let levelLabel = "LOW";
+            if (level >= 15) { levelClass = "level-critical"; levelLabel = "CRITICAL"; }
+            else if (level >= 12) { levelClass = "level-high"; levelLabel = "HIGH"; }
+            else if (level >= 7) { levelClass = "level-medium"; levelLabel = "MEDIUM"; }
 
             card.className = `alert-card ${levelClass}`;
             card.innerHTML = `
                 <div class="alert-header-row">
-                    <span class="badge-level ${levelClass}">LEVEL ${level}</span>
-                    <span class="alert-time">${alert.timestamp.substring(11, 19)}</span>
+                    <span class="badge-level ${levelClass}">${levelLabel} ${level}</span>
+                    <span class="alert-time">${ts}</span>
                 </div>
-                <div class="alert-title">Rule ${alert.rule.id}: ${alert.rule.description}</div>
+                <div class="alert-title">Rule ${rule.id || "?"}: ${rule.description || "Cảnh báo Wazuh"}</div>
                 <div class="alert-meta">
-                    <span><i class="fa-solid fa-server"></i> ${alert.agent.name}</span>
-                    <span><i class="fa-solid fa-network-wired"></i> ${alert.data.srcip || alert.agent.ip}</span>
+                    <span><i class="fa-solid fa-server"></i> ${agent.name || "wazuh-server"}</span>
+                    <span><i class="fa-solid fa-network-wired"></i> ${agentIp}</span>
                 </div>
             `;
 
             card.addEventListener("click", () => {
                 document.querySelectorAll(".alert-card").forEach(c => c.classList.remove("selected"));
                 card.classList.add("selected");
-                investigateAlert(`Phân tích sự cố Alert ${alert.id} (${alert.rule.description})`, alert);
+                appendUserBubble(`Phân tích sự cố Alert ${alert.id} (${rule.description || "Wazuh Alert"})`);
+                investigateAlert(`Phân tích sự cố Alert ${alert.id} (${rule.description || "Wazuh Alert"})`, alert);
             });
 
             alertsList.appendChild(card);
         });
     }
 
+    function renderIncidentGroupsList(groups) {
+        alertsList.innerHTML = "";
+        if (!groups || groups.length === 0) {
+            alertsList.innerHTML = `
+                <div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #94a3b8;">
+                    <i class="fa-solid fa-layer-group" style="font-size: 2.5rem; color: #10b981; margin-bottom: 0.8rem; display: block;"></i>
+                    <strong style="color: #f8fafc; display: block; margin-bottom: 0.4rem;">Chưa có Incident Group</strong>
+                    <span style="font-size: 0.8rem; color: #64748b;">Chưa có cảnh báo nào được tương quan thành nhóm.</span>
+                </div>
+            `;
+            return;
+        }
+
+        groups.forEach(group => {
+            const card = document.createElement("div");
+            const score = group.priority_score;
+            let levelClass = "level-low";
+            if (score >= 80) levelClass = "level-critical";
+            else if (score >= 50) levelClass = "level-high";
+            else if (score >= 30) levelClass = "level-medium";
+
+            card.className = `alert-card ${levelClass}`;
+            card.innerHTML = `
+                <div class="alert-header-row">
+                    <span class="badge-level ${levelClass}">PRIORITY SCORE: ${score}/100</span>
+                    <span class="alert-time">${new Date(group.time_span.start * 1000).toISOString().substring(11, 19)}</span>
+                </div>
+                <div class="alert-title"><i class="fa-solid fa-layer-group"></i> ${group.group_id} (Gồm ${group.alert_count} cảnh báo)</div>
+                <div class="alert-meta">
+                    <span><i class="fa-solid fa-network-wired"></i> Entity: ${group.entity}</span>
+                    <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown.mitre_techniques_found.join(", ") || "Chưa có dữ liệu"}</span>
+                </div>
+            `;
+
+            card.addEventListener("click", () => {
+                document.querySelectorAll(".alert-card").forEach(c => c.classList.remove("selected"));
+                card.classList.add("selected");
+                
+                // Trích xuất alert đầu tiên đại diện
+                const repAlert = group.alerts && group.alerts.length > 0 ? group.alerts[0] : null;
+                const queryMsg = `Phân tích nhóm sự cố ${group.group_id} (Điểm: ${score}/100)`;
+                appendUserBubble(queryMsg);
+                investigateAlert(queryMsg, repAlert);
+            });
+
+            alertsList.appendChild(card);
+        });
+    }
+
+    function appendUserBubble(msg) {
+        const div = document.createElement("div");
+        div.className = "chat-bubble user";
+        div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><div class="msg-text">${escapeHtml(msg)}</div></div>`;
+        chatStream.appendChild(div);
+        chatStream.scrollTop = chatStream.scrollHeight;
+    }
+
     async function investigateAlert(query, alertObj = null) {
         const progressBarHtml = `
-            <div class="ai-loading-container" style="margin-bottom: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9em; color: #10b981; font-weight: 600;">
-                    <span id="loading-text-phase"><i class="fa-solid fa-microchip"></i> Đang khởi tạo AI Model Engine...</span>
-                    <span id="loading-percent">0%</span>
+            <div class="ai-loading-container" style="margin-bottom: 12px; padding: 10px 14px; background: rgba(15, 23, 42, 0.7); border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 6px;">
+                    <span id="loading-percent" style="font-size: 0.95rem; color: #10b981; font-weight: 700;">0%</span>
                 </div>
-                <div class="progress-bar-bg" style="width: 100%; height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);">
-                    <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);"></div>
+                <div class="progress-bar-bg" style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+                    <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #10b981); transition: width 0.3s ease; box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);"></div>
                 </div>
             </div>
         `;
         const loadingId = appendChatBot(progressBarHtml);
-        
+
         const progressBarFill = document.getElementById("progress-bar-fill");
         const loadingPercent = document.getElementById("loading-percent");
-        const loadingTextPhase = document.getElementById("loading-text-phase");
-        
+
         let progress = 0;
-        const phases = [
-            "<i class='fa-solid fa-database'></i> Đang trích xuất log từ Wazuh...",
-            "<i class='fa-solid fa-sitemap'></i> Đang tra cứu Ground-Truth MITRE...",
-            "<i class='fa-solid fa-shield-halved'></i> Đang phân loại Threat Classification...",
-            "<i class='fa-solid fa-brain'></i> Đang nạp ngữ cảnh cho AI Engine...",
-            "<i class='fa-solid fa-laptop-code'></i> LLM đang suy luận giải pháp..."
-        ];
-        
         const progressInterval = setInterval(() => {
             if (progress < 95) {
-                progress += Math.random() * 8 + 2; 
+                progress += Math.random() * 12 + 4;
                 if (progress > 95) progress = 95;
-                if (progressBarFill && loadingPercent && loadingTextPhase) {
+                if (progressBarFill && loadingPercent) {
                     progressBarFill.style.width = progress + "%";
                     loadingPercent.textContent = Math.floor(progress) + "%";
-                    
-                    let phaseIndex = Math.floor((progress / 100) * phases.length);
-                    if (phaseIndex >= phases.length) phaseIndex = phases.length - 1;
-                    loadingTextPhase.innerHTML = phases[phaseIndex];
                 }
             }
-        }, 500);
+        }, 300);
 
         try {
             const res = await fetch("/api/wazuh/investigate", {
@@ -366,14 +576,13 @@ document.addEventListener("DOMContentLoaded", () => {
             const inv = data.investigation;
 
             clearInterval(progressInterval);
-            if (progressBarFill && loadingPercent && loadingTextPhase) {
+            if (progressBarFill && loadingPercent) {
                 progressBarFill.style.width = "100%";
                 loadingPercent.textContent = "100%";
-                loadingTextPhase.innerHTML = "<i class='fa-solid fa-check-circle'></i> Hoàn tất phân tích!";
             }
 
             setTimeout(() => {
-                updateChatBot(loadingId, inv.layer_2_llm_reasoning, inv.reasoning_steps);
+                updateChatBot(loadingId, inv.layer_2_llm_reasoning, inv.reasoning_steps, inv.config_form);
                 renderEvidenceDetail(inv, alertObj);
             }, 600);
             
@@ -394,33 +603,162 @@ document.addEventListener("DOMContentLoaded", () => {
         return id;
     }
 
-    function updateChatBot(id, markdownText, steps = []) {
+    function updateChatBot(id, markdownText, steps = [], configForm = null) {
         const div = document.getElementById(id);
-        if (div) {
-            const content = div.querySelector(".msg-text");
-            let parsedHtml = window.marked ? marked.parse(markdownText) : markdownText.replace(/\n/g, "<br>");
-            content.innerHTML = parsedHtml;
+        if (!div) return;
 
-            const mermaidBlocks = content.querySelectorAll("pre code.language-mermaid");
-            mermaidBlocks.forEach((codeBlock, idx) => {
-                const mermaidContent = codeBlock.textContent;
-                const containerId = `mermaid_diag_${Date.now()}_${idx}`;
-                const mermaidDiv = document.createElement("div");
-                mermaidDiv.className = "mermaid-container";
-                mermaidDiv.id = containerId;
-                codeBlock.parentNode.replaceWith(mermaidDiv);
+        const content = div.querySelector(".msg-text");
+        let parsedHtml = window.marked ? marked.parse(markdownText) : markdownText.replace(/\n/g, "<br>");
 
-                try {
-                    mermaid.render(containerId + "_svg", mermaidContent).then(renderResult => {
-                        mermaidDiv.innerHTML = renderResult.svg;
-                    });
-                } catch (e) {
-                    mermaidDiv.innerHTML = `<pre class="mermaid">${mermaidContent}</pre>`;
-                }
-            });
+        if (configForm && configForm.form_data) {
+            const f = configForm.form_data;
+            const formCardHtml = `
+                <div class="hitl-card-container" id="hitl_card_${f.form_id}" style="margin-top: 1.2rem; background: #0f172a; border: 1px solid #38bdf8; border-radius: 14px; padding: 1.2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.8rem; margin-bottom: 1rem;">
+                        <h4 style="margin: 0; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fa-solid fa-sliders"></i> ${configForm.title || "Human-In-The-Loop Interactive Form"}
+                        </h4>
+                        <span class="status-pill pill-secure" style="font-size: 0.7rem;"><i class="fa-solid fa-shield"></i> HITL Guarded</span>
+                    </div>
+                    
+                    <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 1rem 0;">${configForm.description}</p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                        <div>
+                            <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Tên quy tắc cảnh báo:</label>
+                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name}" class="input-setting-control" style="width: 100%;">
+                        </div>
 
-            chatStream.scrollTop = chatStream.scrollHeight;
+                        <div>
+                            <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Chuỗi nhận diện Log Match:</label>
+                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern}" class="input-setting-control" style="width: 100%;">
+                        </div>
+
+                        <div style="display: flex; gap: 0.8rem;">
+                            <div style="flex: 1;">
+                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Ngưỡng số lần:</label>
+                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency}" class="input-setting-control" style="width: 100%;">
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Thời gian (giây):</label>
+                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe}" class="input-setting-control" style="width: 100%;">
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Mức độ Rule Level:</label>
+                                <select id="hitl_input_level_${f.form_id}" class="input-setting-control" style="width: 100%;">
+                                    <option value="5" ${f.level === 5 ? 'selected' : ''}>Level 5 - Low</option>
+                                    <option value="7" ${f.level === 7 ? 'selected' : ''}>Level 7 - Medium</option>
+                                    <option value="10" ${f.level === 10 ? 'selected' : ''}>Level 10 - High</option>
+                                    <option value="12" ${f.level === 12 ? 'selected' : ''}>Level 12 - Critical</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button id="hitl_btn_apply_${f.form_id}" class="btn-primary" style="margin-top: 0.6rem; padding: 0.7rem 1.2rem; font-size: 0.88rem; width: 100%;">
+                            <i class="fa-solid fa-bolt"></i> Áp Dụng Vào Wazuh Manager
+                        </button>
+                    </div>
+                </div>
+            `;
+            parsedHtml += formCardHtml;
         }
+
+        content.innerHTML = parsedHtml;
+
+        const mermaidBlocks = content.querySelectorAll("pre code.language-mermaid");
+        mermaidBlocks.forEach((codeBlock, idx) => {
+            const mermaidContent = codeBlock.textContent;
+            const containerId = `mermaid_diag_${Date.now()}_${idx}`;
+            const mermaidDiv = document.createElement("div");
+            mermaidDiv.className = "mermaid-container";
+            mermaidDiv.id = containerId;
+            codeBlock.parentNode.replaceWith(mermaidDiv);
+
+            try {
+                mermaid.render(containerId + "_svg", mermaidContent).then(renderResult => {
+                    mermaidDiv.innerHTML = renderResult.svg;
+                });
+            } catch (e) {
+                mermaidDiv.innerHTML = `<pre class="mermaid">${mermaidContent}</pre>`;
+            }
+        });
+
+        // Render Chart.js dynamic blocks if present
+        const chartBlocks = div.querySelectorAll("code.language-chart, code.language-chartjs, code.language-json");
+        chartBlocks.forEach((codeBlock, idx) => {
+            const chartContent = codeBlock.textContent.trim();
+            if (!chartContent.includes('"type"') || !chartContent.includes('"data"')) return;
+            
+            try {
+                const chartConfig = JSON.parse(chartContent);
+                const chartContainerId = "chart_canvas_" + Date.now() + "_" + idx;
+                
+                const wrapper = document.createElement("div");
+                wrapper.className = "chart-wrapper-card";
+                wrapper.style.cssText = "margin: 1rem 0; background: #0f172a; padding: 1.2rem; border-radius: 12px; border: 1px solid #38bdf8; position: relative; max-width: 100%; min-height: 260px;";
+                
+                const canvas = document.createElement("canvas");
+                canvas.id = chartContainerId;
+                wrapper.appendChild(canvas);
+                
+                codeBlock.parentNode.replaceWith(wrapper);
+                
+                if (window.Chart) {
+                    new Chart(canvas.getContext("2d"), chartConfig);
+                }
+            } catch (e) {
+                // Ignore non-chart json blocks
+            }
+        });
+
+        if (configForm && configForm.form_data) {
+            const f = configForm.form_data;
+            setTimeout(() => {
+                const btnApply = document.getElementById(`hitl_btn_apply_${f.form_id}`);
+                if (btnApply) {
+                    btnApply.addEventListener("click", async () => {
+                        const rule_name = document.getElementById(`hitl_input_name_${f.form_id}`).value.trim();
+                        const match_pattern = document.getElementById(`hitl_input_match_${f.form_id}`).value.trim();
+                        const frequency = parseInt(document.getElementById(`hitl_input_freq_${f.form_id}`).value) || 5;
+                        const timeframe = parseInt(document.getElementById(`hitl_input_time_${f.form_id}`).value) || 60;
+                        const level = parseInt(document.getElementById(`hitl_input_level_${f.form_id}`).value) || 10;
+
+                        btnApply.disabled = true;
+                        btnApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp rule & khởi động lại Wazuh Manager...';
+
+                        try {
+                            const res = await fetch("/api/wazuh/apply-rule", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ rule_name, match_pattern, frequency, timeframe, level }),
+                                credentials: "same-origin"
+                            });
+
+                            const data = await res.json();
+                            if (data.status === "success") {
+                                btnApply.className = "interactive-chip chip-low";
+                                btnApply.style.background = "rgba(16, 185, 129, 0.2)";
+                                btnApply.style.borderColor = "#10b981";
+                                btnApply.style.color = "#34d399";
+                                btnApply.style.width = "100%";
+                                btnApply.style.padding = "0.7rem";
+                                btnApply.innerHTML = `<i class="fa-solid fa-circle-check"></i> ✔ Đã áp dụng thành công Rule [${data.rule_id}] vào Wazuh Manager (Level ${level})`;
+                            } else {
+                                alert("Lỗi khi áp dụng rule.");
+                                btnApply.disabled = false;
+                                btnApply.innerHTML = '<i class="fa-solid fa-bolt"></i> Thử lại Áp Dụng Vào Wazuh';
+                            }
+                        } catch (err) {
+                            alert("Không thể kết nối đến API Wazuh Manager.");
+                            btnApply.disabled = false;
+                            btnApply.innerHTML = '<i class="fa-solid fa-bolt"></i> Thử lại Áp Dụng Vào Wazuh';
+                        }
+                    });
+                }
+            }, 100);
+        }
+
+        chatStream.scrollTop = chatStream.scrollHeight;
     }
 
     function renderEvidenceDetail(inv, alertObj) {
@@ -441,7 +779,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="evidence-section">
                 <h3><i class="fa-solid fa-shield-cat"></i> Threat Assessment</h3>
                 <p><strong>Classification:</strong> ${riskBadge}</p>
-                <p><strong>AI Engine Used:</strong> <code>${inv.model_used || "Qwen2.5-3B Local"}</code></p>
+                <p><strong>AI Engine Used:</strong> <code>${inv.model_used || "Cloud API Engine"}</code></p>
                 <p><strong>MITRE Technique:</strong> <code>${inv.layer_1_static_lookup?.technique_id || "T1110"}</code></p>
             </div>
         `;
@@ -450,7 +788,10 @@ document.addEventListener("DOMContentLoaded", () => {
     presetChips.forEach(chip => {
         chip.addEventListener("click", () => {
             const query = chip.getAttribute("data-query");
-            if (query) investigateAlert(query);
+            if (query) {
+                appendUserBubble(query);
+                investigateAlert(query);
+            }
         });
     });
 
@@ -459,9 +800,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const query = chatInput.value.trim();
         if (!query) return;
         chatInput.value = "";
+        appendUserBubble(query);
         investigateAlert(query);
     });
 
     fetchLiveAlerts();
     loadSystemSettings();
+
+    // AUTO-SYNC THỜI GIAN THỰC TỪ BACKEND CACHE MỖI 5 GIÂY (POLLING PUSH-FALLBACK)
+    setInterval(fetchLiveAlerts, 5000);
 });

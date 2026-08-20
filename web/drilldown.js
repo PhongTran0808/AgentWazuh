@@ -69,8 +69,16 @@ document.addEventListener("DOMContentLoaded", () => {
             else if (level >= 12) levelClass = "level-high";
             else if (level >= 7) levelClass = "level-medium";
 
+            let tsStr = log.timestamp || "";
+            if (!tsStr.endsWith("Z") && !tsStr.includes("+") && !tsStr.includes("-", 10)) tsStr += "Z";
+            let formattedTs = tsStr.substring(11, 19);
+            try {
+                const d = new Date(tsStr);
+                if (!isNaN(d.getTime())) formattedTs = d.toLocaleTimeString("vi-VN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            } catch(e) {}
+
             tr.innerHTML = `
-                <td>${log.timestamp.substring(11, 19)}</td>
+                <td>${formattedTs}</td>
                 <td><strong>Rule ${log.rule.id}</strong></td>
                 <td><span class="badge-level ${levelClass}">LEVEL ${level}</span></td>
                 <td>${log.rule.description}</td>

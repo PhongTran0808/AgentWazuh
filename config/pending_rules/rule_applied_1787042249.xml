@@ -1,0 +1,11 @@
+<group name="web,bruteforce,fim,">
+  <rule id="100060" level="12" frequency="5" timeframe="60">
+    <if_matched_sid>550</if_matched_sid>
+    <same_source_ip />
+    <match>/var/www/html/.*\.php$</match>
+    <description>Phat hien upload file PHP vao thu muc Web DMZ</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+</group>

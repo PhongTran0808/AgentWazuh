@@ -1,4 +1,4 @@
-// AgentWazuh Single Account Auth Controller (Version 10.3 Enterprise)
+// AgentWazuh Single Account Auth Controller (Version 13.0 State Reset Release)
 document.addEventListener("DOMContentLoaded", () => {
     const loginForm = document.getElementById("login-form-v2") || document.getElementById("auth-login-form");
     const wazuhHostInput = document.getElementById("wazuh_host");
@@ -8,6 +8,34 @@ document.addEventListener("DOMContentLoaded", () => {
     const loginError = document.getElementById("login-error-msg") || document.getElementById("login-error");
     const errorText = document.getElementById("error-text");
     const btnSubmit = document.getElementById("btn-submit-login") || document.getElementById("btn-login");
+
+    // Central Purge Client State Helper (Item 2A Specification)
+    window.purgeAllClientState = function () {
+        try {
+            localStorage.clear();
+            sessionStorage.clear();
+        } catch (e) {}
+
+        if (window.indexedDB && indexedDB.databases) {
+            try {
+                indexedDB.databases().then((dbs) => {
+                    dbs.forEach((db) => {
+                        if (db.name) indexedDB.deleteDatabase(db.name);
+                    });
+                });
+            } catch (e) {}
+        }
+
+        // Cancel all running background timers / polling intervals
+        let highestId = window.setInterval(() => {}, 0);
+        while (highestId--) {
+            window.clearInterval(highestId);
+            window.clearTimeout(highestId);
+        }
+    };
+
+    // Purge old state on Login page load
+    window.purgeAllClientState();
 
     if (!loginForm) return;
 
@@ -19,10 +47,10 @@ document.addEventListener("DOMContentLoaded", () => {
             btnSubmit.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Đang kết nối Wazuh & xác thực...</span>';
         }
 
-        const wazuh_host = wazuhHostInput ? wazuhHostInput.value.trim() : "172.16.10.254";
+        const wazuh_host = wazuhHostInput ? wazuhHostInput.value.trim() : "";
         const wazuh_port = wazuhPortInput ? parseInt(wazuhPortInput.value.trim()) || 55000 : 55000;
-        const username = usernameInput.value.trim();
-        const password = passwordInput.value.trim();
+        const username = usernameInput ? usernameInput.value.trim() : "admin";
+        const password = passwordInput ? passwordInput.value.trim() : "admin123";
 
         try {
             const res = await fetch("/api/auth/login", {
@@ -34,9 +62,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await res.json();
             if (res.ok && data.authenticated) {
+                // Purge state before redirecting to dashboard
+                window.purgeAllClientState();
                 window.location.href = data.redirect || "/dashboard";
             } else {
-                if (errorText) errorText.textContent = data.detail || "Tên đăng nhập hoặc mật khẩu không chính xác.";
+                if (errorText) errorText.textContent = data.detail || "Xác thực thất bại. Vui lòng kiểm tra lại.";
                 if (loginError) loginError.classList.remove("hidden");
             }
         } catch (err) {

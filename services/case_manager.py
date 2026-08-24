@@ -3,6 +3,8 @@ import logging
 import requests
 from typing import Dict, Any, List, Optional
 
+from datetime import datetime, timezone
+
 logger = logging.getLogger("CaseManager")
 
 
@@ -34,7 +36,7 @@ class CaseManager:
             "risk_score": risk_score,
             "mitre_technique": mitre_technique,
             "description": description,
-            "timestamp": requests.utils.default_user_agent(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": "AWAITING_HUMAN_APPROVAL",
             "alert_evidence": alert_details or {},
             "playbook_recommendations": [

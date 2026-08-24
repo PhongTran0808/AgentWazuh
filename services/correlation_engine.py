@@ -234,6 +234,52 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
             })
         return groups
 
+
+def dry_run_rule(rule_xml: str, sample_alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Chạy thử nghiệm Rule nháp (Dry-run Sandbox) trên tập alerts lịch sử.
+    """
+    match_count = 0
+    matched_ids = []
+
+    match_tag = re.search(r"<match>(.*?)</match>", rule_xml, re.DOTALL)
+    pattern = match_tag.group(1).strip() if match_tag else ""
+
+    for alert in (sample_alerts or [])[:200]:
+        desc = alert.get("rule", {}).get("description", "")
+        data_str = json.dumps(alert.get("data", {}))
+        if pattern and (pattern.lower() in desc.lower() or pattern.lower() in data_str.lower()):
+            match_count += 1
+            if alert.get("id"):
+                matched_ids.append(str(alert.get("id")))
+
+    fp_risk = "Thấp (0-5%)" if match_count < 10 else ("Trung bình (5-20%)" if match_count < 50 else "Cao (>20%)")
+    return {
+        "would_match_count": match_count,
+        "sample_matched_alert_ids": matched_ids[:10],
+        "estimated_false_positive_risk": fp_risk
+    }
+
+
+def generate_config_diff(old_content: str, new_content: str, filename: str = "local_rules.xml") -> str:
+    """
+    Tạo Unified Diff chuẩn giữa cấu hình cũ và cấu hình nháp mới.
+    """
+    import difflib
+    old_lines = (old_content or "").splitlines(keepends=True)
+    new_lines = (new_content or "").splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=f"a/{filename}",
+        tofile=f"b/{filename}"
+    )
+    res = "".join(diff)
+    if not res:
+        res = f"--- a/{filename}\n+++ b/{filename}\n@@ -0,0 +1,5 @@\n" + new_content
+    return res
+
+
     # Fallback nếu không có networkx: Nhóm theo entity và time window cơ bản
     groups = []
     for alert in alerts_sorted:

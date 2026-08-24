@@ -23,47 +23,61 @@ document.addEventListener("DOMContentLoaded", () => {
 
     drilldownTitle.innerHTML = `<i class="fa-solid fa-filter"></i> Log Drill-down Inspector: [${filterType.toUpperCase()} = ${filterVal.toUpperCase()}]`;
 
-    btnBackDash.addEventListener("click", () => {
+    window.openLogModalByIndex = function(idx) {
+        const logObj = currentLogs[idx];
+        if (logObj && modalLogJson) {
+            modalLogJson.textContent = JSON.stringify(logObj, null, 2);
+            logModal?.classList.remove("hidden");
+        }
+    };
+
+    window.askAboutLogByIndex = function(idx) {
+        const logObj = currentLogs[idx];
+        if (logObj && chatInput) {
+            const ruleId = logObj.rule?.id || "";
+            const desc = logObj.rule?.description || "";
+            chatInput.value = `Phân tích cụ thể nguy cơ từ log Rule ${ruleId}: "${desc}"`;
+            chatForm?.dispatchEvent(new Event("submit"));
+        }
+    };
+
+    btnBackDash?.addEventListener("click", () => {
         window.location.href = "/dashboard";
     });
 
     window.openLogModal = function(logObj) {
-        modalLogJson.textContent = JSON.stringify(logObj, null, 2);
-        logModal.classList.remove("hidden");
+        if (modalLogJson) modalLogJson.textContent = JSON.stringify(logObj, null, 2);
+        logModal?.classList.remove("hidden");
     };
 
     window.closeLogModal = function() {
-        logModal.classList.add("hidden");
-    };
-
-    window.askAboutLog = function(ruleId, desc) {
-        chatInput.value = `Phân tích cụ thể nguy cơ từ log Rule ${ruleId}: "${desc}"`;
-        chatForm.dispatchEvent(new Event("submit"));
+        logModal?.classList.add("hidden");
     };
 
     // Fetch Filtered Logs
     async function fetchFilteredLogs() {
-        logsTbody.innerHTML = '<tr><td colspan="6" class="loading-state">Đang tải dữ liệu log chi tiết...</td></tr>';
+        if (logsTbody) logsTbody.innerHTML = '<tr><td colspan="6" class="loading-state">Đang tải dữ liệu log chi tiết...</td></tr>';
         try {
             const res = await fetch(`/api/wazuh/alerts/filter?type=${filterType}&value=${filterVal}&limit=200`);
             const data = await res.json();
             currentLogs = data.alerts || [];
             renderTable(currentLogs);
         } catch (err) {
-            logsTbody.innerHTML = '<tr><td colspan="6" class="loading-state">Không thể tải dữ liệu log.</td></tr>';
+            if (logsTbody) logsTbody.innerHTML = '<tr><td colspan="6" class="loading-state">Không thể tải dữ liệu log.</td></tr>';
         }
     }
 
     function renderTable(logs) {
+        if (!logsTbody) return;
         if (!logs || logs.length === 0) {
             logsTbody.innerHTML = '<tr><td colspan="6" class="loading-state">Không tìm thấy log nào trong phân vùng này.</td></tr>';
             return;
         }
 
         logsTbody.innerHTML = "";
-        logs.forEach(log => {
+        logs.forEach((log, idx) => {
             const tr = document.createElement("tr");
-            const level = log.rule.level;
+            const level = log.rule?.level || 0;
             let levelClass = "level-low";
             if (level >= 15) levelClass = "level-critical";
             else if (level >= 12) levelClass = "level-high";
@@ -79,13 +93,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
             tr.innerHTML = `
                 <td>${formattedTs}</td>
-                <td><strong>Rule ${log.rule.id}</strong></td>
+                <td><strong>Rule ${log.rule?.id || ""}</strong></td>
                 <td><span class="badge-level ${levelClass}">LEVEL ${level}</span></td>
-                <td>${log.rule.description}</td>
-                <td>${log.agent.name} (${log.data.srcip || log.agent.ip})</td>
+                <td>${escapeHtml(log.rule?.description || "")}</td>
+                <td>${escapeHtml(log.agent?.name || "")} (${escapeHtml(log.data?.srcip || log.agent?.ip || "")})</td>
                 <td>
-                    <button class="interactive-chip" onclick='window.openLogModal(${JSON.stringify(log)})'>🔍 JSON</button>
-                    <button class="interactive-chip chip-low" onclick='window.askAboutLog("${log.rule.id}", "${log.rule.description}")'>💬 Hỏi AI</button>
+                    <button class="interactive-chip" onclick="window.openLogModalByIndex(${idx})">🔍 JSON</button>
+                    <button class="interactive-chip chip-low" onclick="window.askAboutLogByIndex(${idx})">💬 Hỏi AI</button>
                 </td>
             `;
             logsTbody.appendChild(tr);

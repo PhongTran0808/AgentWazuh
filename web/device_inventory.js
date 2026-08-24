@@ -12,21 +12,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectType = document.getElementById("form-type");
     const inputRole = document.getElementById("form-role");
 
-    btnBackDash.addEventListener("click", () => {
+    btnBackDash?.addEventListener("click", () => {
         window.location.href = "/dashboard";
     });
 
-    btnOpenNetmap.addEventListener("click", () => {
+    btnOpenNetmap?.addEventListener("click", () => {
         window.location.href = "/network-map";
     });
 
-    btnRefresh.addEventListener("click", () => {
+    btnRefresh?.addEventListener("click", () => {
         loadInventoryData();
     });
 
     async function loadInventoryData() {
-        inventoryTbody.innerHTML = '<tr><td colspan="5" class="loading-state">Đang tải dữ liệu kiểm kê...</td></tr>';
-        unverifiedChipsContainer.innerHTML = '<span class="loading-state">Đang tìm IP chưa xác minh...</span>';
+        if (inventoryTbody) inventoryTbody.innerHTML = '<tr><td colspan="5" class="loading-state">Đang tải dữ liệu kiểm kê...</td></tr>';
+        if (unverifiedChipsContainer) unverifiedChipsContainer.innerHTML = '<span class="loading-state">Đang tìm IP chưa xác minh...</span>';
 
         try {
             const res = await fetch("/api/wazuh/inventory");

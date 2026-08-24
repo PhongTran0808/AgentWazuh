@@ -5,7 +5,18 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List
 
-from vault_manager import VaultManager
+class VaultManager:
+    """Vault Credential Manager for FortiGate read-only CLI access."""
+    def __init__(self, config_dir: Path):
+        self.vault_file = config_dir / "vault_credentials.json"
+
+    def load_credentials(self) -> Dict[str, Any]:
+        if self.vault_file.exists():
+            try:
+                return json.loads(self.vault_file.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {}
 
 # STRICT READ-ONLY COMMAND WHITELIST (Phần 3 Specification)
 ALLOWED_READONLY_COMMANDS = [

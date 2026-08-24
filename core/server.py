@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import subprocess
 import asyncio
+import requests
 import uvicorn
 import sys
 from datetime import datetime
@@ -23,7 +24,7 @@ if str(BASE_DIR) not in sys.path:
 
 from services.wazuh_client import WazuhClient
 from services.incident_assistant import IncidentAssistant
-from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority
+from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from mcp_layer.wazuh_mcp import get_agents, search_alerts, get_manager_status
 from ai_topology_parser import DynamicAITopologyParser
@@ -416,27 +417,6 @@ def is_valid_public_or_private_ip(ip_str: str) -> bool:
     except ValueError:
         return False
 
-def build_ai_dynamic_topology() -> Dict[str, Any]:
-    # Pure Real-Time Discovery: Only parse known active agents or confirmed devices
-    status_data = wazuh_client.get_system_status()
-    active_agents = status_data.get("agents", [])
-    known_devices = list(load_known_devices_dict().values())
-
-    combined_list = []
-    for agent in active_agents:
-        combined_list.append({
-            "ip": agent.get("ip", "127.0.0.1"),
-            "name": agent.get("name", "Wazuh Agent"),
-            "type": "server" if "server" in agent.get("name", "").lower() else "endpoint",
-            "os": agent.get("os", {}).get("name", "Linux"),
-            "verified_by": "Wazuh Agent Live"
-        })
-
-    for dev in known_devices:
-        if not any(c.get("ip") == dev.get("ip") for c in combined_list):
-            combined_list.append(dev)
-
-    return ai_parser.build_dynamic_topology(combined_list)
 
 # Auth Routes
 @app.get("/login", response_class=HTMLResponse)
@@ -1141,8 +1121,8 @@ async def confirm_device(req: DeviceConfirmRequest, session: str = Depends(requi
 import glob
 import uuid
 
-CHAT_SESSIONS_DIR = "data/chat_sessions"
-os.makedirs(CHAT_SESSIONS_DIR, exist_ok=True)
+CHAT_SESSIONS_DIR = BASE_DIR / "data" / "chat_sessions"
+CHAT_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 class ChatMessage(BaseModel):
     role: str
@@ -1492,7 +1472,6 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
 
 @app.post("/api/wazuh/rules/dry-run")
 async def dry_run_rule_endpoint(req: RuleGenerateRequest, session: str = Depends(require_authenticated_session)):
-    from correlation_engine import dry_run_rule, generate_config_diff
     local_rules_path = CONFIG_DIR / "local_rules.xml"
     old_xml = local_rules_path.read_text(encoding="utf-8") if local_rules_path.exists() else ""
     
@@ -1513,7 +1492,6 @@ async def dry_run_rule_endpoint(req: RuleGenerateRequest, session: str = Depends
 
 @app.post("/api/wazuh/rules/generate")
 async def generate_rule(req: RuleGenerateRequest, session: str = Depends(require_authenticated_session)):
-    from correlation_engine import dry_run_rule, generate_config_diff
     timestamp = int(time.time())
     new_rule_id = 100026
     rule_xml = f"""<group name="sshd,authentication_failures,">

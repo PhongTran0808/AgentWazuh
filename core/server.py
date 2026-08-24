@@ -676,7 +676,16 @@ async def get_wazuh_live_logs():
 
 @app.get("/api/wazuh/alerts")
 async def get_alerts(session: str = Depends(require_authenticated_session)):
-    # TRẢ VỀ TỪ GLOBAL CACHE - KHÔNG GỌI WAZEH API ĐỒNG BỘ
+    global GLOBAL_ALERTS_CACHE
+    if not GLOBAL_ALERTS_CACHE:
+        try:
+            loop = asyncio.get_event_loop()
+            alerts_data = await loop.run_in_executor(None, lambda: wazuh_client.get_latest_alerts(limit=200, hours_back=720))
+            if alerts_data:
+                GLOBAL_ALERTS_CACHE = alerts_data
+        except Exception as e:
+            print(f"⚠️ Error fetching live alerts on demand: {e}")
+
     return {"status": "success", "count": len(GLOBAL_ALERTS_CACHE), "alerts": GLOBAL_ALERTS_CACHE}
 
 @app.post("/api/wazuh/alerts/import")

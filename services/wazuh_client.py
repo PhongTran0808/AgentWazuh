@@ -216,7 +216,7 @@ class WazuhClient:
                 "error": f"Không thể kết nối tới Wazuh Server tại {self.host} ({e})"
             }
 
-    def get_alert_stats_aggregated(self, hours_back: int = 24, tz_offset_hours: int = 7) -> dict:
+    def get_alert_stats_aggregated(self, hours_back: int = 720, tz_offset_hours: int = 7) -> dict:
         """
         Lấy thống kê alert CHÍNH XÁC qua OpenSearch Aggregation (port 443).
         """
@@ -304,7 +304,7 @@ class WazuhClient:
         except Exception as e:
             return {"total_24h": 0, "critical": 0, "high": 0, "medium": 0, "low": 0, "error": str(e)}
 
-    def get_latest_alerts(self, limit: int = 100, hours_back: int = 24) -> list:
+    def get_latest_alerts(self, limit: int = 200, hours_back: int = 720) -> list:
         """
         Fetch live security alerts từ OpenSearch Index wazuh-alerts-4.x-* qua OpenSearch Console Proxy (443).
         """

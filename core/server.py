@@ -849,10 +849,6 @@ def build_ai_dynamic_topology() -> Dict[str, Any]:
                 "verified_by": "Wazuh Agent Live"
             })
 
-    # Nếu chưa có agent nào từ Wazuh Server (kết nối chờ), hiển thị 5 thiết bị cơ sở từ known_devices
-    if not combined_list:
-        combined_list = [d for d in load_known_devices_dict().values() if d.get("id") != "000"]
-
     return ai_parser.build_dynamic_topology(combined_list)
 
 

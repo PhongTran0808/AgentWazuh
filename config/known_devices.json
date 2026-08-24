@@ -58,5 +58,12 @@
     "verified": true,
     "status": "active",
     "os": "Wazuh SIEM Server 4.14.7 (VMware)"
+  },
+  {
+    "ip": "192.168.99.99",
+    "name": "Unregistered-Phantom-Router",
+    "type": "router",
+    "role": "infrastructure_device",
+    "verified_by": "manual"
   }
 ]

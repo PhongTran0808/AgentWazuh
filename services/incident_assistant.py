@@ -3,9 +3,12 @@ import json
 import re
 import time
 import subprocess
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+logger = logging.getLogger("IncidentAssistant")
 
 class IncidentAssistant:
     """
@@ -50,7 +53,7 @@ class IncidentAssistant:
                 return True
         return False
 
-    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool) -> str:
+    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool, system_context: Optional[Dict[str, Any]] = None) -> str:
         """
         Offload request to PI Agent CLI and log audit.
         """
@@ -231,7 +234,7 @@ class IncidentAssistant:
         if not agg_stats or agg_stats.get("total_24h", 0) == 0:
             try:
                 from services.wazuh_client import WazuhClient
-                wc = WazuhClient(host=current_host)
+                wc = WazuhClient(host=current_host, user="agentwazuh", password="1234567890gG@")
                 agg_stats = wc.get_alert_stats_aggregated(hours_back=24, tz_offset_hours=7)
             except Exception:
                 pass
@@ -284,16 +287,32 @@ class IncidentAssistant:
         context_lines.append(f"- Top Rules Distribution: {json.dumps(top_rules)}")
         context_lines.append(f"- Hourly Time-Series Distribution (UTC+7 Múi giờ Việt Nam): {json.dumps(hourly_dist)}")
 
-        # Check if conversational query
+        # --- RAG SMART INTENT ROUTER & KNOWLEDGE RETRIEVAL ---
         query_lower = query.strip().lower()
+        wazuh_keywords = [
+            "wazuh", "siem", "alert", "agent", "device", "thiết bị", "ip", "port",
+            "tấn công", "brute", "scan", "ransomware", "ddos", "mitre", "cve", "rule",
+            "log", "syslog", "opensearch", "manager", "firewall", "fortigate", "cisco",
+            "172.16.", "192.168.", "báo cáo", "sự cố", "an ninh", "soc"
+        ]
+        
+        is_wazuh_query = any(k in query_lower for k in wazuh_keywords)
         is_greeting = query_lower in ["hi", "hello", "chào", "chào bạn", "bạn là ai", "bạn có thể làm gì", "bạn làm được gì", "help", "trợ giúp"]
+
+        if is_wazuh_query:
+            context_lines.append("\n[RAG ROUTER DECISION: WAZUH / SIEM SECURITY QUERY -> STRICT RETRIEVAL MODE]")
+            context_lines.append("- Đây là câu hỏi liên quan đến hệ thống Wazuh SIEM, Cảnh báo an ninh hoặc Thiết bị mạng.")
+            context_lines.append("- BẮT BUỘC tra cứu và phân tích dựa trên đúng 100% dữ liệu thực tế từ Wazuh REST API & CMDB ở trên.")
+            context_lines.append("- TUYỆT ĐỐI KHÔNG bịa đặt thông tin khi tra cứu dữ liệu Wazuh Server.")
+        else:
+            context_lines.append("\n[RAG ROUTER DECISION: UNRELATED GENERAL QUERY -> LLM FREEDOM MODE]")
+            context_lines.append("- Đây là câu hỏi xã giao hoặc kiến thức tổng quan nằm ngoài phạm vi giám sát Wazuh Server.")
+            context_lines.append("- Bạn ĐƯỢC PHÉP tự do giải đáp một cách thân thiện, sáng tạo và chính xác theo tri thức chuyên môn của mình mà không bị ép buộc báo cáo dữ liệu log Wazuh.")
 
         if is_greeting:
             context_lines.append("\nLƯU Ý ĐẶC BIỆT CHO CÂU HỎI GIAO TIẾP/TỔNG QUAN (CONVERSATIONAL QUERY):")
-            context_lines.append("- Đây là câu hỏi chào hỏi hoặc hỏi về năng lực của AgentWazuh.")
             context_lines.append("- Trả lời lịch sự, thân thiện, ngắn gọn và tự nhiên.")
-            context_lines.append("- Giới thiệu các khả năng chính của bạn: Phân tích sự cố SIEM Wazuh, trực quan hóa biểu đồ Chart.js, vẽ sơ đồ chuỗi tấn công Mermaid, tra cứu ma trận MITRE ATT&CK, quản lý thiết bị giám sát CMDB và đề xuất Rule an toàn qua Dry-Run Sandbox.")
-            context_lines.append("- TUYỆT ĐỐI KHÔNG lặp lại các câu rập khuôn dạng 'Do dữ liệu tại 127.0.0.1 là 0 alert nên không có gì...' trừ khi người dùng hỏi trực tiếp về số liệu alert cụ thể.")
+            context_lines.append("- Giới thiệu các khả năng chính của bạn: Phân tích sự cố SIEM Wazuh, trực quan hóa biểu đồ Chart.js, vẽ sơ đồ chuỗi tấn công Mermaid, tra cứu ma trận MITRE ATT&CK và CMDB thiết bị.")
 
         context_str = "\n".join(context_lines)
         has_internal = self._has_internal_ip(context_str)
@@ -321,12 +340,17 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
      | 14:00 - 15:00 | 111 | ~35.8% |
 9. QUY TẮC TRẠNG THÁI KẾT NỐI (CONNECTION GROUNDING):
    - Khi mục TRẠNG THÁI KẾT NỐI WAZUH SERVER ghi nhận "CONNECTED - LIVE REALTIME", bạn TUYỆT ĐỐI KHÔNG ĐƯỢC tự ý chèn bất kỳ câu lưu ý hay thông báo lỗi kết nối nào dạng 'Không thể kết nối', 'Lỗi kết nối tới 127.0.0.1' hoặc 'Báo cáo chỉ được tổng hợp từ dữ liệu tính trước'. 
-   - Bạn PHẢI khẳng định đây là DỮ LIỆU THỰC TẾ THỜI GIAN THỰC đang hoạt động trực tiếp từ Wazuh Server ({current_host})."""
+   - Bạn PHẢI khẳng định đây là DỮ LIỆU THỰC TẾ THỜI GIAN THỰC đang hoạt động trực tiếp từ Wazuh Server ({current_host}).
+10. QUY TẮC BÁO CÁO THIẾT BỊ GIÁM SÁT THỜI GIAN THỰC (STRICT ACTIVE DEVICE REPORTING):
+   - Khi người dùng hỏi về "thiết bị đang giám sát" hoặc "Wazuh đang giám sát thiết bị gì":
+   - Bạn BẮT BUỘC chỉ liệt kê các thiết bị có trạng thái ACTIVE REALTIME (ví dụ: 'active (Kết nối thời gian thực)' hoặc 'active (Đang truyền log phiên hiện tại)').
+   - Nếu KHÔNG có Agent nào active và KHÔNG có gói log Syslog nào xuất hiện trong 15 phút gần đây (các thiết bị đều là inactive hoặc CMDB record), bạn PHẢI khẳng định trung thực: "Hiện tại hệ thống Wazuh CHƯA KẾT NỐI hoặc KHÔNG NHẬN DỮ LIỆU TỪ THIẾT BỊ NÀO TRONG PHIÊN HIỆN TẠI (0 thiết bị active)."
+   - TUYỆT ĐỐI KHÔNG lấy các log cũ từ nhiều giờ/ngày trước của phiên kết nối trước đó để báo cáo là thiết bị đang hoạt động!"""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 
         # Thực thi qua PI Agent
-        llm_response = self._call_pi_agent(system_prompt, user_prompt, alert_count, has_internal)
+        llm_response = self._call_pi_agent(system_prompt, user_prompt, alert_count, has_internal, system_context)
 
         formatted_response = self._parse_drilldown_placeholders(llm_response)
 

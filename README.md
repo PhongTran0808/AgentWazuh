@@ -77,3 +77,23 @@ Dự án được thiết kế dưới 2 khía cạnh rõ ràng để đáp ứn
 - **Tác giả**: PhongTran0808 (`phongtran080809@gmail.com`)
 - **Kho lưu trữ**: [https://github.com/PhongTran0808/AgentWazuh](https://github.com/PhongTran0808/AgentWazuh)
 - **Giấy phép**: MIT License
+
+---
+
+## 🖼️ Nguồn Tài Nguyên Bên Thứ 3 (Third-Party Resources)
+
+### Bộ Icon Thiết Bị Mạng (`web/assets/icons/`)
+
+| File | Mô tả | Nguồn |
+|------|-------|-------|
+| `firewall.svg` | Firewall — shield + flame | **Nguyên bản**, tạo riêng cho dự án này |
+| `router.svg`   | Router — cylinder + antennas | **Nguyên bản**, tạo riêng cho dự án này |
+| `switch.svg`   | Switch — rack unit + ports | **Nguyên bản**, tạo riêng cho dự án này |
+| `server.svg`   | Server — 3 rack units + drive bays | **Nguyên bản**, tạo riêng cho dự án này |
+| `siem.svg`     | SIEM / Wazuh Manager — rack + eye | **Nguyên bản**, tạo riêng cho dự án này |
+| `pc.svg`       | PC / Endpoint — monitor + keyboard | **Nguyên bản**, tạo riêng cho dự án này |
+| `unknown.svg`  | Thiết bị chưa xác minh — dấu hỏi | **Nguyên bản**, tạo riêng cho dự án này |
+
+> **Ghi chú**: Toàn bộ 7 icon SVG trong thư mục `web/assets/icons/` là tác phẩm **nguyên bản do nhóm AgentWazuh tạo ra**, không sử dụng tài nguyên từ bên thứ ba.
+> Phong cách thiết kế lấy cảm hứng từ cộng đồng icon mạng như [network-automation/networking-icons](https://github.com/network-automation/networking-icons) nhưng không sao chép bất kỳ file nào từ repo đó.
+

@@ -1,10 +1,62 @@
 [
   {
-    "ip": "192.168.1.248",
-    "name": "Wazuh Server",
-    "type": "SIEM",
+    "id": "001",
+    "ip": "172.16.175.210",
+    "name": "DMZ-Server-Main",
+    "type": "SERVER",
+    "criticality": 8,
+    "verified": true,
+    "status": "never_connected",
+    "os": "Ubuntu 22.04 LTS (Nginx)"
+  },
+  {
+    "id": "002",
+    "ip": "172.16.175.220",
+    "name": "DNS-Server",
+    "type": "SERVER",
+    "criticality": 9,
+    "verified": true,
+    "status": "never_connected",
+    "os": "Windows Server 2022 (DNS)"
+  },
+  {
+    "id": "003",
+    "ip": "172.16.175.232",
+    "name": "Manager-Admin-PC",
+    "type": "PC",
+    "criticality": 7,
+    "verified": true,
+    "status": "never_connected",
+    "os": "Windows 11 Pro Admin"
+  },
+  {
+    "id": "004",
+    "ip": "172.16.175.241",
+    "name": "PC-PB1-VLAN10",
+    "type": "PC",
+    "criticality": 4,
+    "verified": true,
+    "status": "never_connected",
+    "os": "Windows 11 Enterprise"
+  },
+  {
+    "id": "005",
+    "ip": "172.16.175.252",
+    "name": "Dell-R760-DR",
+    "type": "SERVER",
+    "criticality": 9,
+    "verified": true,
+    "status": "never_connected",
+    "os": "VMware ESXi 8.0 (DR Host)"
+  },
+  {
+    "id": "000",
+    "ip": "172.16.175.145",
+    "name": "Wazuh-Manager-VMware",
+    "type": "WAZUH",
     "criticality": 10,
     "verified": true,
-    "status": "up"
+    "status": "active",
+    "os": "Wazuh SIEM Server 4.14.7 (VMware)"
   }
 ]

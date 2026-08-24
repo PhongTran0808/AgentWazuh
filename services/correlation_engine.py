@@ -2,6 +2,7 @@ import hashlib
 import json
 import math
 import re
+import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
@@ -421,12 +422,30 @@ def list_monitored_devices(
         if ip:
             monitored_ips.add(ip)
 
-    # 3. Thiết bị Giám sát qua Syslog (Agentless Integration - FortiGate, Routers, Switches)
+    # 3. Thiết bị Giám sát qua Syslog (Agentless Integration - Chỉ tính khi CÓ LOG TRONG PHIÊN HIỆN TẠI - 15 Phút gần nhất)
     passive_devices = {}
     exclude_ips = {"127.0.0.1", "0.0.0.0", "255.255.255.255", "::1", "", wazuh_host}
+    now_epoch = time.time()
+    session_window_secs = 900  # 15 phút live session window
 
     if recent_alerts:
+        import datetime
         for alert in recent_alerts:
+            ts_str = alert.get("timestamp", "")
+            alert_epoch = 0
+            if ts_str:
+                try:
+                    clean_ts = ts_str.replace("+0000", "Z").replace("Z", "")
+                    dt = datetime.datetime.fromisoformat(clean_ts)
+                    alert_epoch = dt.timestamp()
+                except Exception:
+                    pass
+
+            # CHỈ XÁC MINH ACTIVE NẾU LOG XUẤT HIỆN TRONG PHIÊN HIỆN TẠI (15 PHÚT GẦN NHẤT)
+            is_live_session = (alert_epoch > 0) and ((now_epoch - alert_epoch) <= session_window_secs)
+            if not is_live_session:
+                continue
+
             data = alert.get("data", {})
             devname = data.get("devname") or "FortiGate Firewall"
             srcip = data.get("srcip")
@@ -434,18 +453,17 @@ def list_monitored_devices(
             target_ip = srcip if (srcip and srcip not in exclude_ips) else (dstip if (dstip and dstip not in exclude_ips) else None)
 
             if target_ip and target_ip not in monitored_ips:
-                ts_str = alert.get("timestamp", "")
                 passive_devices[target_ip] = {
                     "name": f"{devname} ({target_ip})",
                     "ip": target_ip,
                     "type": "Thiết bị Giám sát qua Syslog (Agentless)",
                     "os_model": "FortiOS / Syslog Integration",
-                    "agent_status": f"active (Có log trong vòng {ttl_days} ngày)",
-                    "last_seen": ts_str or "Gần đây",
-                    "monitoring_since": f"Remote Syslog Port 514 UDP",
+                    "agent_status": "active (Đang truyền log phiên hiện tại)",
+                    "last_seen": ts_str or "Vừa nhận log",
+                    "monitoring_since": "Remote Syslog Port 514 UDP",
                     "criticality": "Cao",
                     "is_verified": True,
-                    "verification_method": f"Cách 2: FortiGate Remote Syslog Stream (TTL {ttl_days}d)"
+                    "verification_method": "Cách 2: Live FortiGate Syslog Stream (Phiên hiện tại)"
                 }
 
     for ip, dev in passive_devices.items():

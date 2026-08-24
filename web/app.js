@@ -12,6 +12,122 @@ document.addEventListener("DOMContentLoaded", () => {
         active_forms: []
     };
 
+    let current_session_id = null;
+
+    async function loadChatHistoryList() {
+        try {
+            const res = await fetch("/api/chat/history", { credentials: "same-origin" });
+            const data = await res.json();
+            const tree = document.getElementById("history-list");
+            if (!tree) return;
+            tree.innerHTML = "";
+            
+            if (!data.sessions || data.sessions.length === 0) {
+                tree.innerHTML = '<div style="padding: 1rem; font-size: 0.8rem; color: #64748b;">Chưa có lịch sử.</div>';
+                return;
+            }
+
+            const groups = {};
+            data.sessions.forEach(s => {
+                const proj = s.project_name || "Uncategorized";
+                if (!groups[proj]) groups[proj] = [];
+                groups[proj].push(s);
+            });
+
+            for (const proj in groups) {
+                const groupDiv = document.createElement("div");
+                groupDiv.className = "history-group";
+                groupDiv.innerHTML = `<div class="history-group-header"><i class="fa-regular fa-folder-open"></i> ${proj}</div>`;
+                const listDiv = document.createElement("div");
+                groups[proj].forEach(s => {
+                    const item = document.createElement("div");
+                    item.className = "history-item";
+                    if (s.id === current_session_id) item.classList.add("active");
+                    item.innerHTML = `<i class="fa-solid fa-message"></i> ${s.title}`;
+                    item.addEventListener("click", () => loadChatSession(s.id));
+                    listDiv.appendChild(item);
+                });
+                groupDiv.appendChild(listDiv);
+                tree.appendChild(groupDiv);
+            }
+        } catch (e) {
+            console.error("Error loading chat history:", e);
+        }
+    }
+
+    async function createNewChat() {
+        try {
+            const res = await fetch("/api/chat/history", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: "New Conversation", project_name: "Default Project" }),
+                credentials: "same-origin"
+            });
+            const data = await res.json();
+            const chatStream = document.getElementById("chat-stream");
+            if (chatStream) chatStream.innerHTML = "";
+            if (data.session && data.session.id) {
+                current_session_id = data.session.id;
+            }
+            await loadChatHistoryList();
+        } catch (e) {
+            console.error("Error creating chat:", e);
+        }
+    }
+
+    async function loadChatSession(id) {
+        try {
+            const res = await fetch(`/api/chat/history/${id}`, { credentials: "same-origin" });
+            const data = await res.json();
+            if (data.session && data.session.id) {
+                current_session_id = data.session.id;
+                const chatStream = document.getElementById("chat-stream");
+                if (chatStream) {
+                    chatStream.innerHTML = "";
+                    (data.session.messages || []).forEach(msg => {
+                        if (msg.role === "user") {
+                            const div = document.createElement("div");
+                            div.className = "chat-bubble user";
+                            div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><div class="msg-text">${escapeHtml(msg.content)}</div></div>`;
+                            chatStream.appendChild(div);
+                        } else {
+                            const div = document.createElement("div");
+                            div.className = "chat-bubble system";
+                            let parsedHtml = window.marked ? marked.parse(msg.content) : msg.content.replace(/\n/g, "<br>");
+                            div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI Master Advisor:</strong><div class="msg-text">${parsedHtml}</div></div>`;
+                            chatStream.appendChild(div);
+                        }
+                    });
+                    chatStream.scrollTop = chatStream.scrollHeight;
+                }
+            }
+            await loadChatHistoryList(); // to update active item
+        } catch (e) {
+            console.error("Error loading chat session:", e);
+        }
+    }
+
+    async function appendMessageToSession(role, content) {
+        if (!current_session_id) {
+            await createNewChat();
+        }
+        try {
+            await fetch(`/api/chat/history/${current_session_id}/message`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ role, content, timestamp: new Date().toISOString() }),
+                credentials: "same-origin"
+            });
+            await loadChatHistoryList();
+        } catch (e) {
+            console.error("Error appending message:", e);
+        }
+    }
+        } catch (e) {
+            console.error("Error saving message:", e);
+        }
+    }
+
     function resetGlobalState() {
         globalState = {
             network_topology: [],
@@ -79,6 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const ollamaConfirmModal = document.getElementById("ollama-confirm-modal");
     const btnConfirmStartOllama = document.getElementById("btn-confirm-start-ollama");
     const selectPiModel = document.getElementById("select-pi-model");
+    const selectOllamaModelDrawer = document.getElementById("select-ollama-model-drawer");
 
     let currentAIMode = "pi_dev";
 
@@ -529,6 +646,7 @@ function formatLocalTime(tsStr) {
         div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><div class="msg-text">${escapeHtml(msg)}</div></div>`;
         chatStream.appendChild(div);
         chatStream.scrollTop = chatStream.scrollHeight;
+        appendMessageToSession("user", msg);
     }
 
     async function investigateAlert(query, alertObj = null) {
@@ -604,6 +722,7 @@ function formatLocalTime(tsStr) {
     }
 
     function updateChatBot(id, markdownText, steps = [], configForm = null) {
+        appendMessageToSession("ai", markdownText);
         const div = document.getElementById(id);
         if (!div) return;
 
@@ -809,4 +928,23 @@ function formatLocalTime(tsStr) {
 
     // AUTO-SYNC THỜI GIAN THỰC TỪ BACKEND CACHE MỖI 5 GIÂY (POLLING PUSH-FALLBACK)
     setInterval(fetchLiveAlerts, 5000);
+
+    // Sidebar listeners
+    const btnToggleSidebar = document.getElementById("btn-toggle-sidebar");
+    if (btnToggleSidebar) {
+        btnToggleSidebar.addEventListener("click", () => {
+            const sidebar = document.getElementById("history-sidebar");
+            if (sidebar) sidebar.classList.toggle("collapsed");
+        });
+    }
+
+    const btnNewChat = document.getElementById("btn-new-chat");
+    if (btnNewChat) {
+        btnNewChat.addEventListener("click", () => {
+            createNewChat();
+        });
+    }
+
+    // Load initial history
+    loadChatHistoryList();
 });

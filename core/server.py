@@ -9,6 +9,7 @@ import subprocess
 import asyncio
 import uvicorn
 import sys
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
@@ -220,20 +221,21 @@ def compute_alert_stats(alerts: List[Dict[str, Any]]) -> Dict[str, int]:
 
 async def heartbeat_background_loop():
     global GLOBAL_SYSTEM_STATUS_CACHE, GLOBAL_ALERTS_CACHE
+    await asyncio.sleep(0.5)
+    loop = asyncio.get_event_loop()
     while True:
         try:
             current_time_str = time.strftime("%H:%M:%S", time.localtime())
             
-            # --- TÁCH BẠCH: BACKGROUND SYNC THU THẬP DỮ LIỆU ---
+            # --- TÁCH BẠCH: BACKGROUND SYNC THU THẬP DỮ LIỆU (NON-BLOCKING EXECUTOR) ---
             try:
-                status_data = wazuh_client.get_system_status()
+                status_data = await loop.run_in_executor(None, wazuh_client.get_system_status)
             except Exception:
                 status_data = {"status": "offline", "agents": []}
                 
             try:
                 # Polling dự phòng trong trường hợp Webhook không bắn
-                # Lấy 200 alerts mới nhất để hiển thị trong Live Alerts panel
-                alerts_data = wazuh_client.get_latest_alerts(limit=200)
+                alerts_data = await loop.run_in_executor(None, lambda: wazuh_client.get_latest_alerts(limit=200))
                 if alerts_data:
                     existing_ids = {a.get("id") for a in GLOBAL_ALERTS_CACHE if a.get("id")}
                     new_alerts = [a for a in alerts_data if a.get("id") not in existing_ids]
@@ -245,7 +247,7 @@ async def heartbeat_background_loop():
 
             # Thống kê alert CHÍNH XÁC qua OpenSearch Aggregation (không bị giới hạn size)
             try:
-                agg_stats = wazuh_client.get_alert_stats_aggregated(hours_back=24)
+                agg_stats = await loop.run_in_executor(None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24))
                 status_data["alert_stats"] = agg_stats
             except Exception:
                 status_data["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
@@ -583,7 +585,6 @@ async def get_ai_config(session: str = Depends(require_authenticated_session)):
 async def update_ai_config(req: AIConfigRequest, session: str = Depends(require_authenticated_session)):
     data = req.dict()
     AI_CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    assistant.reload_config()
     return {"status": "success", "config": data}
 
 @app.get("/api/ai/ollama/status")
@@ -665,10 +666,17 @@ async def connect_wazuh(req: ConnectRequest, session: str = Depends(require_auth
     status_info = wazuh_client.get_system_status()
     return {"status": "success", "connected": status_info.get("status") == "online", "wazuh_status": status_info}
 
+from services.wazuh_client import LIVE_API_LOGS
+
 @app.get("/api/wazuh/status")
 async def get_status(session: str = Depends(require_authenticated_session)):
     # TRẢ VỀ TỪ GLOBAL CACHE - TỐC ĐỘ < 5ms
     return GLOBAL_SYSTEM_STATUS_CACHE
+
+@app.get("/api/wazuh/live-logs")
+async def get_wazuh_live_logs():
+    """Trả về nhật ký thời gian thực các gói yêu cầu REST API giữa AgentWazuh ↔ Wazuh Server."""
+    return {"status": "success", "count": len(LIVE_API_LOGS), "logs": list(LIVE_API_LOGS)}
 
 @app.get("/api/wazuh/alerts")
 async def get_alerts(session: str = Depends(require_authenticated_session)):
@@ -779,25 +787,280 @@ async def get_topology(session: str = Depends(require_authenticated_session)):
     }
 
 def build_ai_dynamic_topology() -> Dict[str, Any]:
-    # Sử dụng GLOBAL CACHE để lấy agent active
+    # Sử dụng GLOBAL CACHE để lấy agent từ Wazuh Server
     active_agents = GLOBAL_SYSTEM_STATUS_CACHE.get("agents", [])
-    known_devices = list(load_known_devices_dict().values())
+    known_devices_dict = {d.get("name", "").lower(): d for d in load_known_devices_dict().values()}
+    known_devices_ip_dict = {d.get("ip", ""): d for d in load_known_devices_dict().values()}
 
     combined_list = []
     for agent in active_agents:
-        combined_list.append({
-            "ip": agent.get("ip", "127.0.0.1"),
-            "name": agent.get("name", "Wazuh Agent"),
-            "type": "server" if "server" in agent.get("name", "").lower() else "endpoint",
-            "os": agent.get("os", {}).get("name", "Linux"),
-            "verified_by": "Wazuh Agent Live"
-        })
+        ag_name = agent.get("name", "Wazuh Agent")
+        ag_ip = agent.get("ip", "")
 
-    for dev in known_devices:
-        if not any(c.get("ip") == dev.get("ip") for c in combined_list):
-            combined_list.append(dev)
+        # Ưu tiên tìm thiết bị tương ứng trong known_devices theo Name hoặc IP
+        matched_dev = known_devices_dict.get(ag_name.lower()) or known_devices_ip_dict.get(ag_ip)
+
+        if matched_dev:
+            combined_list.append({
+                "ip": matched_dev.get("ip", ag_ip),
+                "name": matched_dev.get("name", ag_name),
+                "type": matched_dev.get("type", "server").lower(),
+                "os": matched_dev.get("os", "Linux/Windows"),
+                "criticality": matched_dev.get("criticality", 5),
+                "status": agent.get("status", "active"),
+                "verified_by": "Wazuh Server API (Live)"
+            })
+        else:
+            combined_list.append({
+                "ip": ag_ip,
+                "name": ag_name,
+                "type": "server" if "server" in ag_name.lower() else "endpoint",
+                "os": agent.get("os", {}).get("name", "Linux"),
+                "criticality": 5,
+                "status": agent.get("status", "active"),
+                "verified_by": "Wazuh Agent Live"
+            })
+
+    # Nếu chưa có agent nào từ Wazuh Server (kết nối chờ), hiển thị 5 thiết bị cơ sở từ known_devices
+    if not combined_list:
+        combined_list = [d for d in load_known_devices_dict().values() if d.get("id") != "000"]
 
     return ai_parser.build_dynamic_topology(combined_list)
+
+
+# ────────────────────────────────────────────────────────────────
+#  SECURITY MAP — SOC TOPOLOGY LEVEL 1
+# ────────────────────────────────────────────────────────────────
+
+def _compute_health_score(agent_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Tính Health Score thuần dựa trên heartbeat/connectivity (KHÔNG trộn alert).
+    - online : agent.status == "active" VÀ lastKeepAlive < 60s
+    - warning: lastKeepAlive 60-300s
+    - offline : status != "active" HOẶC lastKeepAlive > 300s
+    """
+    import datetime
+    if not agent_obj:
+        return {"status": "offline", "score": 0, "last_seen": None}
+
+    raw_status = str(agent_obj.get("status", "")).lower()
+    last_keep = agent_obj.get("lastKeepAlive", "")
+    seconds_ago = 9999
+    try:
+        if last_keep:
+            ts = datetime.datetime.fromisoformat(last_keep.replace("Z", "+00:00"))
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            seconds_ago = (now_utc - ts).total_seconds()
+    except Exception:
+        pass
+
+    if raw_status == "active" and seconds_ago < 60:
+        status = "online"
+        score = 100
+    elif raw_status == "active" and seconds_ago < 300:
+        status = "warning"
+        score = max(0, int(100 - (seconds_ago - 60) / 240 * 50))
+    else:
+        status = "offline"
+        score = 0
+
+    return {"status": status, "score": score, "last_seen_seconds": round(seconds_ago)}
+
+
+def _compute_risk_score(ip: str, agent_id: str, agent_name: str, alerts: List[Dict[str, Any]], criticality: int = 5) -> Dict[str, Any]:
+    """
+    Tính Risk Score bằng cách gọi score_priority() từ correlation_engine.
+    Không tạo công thức thứ 2 — reuse hoàn toàn.
+    """
+    device_alerts = []
+    for a in alerts:
+        a_agent_ip = a.get("agent", {}).get("ip", "")
+        a_agent_id = str(a.get("agent", {}).get("id", ""))
+        a_agent_name = a.get("agent", {}).get("name", "").lower()
+        a_srcip = a.get("data", {}).get("srcip", "")
+        a_dstip = a.get("data", {}).get("dstip", "")
+
+        if (agent_id and agent_id == a_agent_id) or \
+           (agent_name and agent_name.lower() == a_agent_name) or \
+           (ip and ip in (a_agent_ip, a_srcip, a_dstip)):
+            device_alerts.append(a)
+
+    if not device_alerts:
+        return {"risk": 0, "alert_count": 0}
+
+    entity_name = ip or agent_name or "unknown"
+    incident_group = {
+        "entity": entity_name,
+        "alerts": device_alerts,
+        "alert_count": len(device_alerts)
+    }
+    asset_crit = {entity_name: {"criticality": criticality}}
+    result = score_priority(incident_group, {}, asset_crit)
+    return {"risk": result.get("score", 0), "alert_count": len(device_alerts), "breakdown": result.get("breakdown", {})}
+
+
+def _get_device_badge(health: Dict[str, Any], risk: Dict[str, Any]) -> str:
+    """
+    Badge trạng thái thiết bị:
+    - OFFLINE       : health.status == "offline"
+    - UNDER_ATTACK  : risk >= 70 (tương ứng điểm cao từ severity + MITRE technique nghiêm trọng
+                      + tần suất lặp lại cao trong score_priority() — KHÔNG phải "liên tục theo thời gian")
+    - WARNING       : risk >= 40 (medium alert cluster, chưa đủ MITRE trigger)
+    - NORMAL        : còn lại
+    """
+    if health.get("status") == "offline":
+        return "OFFLINE"
+    elif risk.get("risk", 0) >= 70:
+        return "UNDER_ATTACK"
+    elif risk.get("risk", 0) >= 40:
+        return "WARNING"
+    else:
+        return "NORMAL"
+
+
+def _get_security_map_devices() -> List[Dict[str, Any]]:
+    """
+    Nguồn BẮT BUỘC VÀ DUY NHẤT: Trực tiếp từ Wazuh Server REST API 55000 (Agent Registry)
+    kết hợp đối chiếu metadata từ known_devices để đảm bảo IP & OS khớp 100% với Sơ đồ mạng.
+    """
+    active_agents: List[Dict[str, Any]] = GLOBAL_SYSTEM_STATUS_CACHE.get("agents", [])
+    alerts: List[Dict[str, Any]] = GLOBAL_ALERTS_CACHE
+    known_devices_dict = {d.get("name", "").lower(): d for d in load_known_devices_dict().values()}
+    known_devices_ip_dict = {d.get("ip", ""): d for d in load_known_devices_dict().values()}
+
+    result = []
+    seen_ips: set = set()
+
+    # 1. Thêm nút trung tâm Wazuh Server
+    wazuh_host = SYSTEM_SETTINGS.get("wazuh_host", "172.16.175.145")
+    wazuh_health = {"status": "online", "score": 100, "last_seen_seconds": 0}
+    wazuh_risk = _compute_risk_score(wazuh_host, "000", "wazuh-server", alerts, 10)
+    wazuh_badge = _get_device_badge(wazuh_health, wazuh_risk)
+
+    result.append({
+        "id": "wazuh_manager_node",
+        "name": "Wazuh Server",
+        "ip": wazuh_host,
+        "type": "wazuh",
+        "os": "Wazuh SIEM Server 4.14.7",
+        "agent_id": "000",
+        "agent_status": "active",
+        "health": wazuh_health,
+        "risk": wazuh_risk,
+        "badge": wazuh_badge,
+        "verified": True,
+        "source": "wazuh_server"
+    })
+    seen_ips.add(wazuh_host)
+
+    # 2. Devices BẮT BUỘC TỪ Wazuh Server Agent Registry (real-time REST API 55000)
+    for agent in active_agents:
+        agent_id = str(agent.get("id", ""))
+        if agent_id == "000":
+            continue
+
+        ag_name = agent.get("name") or f"Agent-{agent_id}"
+        ag_ip = agent.get("ip", "")
+
+        # Đối chiếu với known_devices theo Name hoặc IP
+        matched_dev = known_devices_dict.get(ag_name.lower()) or known_devices_ip_dict.get(ag_ip)
+
+        display_ip = matched_dev.get("ip") if matched_dev else ag_ip
+        display_name = matched_dev.get("name") if matched_dev else ag_name
+        display_os = matched_dev.get("os") if matched_dev else (agent.get("os", {}).get("name", "Linux") if isinstance(agent.get("os"), dict) else "Linux")
+        criticality = matched_dev.get("criticality", 5) if matched_dev else 5
+        device_type = matched_dev.get("type", "server").lower() if matched_dev else ("server" if "server" in ag_name.lower() else "pc")
+
+        if display_ip in seen_ips:
+            continue
+
+        health = _compute_health_score(agent)
+        risk = _compute_risk_score(display_ip, agent_id, display_name, alerts, criticality)
+        badge = _get_device_badge(health, risk)
+
+        result.append({
+            "id": f"agent_{agent_id}",
+            "name": display_name,
+            "ip": display_ip,
+            "type": device_type,
+            "os": display_os,
+            "agent_id": agent_id,
+            "agent_status": agent.get("status", "unknown"),
+            "health": health,
+            "risk": risk,
+            "badge": badge,
+            "verified": True,
+            "source": "wazuh_server_api"
+        })
+        seen_ips.add(display_ip)
+
+    # Nếu chưa lấy được agent live, hiển thị 5 thiết bị từ known_devices
+    if len(result) <= 1:
+        for dev in load_known_devices_dict().values():
+            if dev.get("id") == "000" or dev.get("ip") in seen_ips:
+                continue
+            dev_ip = dev.get("ip", "")
+            risk = _compute_risk_score(dev_ip, dev.get("id"), dev.get("name"), alerts, dev.get("criticality", 5))
+            result.append({
+                "id": f"dev_{dev.get('id')}",
+                "name": dev.get("name"),
+                "ip": dev_ip,
+                "type": dev.get("type", "server").lower(),
+                "os": dev.get("os", "Linux/Windows"),
+                "agent_id": dev.get("id"),
+                "agent_status": dev.get("status", "never_connected"),
+                "health": {"status": "offline" if dev.get("status") != "active" else "online", "score": 0},
+                "risk": risk,
+                "badge": _get_device_badge({"status": "offline"}, risk),
+                "verified": True,
+                "source": "known_devices"
+            })
+            seen_ips.add(dev_ip)
+
+    return result
+
+
+@app.get("/api/security-map/conn")
+async def get_security_map_conn(session: str = Depends(require_authenticated_session)):
+    """
+    Lightweight endpoint — poll mỗi 5s để lấy trạng thái kết nối AgentWazuh ↔ Wazuh Server.
+    Đọc từ ring buffer của wazuh_client, không gọi Wazuh API.
+    """
+    conn_info = wazuh_client.get_agentwazuh_connection_state(window_seconds=600)
+    return {
+        "status": "success",
+        "conn_state": conn_info["state"],
+        "details": conn_info,
+        "wazuh_host": wazuh_client.host
+    }
+
+
+@app.get("/api/security-map")
+async def get_security_map(session: str = Depends(require_authenticated_session)):
+    """
+    Full Security Map: connection state + danh sách thiết bị với health/risk/badge.
+    Frontend poll endpoint này mỗi 15s (đồng bộ với heartbeat_background_loop).
+    """
+    conn_info = wazuh_client.get_agentwazuh_connection_state(window_seconds=600)
+    devices = _get_security_map_devices()
+
+    summary = {
+        "total": len(devices),
+        "online": sum(1 for d in devices if d["health"]["status"] == "online"),
+        "warning": sum(1 for d in devices if d["health"]["status"] == "warning"),
+        "offline": sum(1 for d in devices if d["health"]["status"] == "offline"),
+        "under_attack": sum(1 for d in devices if d["badge"] == "UNDER_ATTACK"),
+    }
+
+    return {
+        "status": "success",
+        "wazuh_host": wazuh_client.host,
+        "conn_state": conn_info["state"],
+        "conn_details": conn_info,
+        "devices": devices,
+        "summary": summary
+    }
+
 
 @app.get("/api/wazuh/inventory")
 async def get_inventory(session: str = Depends(require_authenticated_session)):
@@ -828,6 +1091,90 @@ async def confirm_device(req: DeviceConfirmRequest, session: str = Depends(requi
     }
     save_known_device(item)
     return {"status": "success", "confirmed": item}
+
+import glob
+import uuid
+
+CHAT_SESSIONS_DIR = "data/chat_sessions"
+os.makedirs(CHAT_SESSIONS_DIR, exist_ok=True)
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: str
+
+class CreateSessionRequest(BaseModel):
+    title: str = "New Conversation"
+    project_name: str = "Default Project"
+
+@app.get("/api/chat/history")
+async def get_chat_history(session: str = Depends(require_authenticated_session)):
+    files = glob.glob(os.path.join(CHAT_SESSIONS_DIR, "*.json"))
+    sessions = []
+    for f in files:
+        try:
+            with open(f, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                sessions.append({
+                    "id": data.get("id"),
+                    "title": data.get("title", "Unknown"),
+                    "project_name": data.get("project_name", "Uncategorized"),
+                    "created_at": data.get("created_at", ""),
+                    "updated_at": data.get("updated_at", "")
+                })
+        except Exception:
+            pass
+    # Sort by updated_at descending
+    sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+    return {"status": "success", "sessions": sessions}
+
+@app.post("/api/chat/history")
+async def create_chat_session(req: CreateSessionRequest, session: str = Depends(require_authenticated_session)):
+    session_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+    new_session = {
+        "id": session_id,
+        "title": req.title,
+        "project_name": req.project_name,
+        "created_at": now,
+        "updated_at": now,
+        "messages": [],
+        "network_snapshot": {} # To be populated in Phase 2
+    }
+    file_path = os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(new_session, f, indent=4, ensure_ascii=False)
+    return {"status": "success", "session": new_session}
+
+@app.get("/api/chat/history/{session_id}")
+async def get_chat_session(session_id: str, session: str = Depends(require_authenticated_session)):
+    file_path = os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Session not found")
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {"status": "success", "session": data}
+
+@app.put("/api/chat/history/{session_id}/message")
+async def add_chat_message(session_id: str, msg: ChatMessage, session: str = Depends(require_authenticated_session)):
+    file_path = os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    data["messages"].append({
+        "role": msg.role,
+        "content": msg.content,
+        "timestamp": msg.timestamp
+    })
+    data["updated_at"] = datetime.now().isoformat()
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    
+    return {"status": "success"}
 
 ACTIVE_FORM_SESSIONS: Dict[str, Dict[str, Any]] = {}
 

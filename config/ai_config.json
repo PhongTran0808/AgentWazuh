@@ -1,7 +1,17 @@
 {
   "mode": "pi_dev",
-  "engine_name": "PI.dev Agent Framework",
   "pi_model": "github-copilot/gpt-4.1",
-  "audit_logging": true,
+  "active_providers": [
+    "gemini"
+  ],
+  "gemini_model": "gemini-2.5-flash",
+  "openai_model": "gpt-4o-mini",
+  "anthropic_model": "claude-3-5-sonnet",
+  "cloud_api_key": "",
+  "openai_api_key": "",
+  "anthropic_api_key": "",
+  "cloud_api_url": "https://api.openai.com/v1/chat/completions",
+  "ollama_url": "http://localhost:11434/api/generate",
+  "ollama_model": "qwen2.5:3b",
   "multi_api_enabled": false
 }

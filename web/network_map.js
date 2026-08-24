@@ -1,262 +1,556 @@
-// AgentWazuh Dynamic Real-Time Topology Controller (Version 14.0 Enterprise)
-document.addEventListener("DOMContentLoaded", async () => {
-    const container = document.getElementById("vis-netmap-container");
-    const nodeDetailPanel = document.getElementById("node-detail-panel");
-    const btnBackDash = document.getElementById("btn-back-dash");
-    const btnResetLayout = document.getElementById("btn-reset-layout");
-    const btnZoomFit = document.getElementById("btn-zoom-fit");
-    const statusHost = document.getElementById("status-host");
-    const presetSelector = document.getElementById("preset-selector");
+/**
+ * AgentWazuh — Security Topology SOC Map Controller (Version 2.0)
+ *
+ * Kiến trúc: 2 vòng polling tách biệt
+ *   - pollConnState()   : mỗi 5s   → /api/security-map/conn  (nhẹ, chỉ ring buffer)
+ *   - pollFullMap()     : mỗi 15s  → /api/security-map        (đầy đủ devices + health/risk)
+ *
+ * Fan-out dùng vis-network.js để giữ khả năng kéo-thả node tự do.
+ * Đường nối AgentWazuh ↔ Wazuh Server dùng SVG CSS riêng.
+ */
 
-    const btnOpenSettings = document.getElementById("btn-open-settings");
-    const settingsModal = document.getElementById("settings-modal");
+// ─────────────────────────────────────────────
+//  ICON MAP: type → /static/assets/icons/*.svg
+// ─────────────────────────────────────────────
+const ICON_MAP = {
+    "firewall":  "/static/assets/icons/firewall.svg",
+    "router":    "/static/assets/icons/router.svg",
+    "switch":    "/static/assets/icons/switch.svg",
+    "server":    "/static/assets/icons/server.svg",
+    "siem":      "/static/assets/icons/siem.svg",
+    "endpoint":  "/static/assets/icons/pc.svg",
+    "pc":        "/static/assets/icons/pc.svg",
+    "unknown":   "/static/assets/icons/unknown.svg"
+};
 
-    btnBackDash.addEventListener("click", () => {
+// Badge → vis-network node border colours (icon SVG colour NOT changed — overlay only)
+const BADGE_BORDER = {
+    "NORMAL":       "#22c55e",
+    "WARNING":      "#f59e0b",
+    "UNDER_ATTACK": "#ef4444",
+    "OFFLINE":      "#475569"
+};
+
+const BADGE_GLOW = {
+    "NORMAL":       "rgba(34,197,94,0.25)",
+    "WARNING":      "rgba(245,158,11,0.25)",
+    "UNDER_ATTACK": "rgba(239,68,68,0.4)",
+    "OFFLINE":      "rgba(71,85,105,0.1)"
+};
+
+// Standard icon size for ALL device types (prevents the mismatched-size bug)
+const NODE_ICON_SIZE = 48;
+
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+let network     = null;
+let nodesDS     = null;
+let edgesDS     = null;
+let rawDevices  = [];       // last fetched devices array from /api/security-map
+let savedPositions = JSON.parse(localStorage.getItem("secmap_positions") || "{}");
+
+// ─────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+    // Back button
+    document.getElementById("btn-back-dash")?.addEventListener("click", () => {
         window.location.href = "/dashboard";
     });
 
-    if (btnOpenSettings) {
-        btnOpenSettings.addEventListener("click", () => {
-            if (settingsModal) settingsModal.classList.remove("hidden");
-        });
-    }
+    // Reset layout
+    document.getElementById("btn-reset-layout")?.addEventListener("click", () => {
+        localStorage.removeItem("secmap_positions");
+        savedPositions = {};
+        if (network) network.setOptions({ physics: { enabled: true } });
+        setTimeout(() => { if (network) network.setOptions({ physics: { enabled: false } }); }, 3000);
+    });
 
-    window.closeSettingsModal = function() {
-        if (settingsModal) settingsModal.classList.add("hidden");
+    // Zoom fit
+    document.getElementById("btn-zoom-fit")?.addEventListener("click", () => {
+        if (network) network.fit({ animation: { duration: 500, easingFunction: "easeInOutQuad" } });
+    });
+
+    // Settings modal
+    document.getElementById("btn-open-settings")?.addEventListener("click", () => {
+        document.getElementById("settings-modal")?.classList.remove("hidden");
+    });
+    window.closeSettingsModal = () => {
+        document.getElementById("settings-modal")?.classList.add("hidden");
     };
 
-    let network = null;
-    let nodesDataSet = null;
-    let edgesDataSet = null;
-    let rawNodesData = [];
+    // Settings tabs (preserved from original)
+    document.querySelectorAll(".nav-item[data-tab]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+            document.querySelectorAll(".settings-tab-content").forEach(t => t.classList.add("hidden"));
+            btn.classList.add("active");
+            document.getElementById(btn.dataset.tab)?.classList.remove("hidden");
+        });
+    });
 
-    const savedPositions = JSON.parse(localStorage.getItem("wazuh_netmap_positions") || "{}");
+    // Initial data fetch + polling
+    pollConnState();
+    pollFullMap();
+    setInterval(pollConnState, 5000);
+    setInterval(pollFullMap,   15000);
+});
 
-    async function loadTopology(preset = "default") {
-        try {
-            const res = await fetch(`/api/wazuh/topology?preset=${preset}`, {
-                credentials: "same-origin"
-            });
-            if (res.status === 401) {
-                window.location.href = "/login";
-                return;
-            }
-            const data = await res.json();
-            if (data.host && statusHost) {
-                statusHost.textContent = `Wazuh Server: ${data.host}`;
-            }
+// ─────────────────────────────────────────────
+//  CONNECTION STATE POLLER (5s)
+// ─────────────────────────────────────────────
+async function pollConnState() {
+    try {
+        const res = await fetch("/api/security-map/conn", { credentials: "same-origin" });
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        const json = await res.json();
+        applyConnStateToBus(json.conn_state, json.wazuh_host || "—");
+    } catch (e) {
+        applyConnStateToBus("chua_ket_noi", "—");
+    }
+}
 
-            rawNodesData = data.nodes || [];
-            renderVisNetwork(data.nodes, data.edges, data.empty_state);
-        } catch (err) {
-            console.error("Failed to load topology:", err);
+// ─────────────────────────────────────────────
+//  FULL MAP POLLER (15s)
+// ─────────────────────────────────────────────
+async function pollFullMap() {
+    try {
+        const res = await fetch("/api/security-map", { credentials: "same-origin" });
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        const json = await res.json();
+
+        rawDevices = json.devices || [];
+        updateSummaryStrip(json.summary || {});
+        renderVisNetwork(rawDevices, json.wazuh_host);
+        applyConnStateToBus(json.conn_state, json.wazuh_host || "—");
+
+        const now = new Date();
+        document.getElementById("secmap-last-refresh").textContent =
+            `Cập nhật: ${now.toLocaleTimeString("vi-VN")}`;
+    } catch (e) {
+        console.error("[SecMap] pollFullMap error:", e);
+    }
+}
+
+// ─────────────────────────────────────────────
+//  CONNECTION BUS: SVG + BADGE
+// ─────────────────────────────────────────────
+function applyConnStateToBus(state, host) {
+    const badge     = document.getElementById("bus-conn-badge");
+    const activeLine = document.getElementById("bus-line-active");
+    const packet    = document.getElementById("bus-packet");
+    const connDot   = document.getElementById("hdr-conn-dot");
+    const serverLabel = document.getElementById("bus-server-label");
+
+    if (serverLabel) serverLabel.innerHTML = `${host}<br><span style="color:#38bdf8;font-size:0.6rem;">SIEM</span>`;
+
+    const statusHost = document.getElementById("status-host");
+    if (statusHost) statusHost.textContent = `Wazuh Server: ${host}`;
+
+    const configs = {
+        "chua_ket_noi": {
+            badgeText: "⛔ Chưa kết nối",
+            badgeBg: "#1e293b", badgeColor: "#64748b", badgeBorder: "#475569",
+            lineColor: "#475569", lineDash: "6 8", lineAnim: "none",
+            packetOpacity: "0", dotClass: "offline"
+        },
+        "da_ket_noi": {
+            badgeText: "✅ Đã kết nối",
+            badgeBg: "rgba(124,58,237,0.15)", badgeColor: "#a78bfa", badgeBorder: "#7c3aed",
+            lineColor: "url(#line-grad)", lineDash: "180 0", lineAnim: "none",
+            packetOpacity: "1", dotClass: "online"
+        },
+        "chap_chon": {
+            badgeText: "⚠️ Chập chờn",
+            badgeBg: "rgba(249,115,22,0.15)", badgeColor: "#fb923c", badgeBorder: "#f97316",
+            lineColor: "#f97316", lineDash: "8 6", lineAnim: "dash-anim 0.6s linear infinite",
+            packetOpacity: "0.5", dotClass: "warning"
+        }
+    };
+
+    const cfg = configs[state] || configs["chua_ket_noi"];
+
+    if (badge) {
+        badge.textContent         = cfg.badgeText;
+        badge.style.background    = cfg.badgeBg;
+        badge.style.color         = cfg.badgeColor;
+        badge.style.border        = `1px solid ${cfg.badgeBorder}`;
+    }
+
+    if (activeLine) {
+        activeLine.style.stroke          = cfg.lineColor;
+        activeLine.setAttribute("stroke-dasharray", cfg.lineDash);
+        activeLine.style.animation       = cfg.lineAnim;
+    }
+
+    if (packet) {
+        packet.style.opacity = cfg.packetOpacity;
+        if (cfg.packetOpacity !== "0") {
+            // Animate packet travelling left-to-right
+            packet.style.animation = "travel-anim 1.8s linear infinite";
+        } else {
+            packet.style.animation = "none";
         }
     }
 
-    function renderVisNetwork(nodesList, edgesList, isEmptyState = false) {
-        if (isEmptyState || !nodesList || nodesList.length === 0) {
-            container.innerHTML = `
-                <div class="empty-topology-overlay" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; text-align: center; padding: 2rem;">
-                    <div class="radar-pulse-ring" style="font-size: 3.5rem; color: #38bdf8; margin-bottom: 1.2rem; animation: pulse 2s infinite;">
-                        <i class="fa-solid fa-radar fa-spin"></i>
-                    </div>
-                    <h3 style="color: #f8fafc; font-size: 1.2rem; margin-bottom: 0.5rem;">Chưa phát hiện thiết bị kết nối (Real-time Discovery)</h3>
-                    <p style="font-size: 0.88rem; max-width: 480px; color: #64748b; line-height: 1.5;">Toàn bộ sơ đồ giả lập cũ đã được gỡ bỏ 100%. Sơ đồ mạng sẽ tự động khởi tạo ngay khi hệ thống ghi nhận có Wazuh Agent active hoặc thiết bị thực tế cắm vào hạ tầng.</p>
-                </div>
-            `;
-            if (nodeDetailPanel) {
-                nodeDetailPanel.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fa-solid fa-network-wired empty-icon"></i>
-                        <p>Hệ thống mạng hiện chưa có thiết bị kết nối. Trạng thái hiển thị rỗng theo đúng thực tế Wazuh API.</p>
-                    </div>
-                `;
-            }
-            return;
+    if (connDot) {
+        connDot.className = `status-indicator ${cfg.dotClass}`;
+    }
+}
+
+// ─────────────────────────────────────────────
+//  SUMMARY STRIP
+// ─────────────────────────────────────────────
+function updateSummaryStrip(summary) {
+    const s = (id, val, suffix) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = `${val} ${suffix}`;
+    };
+    s("sum-total",   summary.total   ?? "—", "Tổng");
+    s("sum-online",  summary.online  ?? "—", "Online");
+    s("sum-warning", summary.warning ?? "—", "Warning");
+    s("sum-offline", summary.offline ?? "—", "Offline");
+    s("sum-attack",  summary.under_attack ?? "—", "🚨 Attack");
+}
+
+// ─────────────────────────────────────────────
+//  VIS-NETWORK FAN-OUT RENDER
+// ─────────────────────────────────────────────
+function renderVisNetwork(devices, wazuhHost) {
+    const container = document.getElementById("secmap-vis-container");
+    if (!container) return;
+
+    if (!devices || devices.length === 0) {
+        container.innerHTML = `
+            <div class="secmap-empty">
+                <i class="fa-solid fa-shield-halved" style="font-size:3rem; color:#1e293b;"></i>
+                <p style="color:#334155; font-size:0.88rem; max-width:380px;">
+                    Không phát hiện thiết bị nào đang được giám sát.<br>
+                    Sơ đồ sẽ xuất hiện ngay khi có Wazuh Agent kết nối hoặc thiết bị được xác minh trong known_devices.json.
+                </p>
+            </div>`;
+        return;
+    }
+
+    // Build Wazuh Server centre node
+    const serverNodeId = "__wazuh_server__";
+    const nodes = [
+        {
+            id: serverNodeId,
+            label: `Wazuh Server\n${wazuhHost || "SIEM"}`,
+            shape: "image",
+            image: ICON_MAP["siem"],
+            size: NODE_ICON_SIZE + 8,
+            borderWidth: 3,
+            color: { border: "#818cf8", background: "transparent", highlight: { border: "#a78bfa" } },
+            font: { color: "#f8fafc", face: "Inter", size: 11, strokeWidth: 3, strokeColor: "#020617" },
+            shadow: { enabled: true, color: "rgba(129,140,248,0.4)", size: 16 },
+            x: 0, y: 0,
+            physics: false   // Centre node stays anchored
         }
+    ];
 
-        container.innerHTML = ""; // Clear canvas container for vis.js
+    const edges = [];
 
-        const formattedNodes = nodesList.map(n => {
-            let iconCode = "\uf233";
-            let iconColor = "#0284c7";
-            let borderColor = "#38bdf8";
+    devices.forEach(dev => {
+        const iconType = (dev.type || "unknown").toLowerCase();
+        const iconSrc  = ICON_MAP[iconType] || ICON_MAP["unknown"];
+        const border   = BADGE_BORDER[dev.badge] || BADGE_BORDER["OFFLINE"];
+        const glow     = BADGE_GLOW[dev.badge]   || BADGE_GLOW["OFFLINE"];
 
-            if (n.group === "server") {
-                iconCode = "\uf233"; iconColor = "#0284c7"; borderColor = "#38bdf8";
-            } else if (n.group === "router") {
-                iconCode = "\uf6ff"; iconColor = "#f59e0b"; borderColor = "#fde047";
-            } else if (n.group === "firewall") {
-                iconCode = "\uf3ed"; iconColor = "#f97316"; borderColor = "#fb923c";
-            } else if (n.group === "switch") {
-                iconCode = "\uf6ff"; iconColor = "#10b981"; borderColor = "#34d399";
-            } else if (n.group === "pc" || n.group === "endpoint") {
-                iconCode = "\uf108"; iconColor = "#10b981"; borderColor = "#34d399";
-            }
+        // Health-aware label
+        const healthPct = dev.health?.score ?? 0;
+        const riskVal   = dev.risk?.risk    ?? 0;
+        const badgeEmoji = {
+            "NORMAL":       "🟢",
+            "WARNING":      "🟡",
+            "UNDER_ATTACK": "🔴",
+            "OFFLINE":      "⚫"
+        }[dev.badge] || "⚫";
 
-            const nodeObj = {
-                id: n.id,
-                label: n.label,
-                originalLabel: n.label,
-                shape: "icon",
-                icon: {
-                    face: "'Font Awesome 6 Free'",
-                    code: iconCode,
-                    size: 45,
-                    color: iconColor,
-                    weight: "900"
-                },
-                font: { color: "#f8fafc", face: "Inter", size: 12, strokeWidth: 4, strokeColor: "#020617" },
-                borderWidth: 2,
-                color: { border: borderColor }
-            };
+        const label = `${badgeEmoji} ${dev.name}\n${dev.ip}`;
 
-            if (n.level) {
-                nodeObj.level = n.level;
-            }
+        // Restore saved position if available
+        const pos = savedPositions[dev.id];
 
-            if (savedPositions[n.id]) {
-                nodeObj.x = savedPositions[n.id].x;
-                nodeObj.y = savedPositions[n.id].y;
-            }
-
-            return nodeObj;
-        });
-
-        const formattedEdges = (edgesList || []).map(e => ({
-            from: e.from,
-            to: e.to,
-            label: e.label,
-            font: { color: "#38bdf8", face: "Inter", size: 11, align: "middle", background: "#0f172a", strokeWidth: 4, strokeColor: "#020617" },
-            arrows: { to: { enabled: true, scaleFactor: 0.85 } },
-            color: e.color || { color: "#38bdf8", highlight: "#0284c7" },
-            width: 2,
-            smooth: false
-        }));
-
-        nodesDataSet = new vis.DataSet(formattedNodes);
-        edgesDataSet = new vis.DataSet(formattedEdges);
-
-        const options = {
-            nodes: { shadow: true },
-            edges: { shadow: true, smooth: false },
-            physics: {
-                enabled: Object.keys(savedPositions).length === 0,
-                solver: "forceAtlas2Based",
-                forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.01, springLength: 140, springConstant: 0.08 }
+        const nodeObj = {
+            id: dev.id,
+            label,
+            shape: "image",
+            image: iconSrc,
+            size: NODE_ICON_SIZE,
+            borderWidth: dev.badge === "UNDER_ATTACK" ? 4 : 2,
+            borderWidthSelected: 3,
+            color: {
+                border: border,
+                background: "transparent",
+                highlight: { border: border }
             },
-            interaction: { hover: true, dragNodes: true, zoomView: true }
+            font: { color: "#f8fafc", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
+            shadow: { enabled: true, color: glow, size: dev.badge === "UNDER_ATTACK" ? 20 : 10 },
+            // Store raw device data for click handler
+            _device: dev
         };
 
-        network = new vis.Network(container, { nodes: nodesDataSet, edges: edgesDataSet }, options);
+        if (pos) { nodeObj.x = pos.x; nodeObj.y = pos.y; }
 
-        network.on("dragEnd", (params) => {
+        nodes.push(nodeObj);
+
+        // Edge from Wazuh Server to this device
+        const edgeColor = dev.health?.status === "offline" ? "#334155"
+                        : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
+                        : dev.badge === "WARNING"           ? "#f59e0b"
+                        : "#1e40af";
+
+        edges.push({
+            from: serverNodeId,
+            to: dev.id,
+            color: { color: edgeColor, highlight: edgeColor },
+            width: dev.badge === "UNDER_ATTACK" ? 3 : 1.5,
+            dashes: dev.health?.status === "offline" ? [4, 4] : false,
+            smooth: { type: "curvedCW", roundness: 0.15 },
+            font: { size: 0 },
+            arrows: { to: { enabled: false } }
+        });
+    });
+
+    const options = {
+        nodes: { shadow: true, chosen: true },
+        edges: { shadow: false },
+        layout: {
+            randomSeed: 42
+        },
+        physics: {
+            enabled: Object.keys(savedPositions).length === 0,
+            solver: "forceAtlas2Based",
+            forceAtlas2Based: {
+                gravitationalConstant: -80,
+                centralGravity: 0.015,
+                springLength: 160,
+                springConstant: 0.06
+            },
+            stabilization: { iterations: 150 }
+        },
+        interaction: {
+            hover: true,
+            dragNodes: true,
+            zoomView: true,
+            tooltipDelay: 200
+        }
+    };
+
+    if (!network) {
+        nodesDS = new vis.DataSet(nodes);
+        edgesDS = new vis.DataSet(edges);
+        network  = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, options);
+
+        // Save positions on drag
+        network.on("dragEnd", params => {
             if (params.nodes.length > 0) {
                 const positions = network.getPositions(params.nodes);
                 Object.keys(positions).forEach(id => { savedPositions[id] = positions[id]; });
-                localStorage.setItem("wazuh_netmap_positions", JSON.stringify(savedPositions));
+                localStorage.setItem("secmap_positions", JSON.stringify(savedPositions));
             }
         });
 
-        network.on("click", (params) => {
+        // Disable physics after stabilisation
+        network.on("stabilizationIterationsDone", () => {
+            network.setOptions({ physics: { enabled: false } });
+        });
+
+        // Single-click: show device detail panel
+        network.on("click", params => {
             if (params.nodes.length > 0) {
                 const nodeId = params.nodes[0];
-                const nodeInfo = rawNodesData.find(n => n.id === nodeId);
-                if (nodeInfo) {
-                    renderReadOnlyNodePanel(nodeInfo);
+                if (nodeId === "__wazuh_server__") {
+                    renderServerDetail();
+                    return;
+                }
+                const dev = rawDevices.find(d => d.id === nodeId);
+                if (dev) renderDeviceDetail(dev);
+            }
+        });
+
+        // Double-click: open AI Investigation (drilldown)
+        network.on("doubleClick", params => {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                if (nodeId === "__wazuh_server__") return;
+                const dev = rawDevices.find(d => d.id === nodeId);
+                if (dev) {
+                    const url = `/drilldown?device_id=${encodeURIComponent(dev.id)}`
+                              + `&device_name=${encodeURIComponent(dev.name)}`
+                              + `&ip=${encodeURIComponent(dev.ip)}`
+                              + `&risk=${encodeURIComponent(dev.risk?.risk ?? 0)}`;
+                    window.location.href = url;
                 }
             }
         });
-    }
 
-    function renderReadOnlyNodePanel(n) {
-        const portsList = (n.open_ports || []).map(p => `<li><code>${p}</code></li>`).join("");
-        nodeDetailPanel.innerHTML = `
+    } else {
+        // Incremental update to avoid full re-render flicker
+        nodesDS.update(nodes);
+        edgesDS.update(edges);
+        // Remove stale nodes
+        const currentIds = new Set(nodes.map(n => n.id));
+        nodesDS.forEach(n => { if (!currentIds.has(n.id)) nodesDS.remove(n.id); });
+    }
+}
+
+// ─────────────────────────────────────────────
+//  DEVICE DETAIL PANEL
+// ─────────────────────────────────────────────
+function renderDeviceDetail(dev) {
+    const panel = document.getElementById("device-detail-panel");
+    if (!panel) return;
+
+    const health     = dev.health   || {};
+    const risk       = dev.risk     || {};
+    const healthPct  = health.score  ?? 0;
+    const riskVal    = risk.risk     ?? 0;
+    const badge      = dev.badge || "OFFLINE";
+
+    const iconSrc = ICON_MAP[(dev.type || "unknown").toLowerCase()] || ICON_MAP["unknown"];
+
+    // Health bar colour
+    const healthColor = healthPct >= 80 ? "#22c55e"
+                      : healthPct >= 40 ? "#f59e0b"
+                      : "#ef4444";
+
+    // Last seen display
+    const lastSeenSec = health.last_seen_seconds;
+    const lastSeenStr = lastSeenSec == null  ? "N/A"
+                      : lastSeenSec < 60      ? `${lastSeenSec}s trước`
+                      : lastSeenSec < 3600    ? `${Math.round(lastSeenSec / 60)}m trước`
+                      : `${Math.round(lastSeenSec / 3600)}h trước`;
+
+    panel.innerHTML = `
+        <div style="padding: 0.1rem 0.2rem;">
+            <div class="device-detail-header">
+                <img src="${iconSrc}" class="device-type-icon-lg" alt="${dev.type}" onerror="this.src='/static/assets/icons/unknown.svg'">
+                <div style="flex:1; min-width:0;">
+                    <div style="font-size:0.95rem; font-weight:700; color:#f8fafc; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        ${escHtml(dev.name)}
+                    </div>
+                    <code style="font-size:0.8rem; color:#38bdf8;">${escHtml(dev.ip)}</code>
+                    <div style="margin-top:4px;">
+                        <span class="badge-pill badge-${badge}">${badgeLabel(badge)}</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="evidence-section">
-                <h3><i class="fa-solid fa-server"></i> ${n.label.replace(/\n/g, " ")}</h3>
-                <p><strong>Loại Thiết Bị:</strong> <span class="badge-level level-low">${n.device_type}</span></p>
-                <p><strong>Địa Chỉ IP Phân Giải:</strong> <code>${n.ip}</code> ${n.secondary_ip ? `| <code>${n.secondary_ip}</code>` : ""}</p>
-                <p><strong>Hệ Điều Hành / Firmware:</strong> ${n.os || "Linux / Wazuh OS"}</p>
-                <p><strong>Trạng Thái Giám Sát:</strong> <span style="color: #10b981;">🟢 ${n.agent_status || "Active Device"}</span></p>
+                <h3><i class="fa-solid fa-heart-pulse"></i> Health Score</h3>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                    <div class="health-bar-outer" style="flex:1;">
+                        <div class="health-bar-inner" style="width:${healthPct}%; background:${healthColor};"></div>
+                    </div>
+                    <span style="font-size:0.8rem; font-weight:700; color:${healthColor}; width:36px; text-align:right;">${healthPct}%</span>
+                </div>
+                <p style="font-size:0.75rem; color:#64748b; margin:0;">
+                    Trạng thái: <span style="color:${healthColor}; font-weight:600;">${healthStatusLabel(health.status)}</span>
+                    &nbsp;·&nbsp; Lần cuối thấy: <span style="color:#94a3b8;">${lastSeenStr}</span>
+                </p>
             </div>
 
-            <div class="evidence-section" style="margin-top: 1.2rem;">
-                <h3><i class="fa-solid fa-plug"></i> Interface & Real Ports</h3>
-                <ul style="padding-left: 1.2rem; margin: 0.5rem 0; font-size: 0.85rem; color: var(--accent-cyan);">
-                    ${portsList}
-                </ul>
+            <div class="evidence-section" style="margin-top:0.8rem;">
+                <h3><i class="fa-solid fa-skull-crossbones"></i> Risk Score</h3>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                    <div class="health-bar-outer" style="flex:1;">
+                        <div class="health-bar-inner" style="width:${riskVal}%; background:${riskColor(riskVal)};"></div>
+                    </div>
+                    <span style="font-size:0.8rem; font-weight:700; color:${riskColor(riskVal)}; width:36px; text-align:right;">${riskVal}</span>
+                </div>
+                <p style="font-size:0.75rem; color:#64748b; margin:0;">
+                    Alerts liên quan: <span style="color:#94a3b8;">${risk.alert_count ?? 0}</span>
+                    &nbsp;·&nbsp; Nguồn: <span style="color:#7c3aed;">score_priority()</span>
+                </p>
             </div>
-        `;
-    }
 
-    function startHeartbeatPolling() {
-        setInterval(async () => {
-            try {
-                const res = await fetch("/api/network/status", { credentials: "same-origin" });
-                if (res.status === 401) return;
-                const json = await res.json();
-                const nodeStatuses = json.data?.nodes || {};
+            <div class="evidence-section" style="margin-top:0.8rem;">
+                <h3><i class="fa-solid fa-info-circle"></i> Chi Tiết</h3>
+                <table style="width:100%; font-size:0.78rem; border-collapse:collapse;">
+                    <tr><td style="color:#64748b; padding:2px 0;">Loại thiết bị</td>
+                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.type || "—")}</td></tr>
+                    <tr><td style="color:#64748b; padding:2px 0;">Hệ điều hành</td>
+                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.os || "—")}</td></tr>
+                    <tr><td style="color:#64748b; padding:2px 0;">Wazuh Agent ID</td>
+                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.agent_id || "Không có agent")}</td></tr>
+                    <tr><td style="color:#64748b; padding:2px 0;">Agent Status</td>
+                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.agent_status || "—")}</td></tr>
+                    <tr><td style="color:#64748b; padding:2px 0;">Nguồn dữ liệu</td>
+                        <td style="color:#7c3aed; text-align:right;">${escHtml(dev.source || "—")}</td></tr>
+                </table>
+            </div>
 
-                if (nodesDataSet) {
-                    nodesDataSet.forEach(node => {
-                        const rawNode = rawNodesData.find(n => n.id === node.id);
-                        if (!rawNode) return;
+            <button class="btn-investigate" onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
+                <i class="fa-solid fa-magnifying-glass-chart"></i>
+                🔍 Mở AI Investigation (Double-click)
+            </button>
+        </div>`;
+}
 
-                        const statusObj = nodeStatuses[rawNode.ip];
-                        if (statusObj) {
-                            if (statusObj.status === "down") {
-                                const timestampMsg = statusObj.down_since ? `\n🚨 Mất kết nối lúc: ${statusObj.down_since}` : "\n🚨 Mất kết nối";
-                                nodesDataSet.update({
-                                    id: node.id,
-                                    label: node.originalLabel + timestampMsg,
-                                    icon: { ...node.icon, color: "#ef4444" },
-                                    color: { border: "#ef4444" }
-                                });
-                            } else if (statusObj.status === "degraded") {
-                                nodesDataSet.update({
-                                    id: node.id,
-                                    label: node.originalLabel + "\n🟠 Nghẽn mạng nhẹ",
-                                    icon: { ...node.icon, color: "#f59e0b" },
-                                    color: { border: "#f59e0b" }
-                                });
-                            } else {
-                                nodesDataSet.update({
-                                    id: node.id,
-                                    label: node.originalLabel,
-                                    icon: { ...node.icon, color: node.icon.color },
-                                    color: { border: node.color.border }
-                                });
-                            }
-                        }
-                    });
-                }
-            } catch (err) {
-                console.error("Heartbeat poll error:", err);
-            }
-        }, 10000);
-    }
+function renderServerDetail() {
+    const panel = document.getElementById("device-detail-panel");
+    if (!panel) return;
+    panel.innerHTML = `
+        <div style="padding:0.2rem;">
+            <div class="device-detail-header">
+                <img src="${ICON_MAP["siem"]}" class="device-type-icon-lg" alt="SIEM">
+                <div>
+                    <div style="font-size:0.95rem; font-weight:700; color:#f8fafc;">Wazuh Manager</div>
+                    <code style="font-size:0.8rem; color:#818cf8;">SIEM — Nút trung tâm</code>
+                </div>
+            </div>
+            <div class="evidence-section">
+                <p style="font-size:0.82rem; color:#64748b; line-height:1.6;">
+                    Đây là nút trung tâm Wazuh Manager — tất cả Agent gửi log về đây.<br>
+                    Double-click vào thiết bị ngoài để mở AI Investigation scoped theo thiết bị đó.
+                </p>
+            </div>
+        </div>`;
+}
 
-    if (presetSelector) {
-        presetSelector.addEventListener("change", (e) => {
-            loadTopology(e.target.value);
-        });
-    }
+function openInvestigation(id, name, ip, risk) {
+    const url = `/drilldown?device_id=${encodeURIComponent(id)}`
+              + `&device_name=${encodeURIComponent(name)}`
+              + `&ip=${encodeURIComponent(ip)}`
+              + `&risk=${encodeURIComponent(risk)}`;
+    window.location.href = url;
+}
 
-    if (btnResetLayout) {
-        btnResetLayout.addEventListener("click", () => {
-            localStorage.removeItem("wazuh_netmap_positions");
-            loadTopology(presetSelector ? presetSelector.value : "default");
-        });
-    }
+// ─────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────
+function escHtml(str) {
+    if (str == null) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
 
-    if (btnZoomFit) {
-        btnZoomFit.addEventListener("click", () => {
-            if (network) {
-                network.fit({ animation: { duration: 500, easingFunction: "easeInOutQuad" } });
-            }
-        });
-    }
+function badgeLabel(badge) {
+    return {
+        "NORMAL":       "🟢 BÌNH THƯỜNG",
+        "WARNING":      "🟡 CẢNH BÁO",
+        "UNDER_ATTACK": "🔴 ĐANG BỊ TẤN CÔNG",
+        "OFFLINE":      "⚫ NGOẠI TUYẾN"
+    }[badge] || badge;
+}
 
-    loadTopology("default");
-    startHeartbeatPolling();
-});
+function healthStatusLabel(status) {
+    return {
+        "online":  "Trực tuyến",
+        "warning": "Chậm / Không ổn định",
+        "offline": "Ngoại tuyến"
+    }[status] || status || "Không rõ";
+}
+
+function riskColor(risk) {
+    if (risk >= 70) return "#ef4444";
+    if (risk >= 40) return "#f59e0b";
+    return "#22c55e";
+}

@@ -22,6 +22,7 @@
             </div>
         </div>
         <div class="header-actions">
+            <button id="btn-toggle-sidebar" class="btn-chip-action" title="Bật/Tắt Sidebar History"><i class="fa-solid fa-bars"></i> Lịch Sử</button>
             <button id="btn-open-settings" class="btn-chip-action" title="Cài đặt hệ thống"><i class="fa-solid fa-sliders"></i> ⚙️ Settings</button>
             <button id="btn-open-netmap" class="btn-chip-action" title="Mở sơ đồ mạng"><i class="fa-solid fa-network-wired"></i> 🗺️ Sơ Đồ Mạng</button>
             <button id="btn-back-login" class="btn-chip-action" title="Quay lại đăng nhập"><i class="fa-solid fa-right-from-bracket"></i> Đăng Xuất</button>
@@ -32,8 +33,23 @@
         </div>
     </header>
 
-    <main class="soc-layout">
-        <!-- Pane 1: Live Wazuh Alert Feed -->
+    <div class="app-body-container">
+        <aside id="history-sidebar" class="history-sidebar">
+            <div class="sidebar-header" style="padding: 1rem;">
+                <button id="btn-new-chat" class="btn-primary" style="width: 100%; font-size: 0.85rem;"><i class="fa-solid fa-plus"></i> New Conversation</button>
+            </div>
+            <div class="sidebar-body">
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title"><i class="fa-solid fa-clock-rotate-left"></i> Conversation History</div>
+                    <div id="history-list" class="history-tree">
+                        <div class="loading-state" style="padding: 1rem; font-size: 0.8rem;">Đang tải...</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="soc-layout">
+            <!-- Pane 1: Live Wazuh Alert Feed -->
         <section class="soc-pane pane-alerts">
             <div class="pane-header" style="justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -63,10 +79,7 @@
                     <i class="fa-solid fa-brain" style="color: #38bdf8;"></i>
                     <h2 style="font-size: 0.95rem; font-weight: 700; margin: 0;">SOC AI Master Advisor</h2>
                 </div>
-                <div class="mode-toggle">
-                    <button id="mode-global" class="mode-btn active"><i class="fa-solid fa-globe"></i> Chat Tổng SOC Master</button>
-                    <button id="mode-single" class="mode-btn"><i class="fa-solid fa-magnifying-glass"></i> Single Alert Deep-Dive</button>
-                </div>
+
             </div>
             
             <div id="chat-stream" class="chat-messages">
@@ -108,6 +121,7 @@
             </div>
         </section>
     </main>
+    </div> <!-- end app-body-container -->
 
     <!-- ENTERPRISE MULTI-CATEGORY SETTINGS DRAWER (ANTIGRAVITY / CURSOR IDE STYLE) -->
     <div id="settings-modal" class="modal-overlay hidden">

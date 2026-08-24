@@ -1,5 +1,5 @@
 {
   "username": "admin",
-  "salt_hex": "48ac142defa3471348a33068e5e161c327dabc5ccc0d03b77577b605efd7588a",
-  "password_hash": "6dcb68f4f32fcb0704390e070f5880fe96e2f5cc29141529f073d13d52713aeb"
+  "salt_hex": "aeddd2e24f8f60a34956503040b9e12187bfde7275cc3b16593612c56ab95e20",
+  "password_hash": "624d9a821b16cd4bd62714b75b991d6073ff3705772f6d451067d11fd3df31e3"
 }

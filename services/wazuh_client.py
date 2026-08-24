@@ -1,14 +1,32 @@
 import hashlib
 import json
 import logging
+import time
+from collections import deque
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
+from datetime import datetime
+
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("WazuhClient")
+
+# Global ring buffer storing real-time API exchange logs with timestamps
+LIVE_API_LOGS: deque = deque(maxlen=100)
+
+def record_live_api_log(direction: str, method: str, url: str, status_code: int, detail: str):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    LIVE_API_LOGS.appendleft({
+        "timestamp": timestamp,
+        "direction": direction,
+        "method": method,
+        "url": url,
+        "status_code": status_code,
+        "detail": detail
+    })
 
 
 class WazuhClient:
@@ -20,14 +38,14 @@ class WazuhClient:
 
     def __init__(
         self,
-        host: str = "192.168.1.248",
+        host: str = "172.16.175.145",
         port: int = 55000,
-        user: str = "wazuh",
-        password: str = "wazuh",
+        user: str = "agentwazuh",
+        password: str = "1234567890gG@",
         dashboard_user: str = "admin",
         dashboard_pass: str = "admin"
     ):
-        self.host = host if host not in ["127.0.0.1", "localhost", ""] else "192.168.1.248"
+        self.host = host if (host and host not in ["127.0.0.1", "localhost", "admin"]) else "172.16.175.145"
         self.port = port
         self.user = user
         self.password = password
@@ -36,6 +54,48 @@ class WazuhClient:
         self.base_url = f"https://{self.host}:{self.port}"
         self.jwt_token = None
         self.last_auth_error = None
+        # Ring buffer: lưu lịch sử kết nối theo thời gian thực (50 lần gần nhất)
+        # Không dùng maxlen để cắt theo số lượng — lọc theo window_seconds là cơ chế chính
+        self._conn_history: deque = deque(maxlen=50)
+
+    def _record_conn_attempt(self, success: bool, error_type: str = None) -> None:
+        """Ghi lại kết quả mỗi lần thử kết nối vào ring buffer kèm timestamp thực."""
+        self._conn_history.append({
+            "timestamp": time.time(),
+            "success": success,
+            "error_type": error_type
+        })
+
+    def get_agentwazuh_connection_state(self, window_seconds: int = 600) -> dict:
+        """
+        Trả về trạng thái kết nối AgentWazuh ↔ Wazuh Server dựa trên ring buffer
+        trong cửa sổ thời gian gần nhất (mặc định 600s = 10 phút).
+
+        Trạng thái:
+          - 'chua_ket_noi': chưa có lần nào thành công trong window, hoặc buffer trống
+          - 'da_ket_noi':   toàn bộ lần gọi trong window đều thành công
+          - 'chap_chon':    có cả thành công lẫn thất bại trong CÙNG window gần đây
+        """
+        now = time.time()
+        recent = [x for x in self._conn_history if now - x["timestamp"] < window_seconds]
+        if not recent:
+            state = "chua_ket_noi"
+        elif all(x["success"] for x in recent):
+            state = "da_ket_noi"
+        elif all(not x["success"] for x in recent):
+            state = "chua_ket_noi"
+        else:
+            state = "chap_chon"
+        success_count = sum(1 for x in recent if x["success"])
+        fail_count = len(recent) - success_count
+        return {
+            "state": state,
+            "window_seconds": window_seconds,
+            "total_attempts": len(recent),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "fail_rate_pct": round(fail_count / len(recent) * 100, 1) if recent else 0
+        }
 
     def authenticate(self) -> bool:
         """Strict authentication to Wazuh REST API (Port 55000) using (self.user, self.password)."""
@@ -48,18 +108,22 @@ class WazuhClient:
                 self.base_url = f"https://{self.host}:{self.port}"
                 self.last_auth_error = None
                 logger.info(f"✅ [Wazuh API 55000]: Authenticated Successfully! JWT Token acquired.")
+                self._record_conn_attempt(True)
                 return True
             elif res.status_code == 401:
                 self.last_auth_error = f"Sai thông tin đăng nhập Wazuh Manager API (User: {self.user})"
                 logger.warning(f"❌ [Wazuh API 55000]: 401 Unauthorized ({self.last_auth_error})")
+                self._record_conn_attempt(False, "auth_401")
                 return False
             else:
                 self.last_auth_error = f"Xác thực thất bại (Mã HTTP {res.status_code} từ {self.host})"
                 logger.warning(f"❌ [Wazuh API 55000]: HTTP {res.status_code}")
+                self._record_conn_attempt(False, f"http_{res.status_code}")
                 return False
         except Exception as e:
             self.last_auth_error = f"Không thể kết nối tới Wazuh Manager tại https://{self.host}:{self.port} ({e})"
             logger.error(f"❌ [Wazuh API 55000]: Connection Error ({e})")
+            self._record_conn_attempt(False, "connection_error")
             return False
 
     def _get_dashboard_session(self) -> Optional[requests.Session]:
@@ -110,10 +174,12 @@ class WazuhClient:
                 res = requests.get(f"{self.base_url}/manager/status", headers=headers, verify=False, timeout=4.0)
 
             # 2. Get Agents List
-            agents_res = requests.get(f"{self.base_url}/agents?limit=500", headers=headers, verify=False, timeout=4.0)
+            agents_url = f"{self.base_url}/agents?limit=500"
+            agents_res = requests.get(agents_url, headers=headers, verify=False, timeout=4.0)
             agents = []
             if agents_res.status_code == 200:
                 agents = agents_res.json().get("data", {}).get("affected_items", [])
+                record_live_api_log("INCOMING_RESPONSE", "GET", agents_url, 200, f"FETCHED AGENTS: Successfully retrieved {len(agents)} registered agents strictly from Wazuh REST API ({self.host}:55000)")
 
             active_cnt = sum(1 for a in agents if str(a.get("status", "")).lower() == "active")
             disconn_cnt = sum(1 for a in agents if str(a.get("status", "")).lower() == "disconnected")
@@ -124,6 +190,8 @@ class WazuhClient:
             if ver_res.status_code == 200:
                 version = ver_res.json().get("data", {}).get("affected_items", [{}])[0].get("version", version)
 
+            # Ghi nhận kết nối thành công vào ring buffer
+            self._record_conn_attempt(True)
             return {
                 "status": "online",
                 "version": version,
@@ -135,6 +203,8 @@ class WazuhClient:
                 "error": None
             }
         except Exception as e:
+            # Ghi nhận kết nối thất bại vào ring buffer — bắt MỌI nhánh exception
+            self._record_conn_attempt(False, "get_system_status_exception")
             return {
                 "status": "offline",
                 "version": "Unknown",

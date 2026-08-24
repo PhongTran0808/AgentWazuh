@@ -3,118 +3,355 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — Dynamic Monitored Network Topology Map</title>
+    <title>AgentWazuh — Security Topology SOC Map Level 1</title>
+    <meta name="description" content="SOC Security Map: Giám sát thiết bị Wazuh theo thời gian thực, Health Score, Risk Score, Badge trạng thái.">
     <link rel="stylesheet" href="/static/design-tokens.css">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- vis-network standalone library -->
+    <!-- vis-network standalone library (kept for fan-out drag-drop) -->
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        /* ─── Security Map — Page-level styles ─── */
+        :root {
+            --conn-chua: #64748b;
+            --conn-da:   #7c3aed;
+            --conn-chap: #f97316;
+            --badge-normal:  #22c55e;
+            --badge-warn:    #f59e0b;
+            --badge-attack:  #ef4444;
+            --badge-offline: #475569;
+        }
+
+        /* ── Connection bus (AgentWazuh ↔ Wazuh Server) ── */
+        #secmap-bus-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            padding: 0.6rem 1.4rem;
+            background: #070c18;
+            border-bottom: 1px solid #1e293b;
+            gap: 0;
+            min-height: 72px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bus-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            z-index: 2;
+        }
+
+        .bus-node-icon {
+            width: 44px; height: 44px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.2rem;
+            border: 2px solid;
+            position: relative;
+            background: #0f172a;
+            flex-shrink: 0;
+        }
+
+        .bus-node-icon.agent-node {
+            border-color: #6366f1;
+            color: #818cf8;
+            box-shadow: 0 0 12px rgba(99,102,241,0.35);
+        }
+
+        .bus-node-icon.server-node {
+            border-color: #0ea5e9;
+            color: #38bdf8;
+            box-shadow: 0 0 12px rgba(14,165,233,0.35);
+        }
+
+        .bus-node-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #94a3b8;
+            text-align: center;
+            max-width: 80px;
+            line-height: 1.2;
+        }
+
+        /* SVG animated connection line */
+        #bus-svg-line {
+            flex: 1;
+            height: 44px;
+            min-width: 60px;
+            max-width: 280px;
+        }
+
+        /* Connection state badge beside the line */
+        #bus-conn-badge {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            letter-spacing: 0.06em;
+            z-index: 10;
+            transition: background 0.4s, color 0.4s;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        /* Summary strip */
+        #secmap-summary-strip {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            padding: 0.35rem 1rem;
+            background: #0a0f1e;
+            border-bottom: 1px solid #1e293b;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .sum-chip {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 0.7rem; font-weight: 600;
+            padding: 2px 10px;
+            border-radius: 999px;
+            border: 1px solid;
+        }
+
+        /* Vis-network canvas pane */
+        #secmap-vis-container {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at 50% 40%, #090f1e 0%, #020711 100%);
+            position: relative;
+        }
+
+        /* Device detail panel overrides */
+        .device-detail-header {
+            display: flex; align-items: flex-start; gap: 0.8rem;
+            margin-bottom: 1rem;
+        }
+
+        .device-type-icon-lg {
+            width: 52px; height: 52px;
+            border-radius: 10px;
+            flex-shrink: 0;
+            object-fit: contain;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            padding: 4px;
+        }
+
+        .health-bar-outer {
+            height: 8px; border-radius: 4px;
+            background: #1e293b;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .health-bar-inner {
+            height: 100%; border-radius: 4px;
+            transition: width 0.6s ease;
+        }
+
+        .badge-pill {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 10px; border-radius: 999px;
+            font-size: 0.7rem; font-weight: 700;
+            letter-spacing: 0.06em;
+        }
+
+        .badge-NORMAL      { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid #22c55e; }
+        .badge-WARNING     { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid #f59e0b; animation: pulse-warn 2s infinite; }
+        .badge-UNDER_ATTACK{ background: rgba(239,68,68,.15); color: #f87171; border: 1px solid #ef4444; animation: pulse-attack 1.2s infinite; }
+        .badge-OFFLINE     { background: rgba(71,85,105,.15); color: #94a3b8; border: 1px solid #475569; }
+
+        @keyframes pulse-warn {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+            50%       { box-shadow: 0 0 0 4px rgba(245,158,11,0.25); }
+        }
+        @keyframes pulse-attack {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+            50%       { box-shadow: 0 0 0 6px rgba(239,68,68,0.3); }
+        }
+
+        .btn-investigate {
+            width: 100%; margin-top: 1rem;
+            padding: 0.65rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #7c3aed;
+            background: rgba(124,58,237,0.15);
+            color: #a78bfa;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .btn-investigate:hover {
+            background: rgba(124,58,237,0.3);
+            color: #c4b5fd;
+        }
+
+        /* Vis.js badge overlay badges on nodes */
+        .vis-badge-overlay {
+            display: none; /* handled via vis-network node color */
+        }
+
+        /* Connection line animations */
+        @keyframes dash-anim {
+            to { stroke-dashoffset: -24; }
+        }
+        @keyframes travel-anim {
+            from { stroke-dashoffset: 240; }
+            to   { stroke-dashoffset: 0; }
+        }
+
+        /* Empty state */
+        .secmap-empty {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; height: 100%; color: #475569;
+            text-align: center; gap: 1rem; padding: 2rem;
+        }
+    </style>
 </head>
 <body class="dashboard-body">
 
-    <!-- Top Header Navigation -->
+    <!-- ── Top Nav Header ── -->
     <header class="soc-header">
         <div class="header-brand">
             <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
                 <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard
             </button>
             <div style="margin-left: 0.5rem;">
-                <h1 class="header-title"><i class="fa-solid fa-network-wired"></i> Sơ Đồ Mạng AI Suy Luận Tự Động</h1>
-                <p class="header-subtitle">Dây nối thẳng, tự động phân tích dải Subnet & Next-Hop cấu hình thật của thiết bị</p>
+                <h1 class="header-title"><i class="fa-solid fa-shield-halved"></i> Security Topology — SOC Map Level 1</h1>
+                <p class="header-subtitle">Sơ đồ hình sao giám sát thiết bị Wazuh: Health · Risk · Badge trạng thái thời gian thực</p>
             </div>
         </div>
-
         <div class="header-actions">
-            <!-- Preset Topology Selector Dropdown -->
-            <select id="preset-selector" class="btn-chip-action" style="background: #0f172a; border: 1px solid var(--border-color); color: var(--accent-cyan); font-size: 0.82rem; padding: 0.4rem 0.8rem; cursor: pointer;">
-                <option value="default">📐 Dynamic AI Discovered Graph (Khuyên dùng)</option>
-                <option value="2layer">📐 Khung Sơ Đồ 2 Lớp (Core / Access)</option>
-                <option value="3layer">📐 Khung Sơ Đồ 3 Lớp (Core / Dist / Access)</option>
-                <option value="ha_cluster">🛡️ Khung Sơ Đồ HA Active-Passive (FortiGate HA Pair)</option>
-            </select>
-
-            <button id="btn-open-settings" class="btn-chip-action" title="Cài đặt thông số tool"><i class="fa-solid fa-sliders"></i> ⚙️ Settings</button>
-            <button id="btn-zoom-fit" class="btn-chip-action"><i class="fa-solid fa-expand"></i> Fit View</button>
-            <button id="btn-reset-layout" class="btn-chip-action"><i class="fa-solid fa-arrows-rotate"></i> Auto-Layout</button>
+            <button id="btn-zoom-fit"      class="btn-chip-action"><i class="fa-solid fa-expand"></i> Fit View</button>
+            <button id="btn-reset-layout"  class="btn-chip-action"><i class="fa-solid fa-arrows-rotate"></i> Reset Layout</button>
+            <button id="btn-open-settings" class="btn-chip-action" title="Settings"><i class="fa-solid fa-sliders"></i> ⚙️ Settings</button>
             <div class="header-status">
-                <span class="status-indicator online"></span>
-                <span class="status-text" id="status-host">Wazuh Server: N/A</span>
+                <span class="status-indicator online" id="hdr-conn-dot"></span>
+                <span class="status-text" id="status-host">Wazuh Server: —</span>
             </div>
         </div>
     </header>
 
-    <!-- Main Canvas & Detail Panel Layout -->
-    <main class="soc-layout" style="grid-template-columns: 1fr 350px; height: calc(100vh - 65px); padding: 0.8rem; gap: 0.8rem; overflow: hidden;">
-        
-        <!-- Interactive Vis.js Topology Canvas Pane -->
-        <section class="soc-pane" style="display: flex; flex-direction: column; overflow: hidden; background-color: #0b0f19;">
-            
-            <!-- Real-Time Status Legend Bar (Clean No-Overflow) -->
-            <div class="preset-chips" style="flex-shrink: 0; border-bottom: 1px solid var(--border-color); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.8rem; background: #0f172a; flex-wrap: wrap;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted);"><i class="fa-solid fa-signal"></i> TRẠNG THÁI REAL-TIME:</span>
-                <span class="interactive-chip chip-low" style="background-color: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #6ee7b7; font-size: 0.75rem;"><i class="fa-solid fa-circle-check"></i> 🟢 UP (Hoạt động tốt)</span>
-                <span class="interactive-chip chip-medium" style="background-color: rgba(245, 158, 11, 0.15); border-color: #f59e0b; color: #fde047; font-size: 0.75rem;"><i class="fa-solid fa-triangle-exclamation"></i> 🟠 DEGRADED (Nghẽn nhẹ)</span>
-                <span class="interactive-chip chip-critical" style="background-color: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #fca5a5; font-size: 0.75rem;"><i class="fa-solid fa-circle-xmark"></i> 🔴 DOWN (Đứt hẳn)</span>
+    <!-- ── Connection Bus: AgentWazuh ↔ Wazuh Server ── -->
+    <div id="secmap-bus-wrapper">
+        <!-- Left: AgentWazuh box -->
+        <div class="bus-node">
+            <div class="bus-node-icon agent-node">
+                <i class="fa-solid fa-robot"></i>
             </div>
+            <span class="bus-node-label">AgentWazuh<br><span style="color:#6366f1;font-size:0.6rem;">SOC Agent</span></span>
+        </div>
 
-            <!-- Canvas Container -->
-            <div id="vis-netmap-container" style="flex: 1; width: 100%; height: 100%; background: radial-gradient(circle at center, #111827 0%, #030712 100%);"></div>
+        <!-- Animated SVG line -->
+        <svg id="bus-svg-line" viewBox="0 0 240 44" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="line-grad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%"   stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+            </defs>
+            <!-- Background track -->
+            <line id="bus-line-bg" x1="0" y1="22" x2="240" y2="22"
+                  stroke="#1e293b" stroke-width="3"/>
+            <!-- Animated active line -->
+            <line id="bus-line-active" x1="0" y1="22" x2="240" y2="22"
+                  stroke="url(#line-grad)" stroke-width="3"
+                  stroke-dasharray="8 6"
+                  stroke-linecap="round"/>
+            <!-- Travelling packet dot -->
+            <circle id="bus-packet" r="5" cy="22" fill="#818cf8" opacity="0"/>
+        </svg>
+
+        <!-- Connection state badge (centred over the line) -->
+        <div id="bus-conn-badge" style="background:#1e293b; color:#94a3b8; border:1px solid #475569;">
+            ⏳ Đang kiểm tra...
+        </div>
+
+        <!-- Right: Wazuh Server box -->
+        <div class="bus-node">
+            <div class="bus-node-icon server-node">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <span class="bus-node-label" id="bus-server-label">Wazuh Server<br><span style="color:#38bdf8;font-size:0.6rem;">SIEM</span></span>
+        </div>
+    </div>
+
+    <!-- ── Summary strip ── -->
+    <div id="secmap-summary-strip">
+        <span style="font-size:0.7rem; font-weight:700; color:#475569; letter-spacing:0.05em;">THIẾT BỊ GIÁM SÁT:</span>
+        <span id="sum-total"   class="sum-chip" style="border-color:#475569; color:#94a3b8;">— Tổng</span>
+        <span id="sum-online"  class="sum-chip" style="border-color:#22c55e; color:#4ade80;">— Online</span>
+        <span id="sum-warning" class="sum-chip" style="border-color:#f59e0b; color:#fbbf24;">— Warning</span>
+        <span id="sum-offline" class="sum-chip" style="border-color:#475569; color:#94a3b8;">— Offline</span>
+        <span id="sum-attack"  class="sum-chip" style="border-color:#ef4444; color:#f87171;">— Under Attack</span>
+        <span style="margin-left:auto; font-size:0.65rem; color:#334155;" id="secmap-last-refresh">Chưa cập nhật</span>
+    </div>
+
+    <!-- ── Main layout: Fan-out canvas + Device detail ── -->
+    <main class="soc-layout" style="grid-template-columns: 1fr 340px; height: calc(100vh - 157px); padding: 0.6rem; gap: 0.6rem; overflow: hidden;">
+
+        <!-- Vis.js fan-out canvas -->
+        <section class="soc-pane" style="display:flex; flex-direction:column; overflow:hidden; background:#070c18; position:relative;">
+            <div id="secmap-vis-container"></div>
         </section>
 
-        <!-- Right Side Panel: Node Detail Inspector Pane -->
-        <section class="soc-pane pane-evidence" style="display: flex; flex-direction: column; overflow: hidden;">
+        <!-- Right: Device detail panel -->
+        <section class="soc-pane pane-evidence" style="display:flex; flex-direction:column; overflow:hidden;">
             <div class="pane-header">
                 <i class="fa-solid fa-circle-info"></i>
-                <h2>Thông Tin Thiết Bị (Read-Only Panel)</h2>
+                <h2>Thông Tin Thiết Bị</h2>
             </div>
-            <div id="node-detail-panel" class="evidence-body" style="flex: 1; overflow-y: auto;">
+            <div id="device-detail-panel" class="evidence-body" style="flex:1; overflow-y:auto;">
                 <div class="empty-state">
-                    <i class="fa-solid fa-network-wired empty-icon"></i>
-                    <p>Nhấp chuột vào bất kỳ thiết bị nào trên bản đồ để xem thông tin chi tiết các Interface (LAN/WAN) và trạng thái kết nối.</p>
+                    <i class="fa-solid fa-shield-halved empty-icon"></i>
+                    <p>Nhấp hoặc double-click vào thiết bị trên sơ đồ để xem Health Score, Risk Score và mở AI Investigation.</p>
                 </div>
             </div>
         </section>
-
     </main>
 
-    <!-- ENTERPRISE MULTI-CATEGORY SETTINGS DRAWER (ANTIGRAVITY / CURSOR IDE STYLE) -->
+    <!-- ── Settings Modal (preserved from original) ── -->
     <div id="settings-modal" class="modal-overlay hidden">
         <div class="modal-card drawer-card-large">
-            
             <div class="modal-header">
-                <div style="display: flex; align-items: center; gap: 0.6rem;">
-                    <i class="fa-solid fa-sliders" style="font-size: 1.2rem; color: var(--accent-cyan);"></i>
-                    <h3 style="margin: 0; font-size: 1.1rem; color: #f8fafc;">AgentWazuh Settings & Preferences</h3>
+                <div style="display:flex; align-items:center; gap:0.6rem;">
+                    <i class="fa-solid fa-sliders" style="font-size:1.2rem; color:var(--accent-cyan);"></i>
+                    <h3 style="margin:0; font-size:1.1rem; color:#f8fafc;">AgentWazuh Settings &amp; Preferences</h3>
                 </div>
                 <button class="btn-close" onclick="window.closeSettingsModal()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-
             <div class="drawer-split-body">
-                
                 <nav class="settings-sidebar">
                     <div class="sidebar-section-label">GENERAL</div>
-                    <button class="nav-item active" data-tab="tab-general"><i class="fa-solid fa-gear"></i> General & Session</button>
+                    <button class="nav-item active" data-tab="tab-general"><i class="fa-solid fa-gear"></i> General &amp; Session</button>
                     <button class="nav-item" data-tab="tab-wazuh"><i class="fa-solid fa-server"></i> Wazuh Manager Core</button>
-                    
                     <div class="sidebar-section-label">MONITORING</div>
-                    <button class="nav-item" data-tab="tab-heartbeat"><i class="fa-solid fa-heart-pulse"></i> Heartbeat & ICMP Ping</button>
-
+                    <button class="nav-item" data-tab="tab-heartbeat"><i class="fa-solid fa-heart-pulse"></i> Heartbeat &amp; ICMP Ping</button>
                     <div class="sidebar-section-label">INTELLIGENCE</div>
-                    <button class="nav-item" data-tab="tab-ai"><i class="fa-solid fa-robot"></i> AI Engine & Gemini API</button>
-
+                    <button class="nav-item" data-tab="tab-ai"><i class="fa-solid fa-robot"></i> AI Engine &amp; Gemini API</button>
                     <div class="sidebar-section-label">SECURITY</div>
                     <button class="nav-item" data-tab="tab-vault"><i class="fa-solid fa-shield-halved"></i> AES-256 Vault</button>
                     <button class="nav-item" data-tab="tab-audit"><i class="fa-solid fa-list-check"></i> Read-Only Sync Audit</button>
                 </nav>
-
                 <div class="settings-content-panel">
-                    
                     <div id="tab-general" class="settings-tab-content active">
                         <div class="setting-card-title">
-                            <h2>General & Session Inactivity</h2>
+                            <h2>General &amp; Session Inactivity</h2>
                             <p>Cấu hình thời gian duy trì phiên làm việc Admin và giao diện hệ thống.</p>
                         </div>
-
                         <div class="setting-box-card">
                             <div class="setting-row-label">
                                 <strong>Session Inactivity Timeout (Phút)</strong>
@@ -123,13 +360,11 @@
                             <input type="number" id="setting-timeout-min" value="30" min="5" max="480" class="input-setting-control">
                         </div>
                     </div>
-
                     <div id="tab-wazuh" class="settings-tab-content hidden">
                         <div class="setting-card-title">
                             <h2>Wazuh Manager REST API</h2>
                             <p>Thông số kết nối tới Wazuh Manager Server (HTTPS 55000 REST API).</p>
                         </div>
-
                         <div class="setting-box-card">
                             <div class="setting-row-label">
                                 <strong>Wazuh Server IP Address</strong>
@@ -137,7 +372,6 @@
                             </div>
                             <input type="text" id="setting-wazuh-host" value="" placeholder="Ví dụ: 192.168.1.10" class="input-setting-control">
                         </div>
-
                         <div class="setting-box-card">
                             <div class="setting-row-label">
                                 <strong>Wazuh REST API Port</strong>
@@ -146,13 +380,11 @@
                             <input type="number" id="setting-wazuh-port" value="55000" class="input-setting-control">
                         </div>
                     </div>
-
                     <div id="tab-heartbeat" class="settings-tab-content hidden">
                         <div class="setting-card-title">
-                            <h2>Real-Time Heartbeat & Ping Monitoring</h2>
+                            <h2>Real-Time Heartbeat &amp; Ping Monitoring</h2>
                             <p>Cơ chế giảm độ nhạy ICMP Ping và tích hợp Uptime Kuma Push API.</p>
                         </div>
-
                         <div class="setting-box-card">
                             <div class="setting-row-label">
                                 <strong>Chu Kỳ ICMP Ping (Giây)</strong>
@@ -160,7 +392,6 @@
                             </div>
                             <input type="number" id="setting-ping-interval" value="15" min="5" max="120" class="input-setting-control">
                         </div>
-
                         <div class="setting-box-card">
                             <div class="setting-row-label">
                                 <strong>Ngưỡng Thử Lại Trước Khi Báo Đứt (Lần)</strong>
@@ -169,83 +400,37 @@
                             <input type="number" id="setting-ping-retry" value="3" min="1" max="10" class="input-setting-control">
                         </div>
                     </div>
-
                     <div id="tab-ai" class="settings-tab-content hidden">
                         <div class="setting-card-title">
-                            <h2>AI Engine & Gemini API Integration</h2>
+                            <h2>AI Engine &amp; Gemini API Integration</h2>
                             <p>Cấu hình chuyển đổi giữa Local Ollama Engine, Google Gemini API, và Custom Cloud API.</p>
                         </div>
-
-                        <div class="mode-toggle" style="margin-bottom: 1.2rem; display: flex; gap: 0.3rem;">
-                            <button id="tab-btn-gemini" class="mode-btn active" style="flex: 1;"><i class="fa-solid fa-wand-magic-sparkles"></i> ✨ Google Gemini API</button>
-                            <button id="tab-btn-ollama" class="mode-btn" style="flex: 1;"><i class="fa-solid fa-laptop-code"></i> 💻 Local Ollama Engine</button>
-                            <button id="tab-btn-cloud" class="mode-btn" style="flex: 1;"><i class="fa-solid fa-cloud"></i> ☁️ Custom OpenAI API</button>
+                        <div class="mode-toggle" style="margin-bottom:1.2rem; display:flex; gap:0.3rem;">
+                            <button id="tab-btn-gemini" class="mode-btn active" style="flex:1;"><i class="fa-solid fa-wand-magic-sparkles"></i> ✨ Google Gemini API</button>
+                            <button id="tab-btn-ollama" class="mode-btn" style="flex:1;"><i class="fa-solid fa-laptop-code"></i> 💻 Local Ollama Engine</button>
+                            <button id="tab-btn-cloud"  class="mode-btn" style="flex:1;"><i class="fa-solid fa-cloud"></i> ☁️ Custom OpenAI API</button>
                         </div>
-
                         <div id="box-gemini-api">
                             <div class="setting-box-card">
                                 <div class="setting-row-label">
                                     <strong>Google Gemini API Key</strong>
-                                    <span>Tự nhập khóa API cá nhân của bạn (Google AI Studio Key). Key được xử lý bảo mật trong bộ nhớ.</span>
+                                    <span>Tự nhập khóa API cá nhân của bạn (Google AI Studio Key).</span>
                                 </div>
-                                <input type="password" id="input-gemini-key" placeholder="AIzaSy... (Nhập Gemini Key của bạn tại đây)" class="input-setting-control" style="width: 280px;" autocomplete="off">
+                                <input type="password" id="input-gemini-key" placeholder="AIzaSy..." class="input-setting-control" style="width:280px;" autocomplete="off">
                             </div>
-
                             <div class="setting-box-card">
                                 <div class="setting-row-label">
                                     <strong>Chọn Google Gemini Model</strong>
                                     <span>Tự động kết nối tới mô hình suy luận tốc độ cao của Google.</span>
                                 </div>
-                                <select id="select-gemini-model" class="input-setting-control" style="width: 280px;">
-                                    <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh & Tối Ưu)</option>
+                                <select id="select-gemini-model" class="input-setting-control" style="width:280px;">
+                                    <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh &amp; Tối Ưu)</option>
                                     <option value="gemini-2.0-flash">gemini-2.0-flash (Mới Nhất)</option>
                                     <option value="gemini-1.5-pro">gemini-1.5-pro (Suy Luận Sâu)</option>
                                 </select>
                             </div>
                         </div>
-
-                        <div id="box-ollama-engine" class="hidden">
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Bật Ollama Service Daemon</strong>
-                                    <span>Khởi chạy 'ollama serve' trong background.</span>
-                                </div>
-                                <button id="btn-start-ollama-drawer" class="interactive-chip chip-low" style="padding: 0.5rem 1rem;"><i class="fa-solid fa-play"></i> Bật Ollama Engine</button>
-                            </div>
-
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Model Ollama Đã Chọn</strong>
-                                    <span>Mô hình local chạy trên máy tính.</span>
-                                </div>
-                                <select id="select-ollama-model-drawer" class="input-setting-control" style="width: 280px;">
-                                    <option value="qwen2.5:3b">qwen2.5:3b (Khuyên dùng - RAM ~2.5GB)</option>
-                                    <option value="qwen2.5:7b">qwen2.5:7b (RAM ~5GB)</option>
-                                    <option value="llama3">llama3:8b</option>
-                                    <option value="mistral">mistral:7b</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div id="box-cloud-api" class="hidden">
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Custom Cloud API Endpoint URL</strong>
-                                    <span>Đường dẫn API OpenAI hoặc Custom Gateway endpoint.</span>
-                                </div>
-                                <input type="text" id="input-cloud-url-drawer" value="https://api.openai.com/v1/chat/completions" class="input-setting-control" style="width: 280px;">
-                            </div>
-
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>Cloud API Key</strong>
-                                    <span>Tự nhập API Key (sk-...).</span>
-                                </div>
-                                <input type="password" id="input-cloud-key-drawer" placeholder="sk-..." class="input-setting-control" style="width: 280px;" autocomplete="off">
-                            </div>
-                        </div>
                     </div>
-
                     <div id="tab-vault" class="settings-tab-content hidden">
                         <div class="setting-card-title">
                             <h2>AES-256 Fernet Vault Manager</h2>
@@ -253,26 +438,62 @@
                         </div>
                         <code>./config/device_vault.enc (ENCRYPTED)</code>
                     </div>
-
                     <div id="tab-audit" class="settings-tab-content hidden">
                         <div class="setting-card-title">
                             <h2>CLI Read-Only Synchronization Audit</h2>
                             <p>Whitelist 4 lệnh Read-only cứng cho script sync_topology.py độc lập.</p>
                         </div>
                     </div>
-
                     <div class="drawer-footer-bar">
-                        <button id="btn-save-all-settings" class="btn-primary" style="padding: 0.75rem 1.8rem; font-size: 0.95rem;">
+                        <button id="btn-save-all-settings" class="btn-primary" style="padding:0.75rem 1.8rem; font-size:0.95rem;">
                             <i class="fa-solid fa-floppy-disk"></i> Lưu Tất Cả Cài Đặt (Save Preferences)
                         </button>
                     </div>
-
                 </div>
             </div>
+        </div>
+    </div>
 
+    <!-- ── Live REST API Exchange Audit Log Panel (Wazuh Server ↔ AgentWazuh) ── -->
+    <div id="live-api-log-bar" style="background:#030712; border-top:2px solid var(--accent-purple); padding:0.4rem 1rem; display:flex; flex-direction:column; gap:4px; height:110px; flex-shrink:0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; font-size:0.72rem; font-weight:700; color:#a78bfa;">
+            <span><i class="fa-solid fa-network-wired"></i> 📡 NHẬT KÝ TRAO ĐỔI REST API THỜI GIAN THỰC (AGENTWAZUH ↔ WAZUH SERVER 172.16.175.145)</span>
+            <span style="color:#64748b; font-weight:normal;" id="live-log-status-text">Đang lắng nghe kết nối...</span>
+        </div>
+        <div id="live-api-log-container" style="flex:1; background:#070c18; border:1px solid #1e293b; border-radius:4px; padding:0.35rem 0.6rem; font-family:'Fira Code', monospace; font-size:0.75rem; color:#38bdf8; overflow-y:auto; line-height:1.4; white-space:pre-wrap;">
+            [INIT] Đang tải lịch sử giao dịch REST API từ Wazuh Manager (172.16.175.145:55000)...
         </div>
     </div>
 
     <script src="/static/network_map.js"></script>
+    <script>
+        async function pollLiveApiLogs() {
+            try {
+                const res = await fetch("/api/wazuh/live-logs");
+                if (res.ok) {
+                    const data = await res.json();
+                    const container = document.getElementById("live-api-log-container");
+                    const statusText = document.getElementById("live-log-status-text");
+                    if (container && data.logs) {
+                        if (data.logs.length === 0) {
+                            container.innerHTML = `<span style="color:#64748b;">[IDLE] Chưa có giao dịch REST API mới.</span>`;
+                        } else {
+                            const logHtml = data.logs.slice(0, 20).map(l => {
+                                const icon = l.direction === "OUTGOING_REQUEST" ? "📤 [AGENT ➔ WAZUH SERVER]" : "📥 [WAZUH SERVER ➔ AGENT]";
+                                const color = l.status_code === 200 ? "#4ade80" : "#ef4444";
+                                return `<div style="margin-bottom:3px;"><span style="color:#94a3b8;">[${l.timestamp}]</span> <b style="color:${color};">${icon} ${l.method} ${l.url}</b> (HTTP ${l.status_code}) — <span style="color:#e2e8f0;">${l.detail}</span></div>`;
+                            }).join("");
+                            container.innerHTML = logHtml;
+                        }
+                        if (statusText) statusText.textContent = `Đã cập nhật ${data.logs.length} giao dịch REST API thời gian thực`;
+                    }
+                }
+            } catch (e) {
+                console.error("Error polling live logs:", e);
+            }
+        }
+        setInterval(pollLiveApiLogs, 2000);
+        document.addEventListener("DOMContentLoaded", pollLiveApiLogs);
+    </script>
 </body>
 </html>

@@ -299,18 +299,19 @@ async def heartbeat_background_loop():
         interval_secs = SYSTEM_SETTINGS.get("icmp_ping_interval_seconds", 15)
         await asyncio.sleep(interval_secs)
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(heartbeat_background_loop())
+def create_wazuh_client_from_settings(host: str = None, port: int = None) -> WazuhClient:
+    target_host = host or SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
+    target_port = port or SYSTEM_SETTINGS.get("wazuh_port") or 55000
+    return WazuhClient(
+        host=target_host,
+        port=target_port,
+        user=SYSTEM_SETTINGS.get("wazuh_user", "agentwazuh"),
+        password=SYSTEM_SETTINGS.get("wazuh_pass", "1234567890gG@"),
+        dashboard_user=SYSTEM_SETTINGS.get("wazuh_dashboard_user", "admin"),
+        dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", "admin")
+    )
 
-wazuh_client = WazuhClient(
-    host=SYSTEM_SETTINGS.get("wazuh_host", "192.168.1.248"),
-    port=SYSTEM_SETTINGS.get("wazuh_port", 55000),
-    user=SYSTEM_SETTINGS.get("wazuh_user", "agentwazuh"),
-    password=SYSTEM_SETTINGS.get("wazuh_pass", "1234567890gG@"),
-    dashboard_user=SYSTEM_SETTINGS.get("wazuh_dashboard_user", "admin"),
-    dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", "admin")
-)
+wazuh_client = create_wazuh_client_from_settings()
 assistant = IncidentAssistant()
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
@@ -454,9 +455,9 @@ async def login_endpoint(req: LoginRequest, response: Response):
             SYSTEM_SETTINGS["wazuh_port"] = req.wazuh_port or 55000
             SETTINGS_PATH.write_text(json.dumps(SYSTEM_SETTINGS, indent=2), encoding="utf-8")
         
-        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.248"
-        # 3. Create fresh WazuhClient instance for new session
-        wazuh_client = WazuhClient(host=target_host, port=SYSTEM_SETTINGS.get("wazuh_port", 55000))
+        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
+        # 3. Create fresh WazuhClient instance for new session with credentials
+        wazuh_client = create_wazuh_client_from_settings(host=target_host, port=SYSTEM_SETTINGS.get("wazuh_port", 55000))
 
         # 4. Issue fresh session token
         token = secrets.token_hex(32)
@@ -524,7 +525,7 @@ async def test_wazuh_connection_endpoint(req: TestConnectionRequest, session: st
     if not host:
         raise HTTPException(status_code=400, detail="Địa chỉ IP Wazuh Host không được để trống!")
     
-    test_client = WazuhClient(host=host, port=req.wazuh_port or 55000)
+    test_client = create_wazuh_client_from_settings(host=host, port=req.wazuh_port or 55000)
     is_ok = test_client.authenticate()
     if is_ok:
         return {"status": "success", "connected": True, "message": f"🟢 Kết nối thành công tới Wazuh Manager ({host})!"}
@@ -543,18 +544,13 @@ async def update_settings(req: SystemSettingsRequest, session: str = Depends(req
     target_host = new_data.get("wazuh_host", "").strip()
     
     if not target_host or target_host in ["127.0.0.1", "localhost"]:
-        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.248"
+        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
         new_data["wazuh_host"] = target_host
         
-    test_client = WazuhClient(
-        host=target_host,
-        port=new_data.get("wazuh_port", 55000),
-        user=new_data.get("wazuh_user", "agentwazuh"),
-        password=SYSTEM_SETTINGS.get("wazuh_pass", "1234567890gG@")
-    )
-    
     SYSTEM_SETTINGS.update(new_data)
     SETTINGS_PATH.write_text(json.dumps(SYSTEM_SETTINGS, indent=2), encoding="utf-8")
+    
+    test_client = create_wazuh_client_from_settings(host=target_host, port=new_data.get("wazuh_port", 55000))
     wazuh_client = test_client
     return {"status": "success", "settings": SYSTEM_SETTINGS, "message": "🟢 Đã cập nhật và lưu cấu hình hệ thống thành công!"}
 

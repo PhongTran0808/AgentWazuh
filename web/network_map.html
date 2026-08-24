@@ -213,6 +213,78 @@
             to   { stroke-dashoffset: 0; }
         }
 
+        /* ── Node Callout Alert Bubbles (Sketch-style) ── */
+        .node-callout-bubble {
+            position: absolute;
+            z-index: 100;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-family: 'Inter', system-ui, sans-serif;
+            max-width: 220px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            transition: opacity 0.3s ease, transform 0.2s ease;
+            transform: translate(-50%, -100%) translateY(-15px);
+        }
+
+        .node-callout-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0 6px;
+            border-style: solid;
+        }
+
+        .callout-attack {
+            background: rgba(239, 68, 68, 0.92);
+            border: 1px solid #f87171;
+            color: #ffffff;
+        }
+        .callout-attack::after {
+            border-color: rgba(239, 68, 68, 0.92) transparent transparent transparent;
+        }
+
+        .callout-warning {
+            background: rgba(245, 158, 11, 0.92);
+            border: 1px solid #fbbf24;
+            color: #ffffff;
+        }
+        .callout-warning::after {
+            border-color: rgba(245, 158, 11, 0.92) transparent transparent transparent;
+        }
+
+        .callout-offline {
+            background: rgba(51, 65, 85, 0.92);
+            border: 1px solid #64748b;
+            color: #cbd5e1;
+        }
+        .callout-offline::after {
+            border-color: rgba(51, 65, 85, 0.92) transparent transparent transparent;
+        }
+
+        .callout-title {
+            font-weight: 700;
+            line-height: 1.25;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .callout-detail {
+            font-size: 0.65rem;
+            opacity: 0.9;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         /* Empty state */
         .secmap-empty {
             display: flex; flex-direction: column; align-items: center;

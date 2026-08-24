@@ -352,11 +352,17 @@ function renderVisNetwork(devices, wazuhHost) {
                 Object.keys(positions).forEach(id => { savedPositions[id] = positions[id]; });
                 localStorage.setItem("secmap_positions", JSON.stringify(savedPositions));
             }
+            updateNodeCalloutBubbles(rawDevices);
         });
+
+        // Update callout bubbles on drawing and zoom events
+        network.on("afterDrawing", () => updateNodeCalloutBubbles(rawDevices));
+        network.on("zoom", () => updateNodeCalloutBubbles(rawDevices));
 
         // Disable physics after stabilisation
         network.on("stabilizationIterationsDone", () => {
             network.setOptions({ physics: { enabled: false } });
+            updateNodeCalloutBubbles(rawDevices);
         });
 
         // Single-click: show device detail panel
@@ -396,6 +402,82 @@ function renderVisNetwork(devices, wazuhHost) {
         const currentIds = new Set(nodes.map(n => n.id));
         nodesDS.forEach(n => { if (!currentIds.has(n.id)) nodesDS.remove(n.id); });
     }
+
+    // Always update Callout Alert Bubbles after dataset updates
+    setTimeout(() => updateNodeCalloutBubbles(rawDevices), 50);
+}
+
+// ─────────────────────────────────────────────
+//  NODE CALLOUT ALERT BUBBLE OVERLAY
+// ─────────────────────────────────────────────
+function updateNodeCalloutBubbles(devices) {
+    if (!network || !nodesDS) return;
+
+    let overlayContainer = document.getElementById("secmap-bubbles-overlay");
+    if (!overlayContainer) {
+        const visContainer = document.getElementById("secmap-vis-container");
+        if (!visContainer) return;
+        overlayContainer = document.createElement("div");
+        overlayContainer.id = "secmap-bubbles-overlay";
+        overlayContainer.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:90;overflow:hidden;";
+        visContainer.appendChild(overlayContainer);
+    }
+
+    const activeBubbleIds = new Set();
+
+    (devices || []).forEach(dev => {
+        // Hide bubble for NORMAL status
+        if (!dev.badge || dev.badge === "NORMAL") return;
+
+        const nodeId = dev.id;
+        const pos = network.getPositions([nodeId])[nodeId];
+        if (!pos) return;
+
+        const domPos = network.canvasToDOM(pos);
+        activeBubbleIds.add(nodeId);
+
+        let bubbleEl = document.getElementById(`bubble-${nodeId}`);
+        if (!bubbleEl) {
+            bubbleEl = document.createElement("div");
+            bubbleEl.id = `bubble-${nodeId}`;
+            overlayContainer.appendChild(bubbleEl);
+        }
+
+        const badgeClass = dev.badge === "UNDER_ATTACK" ? "callout-attack"
+                         : dev.badge === "WARNING" ? "callout-warning"
+                         : "callout-offline";
+        bubbleEl.className = `node-callout-bubble ${badgeClass}`;
+
+        let titleLine = "🚨 Đang bị tấn công";
+        let detailLine = `${dev.ip} → ${dev.name}`;
+
+        if (dev.top_alert) {
+            titleLine = dev.top_alert.summary_line1 || `🚨 ${dev.top_alert.description}`;
+            detailLine = dev.top_alert.summary_line2 || `${dev.top_alert.src_ip || dev.ip} → ${dev.name}`;
+        } else if (dev.badge === "OFFLINE") {
+            titleLine = "❌ Ngoại tuyến";
+            detailLine = `Mất kết nối Agent (${dev.ip})`;
+        } else if (dev.badge === "WARNING") {
+            titleLine = "🟡 Cảnh báo nghi vấn";
+            detailLine = `Cảnh báo mức trung bình (${dev.ip})`;
+        }
+
+        bubbleEl.innerHTML = `
+            <div class="callout-title">${escHtml(titleLine)}</div>
+            <div class="callout-detail">${escHtml(detailLine)}</div>
+        `;
+
+        bubbleEl.style.left = `${domPos.x}px`;
+        bubbleEl.style.top = `${domPos.y - 28}px`;
+        bubbleEl.style.display = "flex";
+    });
+
+    Array.from(overlayContainer.children).forEach(child => {
+        const id = child.id.replace("bubble-", "");
+        if (!activeBubbleIds.has(id)) {
+            child.remove();
+        }
+    });
 }
 
 // ─────────────────────────────────────────────

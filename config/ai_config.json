@@ -1,6 +1,6 @@
 {
   "mode": "pi_dev",
-  "pi_model": "github-copilot/gpt-4.1",
+  "pi_model": "openrouter/anthropic/claude-3-5-haiku",
   "active_providers": [
     "gemini"
   ],

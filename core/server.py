@@ -946,10 +946,51 @@ def _get_device_badge(health: Dict[str, Any], risk: Dict[str, Any]) -> str:
         return "NORMAL"
 
 
+def _get_top_alert_for_device(ip: str, agent_id: str, agent_name: str, alerts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Trích xuất alert mức độ cao nhất hiện tại của thiết bị để hiển thị Callout Alert Bubble trên Topology Map."""
+    if not alerts:
+        return None
+
+    matching = []
+    ag_name_lower = agent_name.lower() if agent_name else ""
+    for a in alerts:
+        a_ip = a.get("agent", {}).get("ip", "")
+        a_id = str(a.get("agent", {}).get("id", ""))
+        a_name = a.get("agent", {}).get("name", "").lower()
+        a_srcip = a.get("data", {}).get("srcip", "")
+        a_dstip = a.get("data", {}).get("dstip", "")
+
+        if (agent_id and agent_id != "000" and agent_id == a_id) or \
+           (ag_name_lower and ag_name_lower == a_name) or \
+           (ip and ip in (a_ip, a_srcip, a_dstip)):
+            matching.append(a)
+
+    if not matching:
+        return None
+
+    matching.sort(key=lambda x: (x.get("rule", {}).get("level", 0), x.get("timestamp", "")), reverse=True)
+    top = matching[0]
+    rule_desc = top.get("rule", {}).get("description", "Cảnh báo an ninh")
+    src_ip = top.get("data", {}).get("srcip", "") or top.get("agent", {}).get("ip", "")
+    level = top.get("rule", {}).get("level", 0)
+
+    # Format 2 dòng hiển thị Callout Alert Bubble (theo yêu cầu A3):
+    # Dòng 1: 🚨 <mô tả quy tắc/alert>
+    # Dòng 2: <src_ip> → <agent_name>
+    return {
+        "rule_id": str(top.get("rule", {}).get("id", "")),
+        "rule_level": level,
+        "description": rule_desc,
+        "src_ip": src_ip,
+        "summary_line1": f"🚨 {rule_desc}",
+        "summary_line2": f"{src_ip} → {agent_name}" if src_ip else f"Tác nhân → {agent_name}"
+    }
+
+
 def _get_security_map_devices() -> List[Dict[str, Any]]:
     """
-    Nguồn BẮT BUỘC VÀ DUY NHẤT: Trực tiếp từ Wazuh Server REST API 55000 (Agent Registry)
-    kết hợp đối chiếu metadata từ known_devices để đảm bảo IP & OS khớp 100% với Sơ đồ mạng.
+    Nguồn BẮT BUỘC VÀ DUY NHẤT: Trực tiếp từ Wazuh Server REST API 55000 (Agent Registry).
+    KHÔNG tự ý phát sinh node ảo (ghost nodes). Chỉ hiển thị thiết bị ĐÃ ĐĂNG KÝ THẬT trong Wazuh Server.
     """
     active_agents: List[Dict[str, Any]] = GLOBAL_SYSTEM_STATUS_CACHE.get("agents", [])
     alerts: List[Dict[str, Any]] = GLOBAL_ALERTS_CACHE
@@ -964,6 +1005,7 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
     wazuh_health = {"status": "online", "score": 100, "last_seen_seconds": 0}
     wazuh_risk = _compute_risk_score(wazuh_host, "000", "wazuh-server", alerts, 10)
     wazuh_badge = _get_device_badge(wazuh_health, wazuh_risk)
+    wazuh_top_alert = _get_top_alert_for_device(wazuh_host, "000", "wazuh-server", alerts)
 
     result.append({
         "id": "wazuh_manager_node",
@@ -976,12 +1018,13 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
         "health": wazuh_health,
         "risk": wazuh_risk,
         "badge": wazuh_badge,
+        "top_alert": wazuh_top_alert,
         "verified": True,
         "source": "wazuh_server"
     })
     seen_ips.add(wazuh_host)
 
-    # 2. Devices BẮT BUỘC TỪ Wazuh Server Agent Registry (real-time REST API 55000)
+    # 2. Devices BẮT BUỘC VÀ DUY NHẤT TỪ Wazuh Server Agent Registry (real-time REST API 55000)
     for agent in active_agents:
         agent_id = str(agent.get("id", ""))
         if agent_id == "000":
@@ -990,7 +1033,7 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
         ag_name = agent.get("name") or f"Agent-{agent_id}"
         ag_ip = agent.get("ip", "")
 
-        # Đối chiếu với known_devices theo Name hoặc IP
+        # Đối chiếu với known_devices theo Name hoặc IP (để lấy icon/metadata nếu có)
         matched_dev = known_devices_dict.get(ag_name.lower()) or known_devices_ip_dict.get(ag_ip)
 
         display_ip = matched_dev.get("ip") if matched_dev else ag_ip
@@ -1005,6 +1048,7 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
         health = _compute_health_score(agent)
         risk = _compute_risk_score(display_ip, agent_id, display_name, alerts, criticality)
         badge = _get_device_badge(health, risk)
+        top_alert = _get_top_alert_for_device(display_ip, agent_id, display_name, alerts)
 
         result.append({
             "id": f"agent_{agent_id}",
@@ -1017,33 +1061,11 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
             "health": health,
             "risk": risk,
             "badge": badge,
+            "top_alert": top_alert,
             "verified": True,
             "source": "wazuh_server_api"
         })
         seen_ips.add(display_ip)
-
-    # Nếu chưa lấy được agent live, hiển thị 5 thiết bị từ known_devices
-    if len(result) <= 1:
-        for dev in load_known_devices_dict().values():
-            if dev.get("id") == "000" or dev.get("ip") in seen_ips:
-                continue
-            dev_ip = dev.get("ip", "")
-            risk = _compute_risk_score(dev_ip, dev.get("id"), dev.get("name"), alerts, dev.get("criticality", 5))
-            result.append({
-                "id": f"dev_{dev.get('id')}",
-                "name": dev.get("name"),
-                "ip": dev_ip,
-                "type": dev.get("type", "server").lower(),
-                "os": dev.get("os", "Linux/Windows"),
-                "agent_id": dev.get("id"),
-                "agent_status": dev.get("status", "never_connected"),
-                "health": {"status": "offline" if dev.get("status") != "active" else "online", "score": 0},
-                "risk": risk,
-                "badge": _get_device_badge({"status": "offline"}, risk),
-                "verified": True,
-                "source": "known_devices"
-            })
-            seen_ips.add(dev_ip)
 
     return result
 

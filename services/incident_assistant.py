@@ -87,24 +87,42 @@ class IncidentAssistant:
             temp_prompt_path = tf.name
 
         try:
-            # Nạp API Key cá nhân từ config/ai_config.json nếu có
+            # Nạp API Key & Environment từ pass.env và config/ai_config.json
             env = os.environ.copy()
+
+            # Read pass.env if exists
+            pass_env_path = self.base_dir / "pass.env"
+            if pass_env_path.exists():
+                try:
+                    for line in pass_env_path.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            env[k.strip()] = v.strip()
+                except Exception:
+                    pass
+
             ai_cfg_file = self.base_dir / "config" / "ai_config.json"
             model_flag = []
             if ai_cfg_file.exists():
                 try:
                     cfg = json.loads(ai_cfg_file.read_text(encoding="utf-8"))
-                    pi_model = cfg.get("pi_model", "github-copilot/gpt-4.1")
+                    pi_model = cfg.get("pi_model", "openrouter/anthropic/claude-3-5-haiku")
                     if pi_model:
                         model_flag = ["--model", pi_model]
                     g_key = cfg.get("cloud_api_key") or cfg.get("gemini_api_key")
                     o_key = cfg.get("openai_api_key")
+                    or_key = cfg.get("openrouter_api_key") or env.get("OPENROUTER_API_KEY")
                     if g_key:
                         env["GEMINI_API_KEY"] = g_key
                     if o_key:
                         env["OPENAI_API_KEY"] = o_key
+                    if or_key:
+                        env["OPENROUTER_API_KEY"] = or_key
                 except Exception:
                     pass
+            else:
+                model_flag = ["--model", "openrouter/anthropic/claude-3-5-haiku"]
 
             cmd = ["pi", "-nt"] + model_flag + ["-p", f"@{temp_prompt_path}"]
 

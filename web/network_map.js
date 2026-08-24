@@ -72,10 +72,90 @@ document.addEventListener("DOMContentLoaded", () => {
         if (network) network.fit({ animation: { duration: 500, easingFunction: "easeInOutQuad" } });
     });
 
-    // Settings modal
-    document.getElementById("btn-open-settings")?.addEventListener("click", () => {
+    // Settings modal open + save support on Network Map
+    document.getElementById("btn-open-settings")?.addEventListener("click", async () => {
         document.getElementById("settings-modal")?.classList.remove("hidden");
+        try {
+            const res = await fetch("/api/settings", { credentials: "same-origin" });
+            const json = await res.json();
+            const s = json.settings || {};
+            const hostEl = document.getElementById("setting-wazuh-host");
+            const portEl = document.getElementById("setting-wazuh-port");
+            const timeoutEl = document.getElementById("setting-timeout-min");
+            const intervalEl = document.getElementById("setting-ping-interval");
+            const retryEl = document.getElementById("setting-ping-retry");
+
+            if (hostEl && s.wazuh_host) hostEl.value = s.wazuh_host;
+            if (portEl && s.wazuh_port) portEl.value = s.wazuh_port;
+            if (timeoutEl && s.session_timeout_minutes) timeoutEl.value = s.session_timeout_minutes;
+            if (intervalEl && s.icmp_ping_interval_seconds) intervalEl.value = s.icmp_ping_interval_seconds;
+            if (retryEl && s.ping_retry_threshold) retryEl.value = s.ping_retry_threshold;
+        } catch (e) {
+            console.error("Error loading settings in network map:", e);
+        }
     });
+
+    document.getElementById("btn-save-all-settings")?.addEventListener("click", async () => {
+        const hostEl = document.getElementById("setting-wazuh-host");
+        const portEl = document.getElementById("setting-wazuh-port");
+        const timeoutEl = document.getElementById("setting-timeout-min");
+        const intervalEl = document.getElementById("setting-ping-interval");
+        const retryEl = document.getElementById("setting-ping-retry");
+        const geminiKeyEl = document.getElementById("input-gemini-key");
+        const geminiModelEl = document.getElementById("select-gemini-model");
+
+        const hostVal = hostEl ? hostEl.value.trim() : "172.16.175.145";
+        const sysPayload = {
+            session_timeout_minutes: parseInt(timeoutEl ? timeoutEl.value : 30) || 30,
+            icmp_ping_interval_seconds: parseInt(intervalEl ? intervalEl.value : 15) || 15,
+            ping_retry_threshold: parseInt(retryEl ? retryEl.value : 3) || 3,
+            wazuh_host: hostVal,
+            wazuh_port: parseInt(portEl ? portEl.value : 55000) || 55000,
+            wazuh_user: "agentwazuh",
+            uptime_kuma_push_token: "agentwazuh-push-secret-999",
+            device_cache_ttl_days: 7,
+            ui_theme: "cyber_dark"
+        };
+
+        const aiPayload = {
+            mode: "pi_dev",
+            pi_model: "openrouter/anthropic/claude-3-5-haiku",
+            active_providers: ["gemini"],
+            gemini_model: geminiModelEl ? geminiModelEl.value : "gemini-2.5-flash",
+            cloud_api_key: geminiKeyEl ? geminiKeyEl.value.trim() : "",
+            gemini_api_key: geminiKeyEl ? geminiKeyEl.value.trim() : ""
+        };
+
+        try {
+            const resSys = await fetch("/api/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(sysPayload),
+                credentials: "same-origin"
+            });
+
+            if (!resSys.ok) {
+                const errJson = await resSys.json();
+                const errDetail = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail || errJson);
+                alert(`❌ Lỗi lưu Cài đặt: ${errDetail}`);
+                return;
+            }
+
+            await fetch("/api/ai/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(aiPayload),
+                credentials: "same-origin"
+            });
+
+            alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT THÀNH CÔNG!\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Port: ${sysPayload.wazuh_port}`);
+            window.closeSettingsModal();
+            pollFullMap();
+        } catch (err) {
+            alert(`❌ Lỗi khi lưu cài đặt: ${err.message}`);
+        }
+    });
+
     window.closeSettingsModal = () => {
         document.getElementById("settings-modal")?.classList.add("hidden");
     };

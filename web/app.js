@@ -479,8 +479,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    btnSaveAllSettings.addEventListener("click", async () => {
-        const hostVal = (settingWazuhHost && settingWazuhHost.value.trim()) ? settingWazuhHost.value.trim() : "192.168.1.248";
+    btnSaveAllSettings?.addEventListener("click", async () => {
+        const hostVal = (settingWazuhHost && settingWazuhHost.value.trim()) ? settingWazuhHost.value.trim() : "172.16.175.145";
         const sysPayload = {
             session_timeout_minutes: parseInt(settingTimeoutMin ? settingTimeoutMin.value : 30) || 30,
             icmp_ping_interval_seconds: parseInt(settingPingInterval ? settingPingInterval.value : 15) || 15,
@@ -505,10 +505,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const geminiKeyVal = inputGeminiKey ? inputGeminiKey.value.trim() : "";
         const openaiKeyVal = inputOpenAIKey ? inputOpenAIKey.value.trim() : "";
         const anthropicKeyVal = inputAnthropicKey ? inputAnthropicKey.value.trim() : "";
-        const piModelVal = selectPiModel ? selectPiModel.value : "github-copilot/gpt-4.1";
+        const piModelVal = selectPiModel ? selectPiModel.value : "openrouter/anthropic/claude-3-5-haiku";
 
         const aiPayload = {
-            mode: currentAIMode,
+            mode: currentAIMode || "pi_dev",
             pi_model: piModelVal,
             active_providers: activeProvs,
             gemini_model: selectGeminiModel ? selectGeminiModel.value : "gemini-2.5-flash",
@@ -533,7 +533,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!resSys.ok) {
                 const sysErr = await resSys.json();
-                alert(`❌ Lỗi lưu Cài đặt Hệ thống: ${sysErr.detail || "Không thể kết nối Wazuh"}`);
+                const errDetail = typeof sysErr.detail === "string" ? sysErr.detail : JSON.stringify(sysErr.detail || sysErr);
+                alert(`❌ Lỗi lưu Cài đặt Hệ thống: ${errDetail}`);
                 return;
             }
 
@@ -546,13 +547,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!resAi.ok) {
                 const aiErr = await resAi.json();
-                alert(`❌ Lỗi lưu Cài đặt AI: ${aiErr.detail || "Không thể cập nhật AI config"}`);
+                const errDetail = typeof aiErr.detail === "string" ? aiErr.detail : JSON.stringify(aiErr.detail || aiErr);
+                alert(`❌ Lỗi lưu Cài đặt AI: ${errDetail}`);
                 return;
             }
 
             alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT HỆ THỐNG THÀNH CÔNG!\n- Session Timeout: ${sysPayload.session_timeout_minutes} phút\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Mode AI: ${currentAIMode.toUpperCase()}`);
             if (statusWazuhIp) statusWazuhIp.textContent = `Wazuh Server: ${sysPayload.wazuh_host}`;
-            window.closeSettingsModal();
+            if (typeof window.closeSettingsModal === "function") window.closeSettingsModal();
         } catch (err) {
             alert(`❌ Lỗi khi lưu cài đặt: ${err.message}`);
         }

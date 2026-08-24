@@ -366,8 +366,8 @@ class DeviceConfirmRequest(BaseModel):
     verified_by: Optional[str] = "manual"
 
 class AIConfigRequest(BaseModel):
-    mode: str  # "cloud_api", "ollama", "pi_dev"
-    pi_model: Optional[str] = "github-copilot/gpt-4.1"
+    mode: Optional[str] = "pi_dev"  # "cloud_api", "ollama", "pi_dev"
+    pi_model: Optional[str] = "openrouter/anthropic/claude-3-5-haiku"
     active_providers: Optional[List[str]] = ["gemini"]
     gemini_model: Optional[str] = "gemini-2.5-flash"
     openai_model: Optional[str] = "gpt-4o-mini"
@@ -381,11 +381,11 @@ class AIConfigRequest(BaseModel):
     multi_api_enabled: Optional[bool] = False
 
 class SystemSettingsRequest(BaseModel):
-    session_timeout_minutes: int
-    icmp_ping_interval_seconds: int
-    ping_retry_threshold: int
-    wazuh_host: str
-    wazuh_port: int
+    session_timeout_minutes: Optional[int] = 30
+    icmp_ping_interval_seconds: Optional[int] = 15
+    ping_retry_threshold: Optional[int] = 3
+    wazuh_host: Optional[str] = "172.16.175.145"
+    wazuh_port: Optional[int] = 55000
     wazuh_user: Optional[str] = "agentwazuh"
     uptime_kuma_push_token: Optional[str] = "agentwazuh-push-secret-999"
     uptime_kuma_push_url: Optional[str] = ""

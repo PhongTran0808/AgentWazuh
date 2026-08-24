@@ -66,6 +66,12 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
     """
     Gộp các alert trùng fingerprint trong khoảng thời gian ngắn thành 1.
     Fingerprint = hash(rule_id + src_ip + dst_ip + devname)
+
+    Output mỗi deduplicated alert có thêm:
+      - occurrence_count: số lần trùng lặp
+      - first_seen:       timestamp của lần xuất hiện đầu tiên
+      - last_seen:        timestamp của lần xuất hiện gần nhất
+      - evidence_ids:     danh sách alert_id của các bản trùng
     """
     if not alerts:
         return []
@@ -84,6 +90,8 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
         fingerprint = hashlib.md5(raw_fingerprint.encode()).hexdigest()
 
         current_time = parse_wazuh_time(alert.get("timestamp", ""))
+        current_ts_str = alert.get("timestamp", "")
+        alert_id = alert.get("id", "")
 
         merged = False
         for existing in deduped:
@@ -91,8 +99,15 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
                 existing_time = parse_wazuh_time(existing.get("timestamp", ""))
                 if abs(current_time - existing_time) <= dedup_window_seconds:
                     existing["occurrence_count"] = existing.get("occurrence_count", 1) + 1
-                    if current_time < existing_time:
-                        existing["timestamp"] = alert.get("timestamp")
+                    # Track first_seen (earliest timestamp)
+                    if current_ts_str and current_ts_str < existing.get("first_seen", current_ts_str):
+                        existing["first_seen"] = current_ts_str
+                    # Track last_seen (latest timestamp)
+                    if current_ts_str and current_ts_str > existing.get("last_seen", current_ts_str):
+                        existing["last_seen"] = current_ts_str
+                    # Accumulate evidence IDs
+                    if alert_id and alert_id not in existing.get("evidence_ids", []):
+                        existing.setdefault("evidence_ids", []).append(alert_id)
                     merged = True
                     break
 
@@ -100,6 +115,9 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
             new_alert = alert.copy()
             new_alert["_fingerprint"] = fingerprint
             new_alert["occurrence_count"] = 1
+            new_alert["first_seen"] = current_ts_str
+            new_alert["last_seen"] = current_ts_str
+            new_alert["evidence_ids"] = [alert_id] if alert_id else []
             deduped.append(new_alert)
 
     for a in deduped:
@@ -175,18 +193,44 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
             end_t = max(parse_wazuh_time(a.get("timestamp", "")) for a in sub_alerts)
             total_count = sum(a.get("occurrence_count", 1) for a in sub_alerts)
 
+            # Collect unique source/destination IPs and devices across all alerts in group
+            source_ips = list({a.get("data", {}).get("srcip", "") for a in sub_alerts
+                               if a.get("data", {}).get("srcip", "") not in ["", "0.0.0.0", "127.0.0.1"]})
+            dest_ips = list({a.get("data", {}).get("dstip", "") for a in sub_alerts
+                             if a.get("data", {}).get("dstip", "") not in ["", "0.0.0.0", "255.255.255.255"]})
+            devices = list({a.get("agent", {}).get("name", "") for a in sub_alerts
+                            if a.get("agent", {}).get("name", "")})
+
+            # Determine correlation reason(s) for this component
+            corr_reasons = set()
+            for edge_i, edge_j in G.edges(comp):
+                ed = G.edges[edge_i, edge_j].get("reason", "")
+                if ed:
+                    corr_reasons.add(ed)
+            correlation_reason = ", ".join(sorted(corr_reasons)) if corr_reasons else "temporal_proximity"
+
             group_id = hashlib.md5(f"{primary_entity}_{start_t}_{comp_idx}".encode()).hexdigest()[:12]
+            incident_id = f"INC-{group_id.upper()}"
             groups.append({
-                "group_id": f"INC-{group_id.upper()}",
+                "group_id": incident_id,
+                "incident_id": incident_id,
                 "entity": primary_entity,
                 "alert_ids": [a.get("id", "unknown") for a in sub_alerts],
+                "involved_alerts": len(sub_alerts),
                 "alerts": sub_alerts,
                 "alert_count": total_count,
                 "graph_nodes_count": len(sub_alerts),
+                "devices": devices,
+                "source_ips": source_ips,
+                "destination_ips": dest_ips,
+                "correlation_reason": correlation_reason,
                 "time_span": {
                     "start": start_t,
                     "end": end_t
-                }
+                },
+                "first_seen": datetime.fromtimestamp(start_t, tz=timezone.utc).isoformat() if start_t else "",
+                "last_seen": datetime.fromtimestamp(end_t, tz=timezone.utc).isoformat() if end_t else "",
+                "risk_score": None  # Populated by score_priority() in server.py
             })
         return groups
 

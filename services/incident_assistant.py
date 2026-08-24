@@ -234,7 +234,11 @@ class IncidentAssistant:
         if not agg_stats or agg_stats.get("total_24h", 0) == 0:
             try:
                 from services.wazuh_client import WazuhClient
-                wc = WazuhClient(host=current_host, user="agentwazuh", password="1234567890gG@")
+                wc = WazuhClient(
+                    host=current_host,
+                    user=os.getenv("WAZUH_API_USER", "agentwazuh"),
+                    password=os.getenv("WAZUH_API_PASSWORD", "")
+                )
                 agg_stats = wc.get_alert_stats_aggregated(hours_back=24, tz_offset_hours=7)
             except Exception:
                 pass

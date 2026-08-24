@@ -31,3 +31,13 @@ ENV/
 # Antigravity & OS Scratch
 .DS_Store
 *.log
+
+# Secrets & Credentials (NEVER commit these)
+pass.env
+*.env
+.env*
+config/system_settings.json
+config/admin_auth.json
+config/ai_config.json
+config/known_devices.json
+logs/

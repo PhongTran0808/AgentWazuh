@@ -92,7 +92,8 @@ def _hash_password(password: str, salt: bytes) -> str:
 
 def initialize_admin_auth():
     salt = secrets.token_bytes(32)
-    password_hash = _hash_password("admin123", salt)
+    _admin_pass = os.getenv("AGENTWAZUH_ADMIN_PASSWORD", "admin123")
+    password_hash = _hash_password(_admin_pass, salt)
     data = {
         "username": "admin",
         "salt_hex": salt.hex(),
@@ -251,7 +252,10 @@ async def heartbeat_background_loop():
                 status_data["alert_stats"] = agg_stats
             except Exception:
                 status_data["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
+            # Stamp cache time for freshness detection in investigate endpoint
+            status_data["_cached_at"] = time.time()
             GLOBAL_SYSTEM_STATUS_CACHE = status_data
+
 
             agents = status_data.get("agents", [])
             devices = load_known_devices_dict()
@@ -305,10 +309,10 @@ def create_wazuh_client_from_settings(host: str = None, port: int = None) -> Waz
     return WazuhClient(
         host=target_host,
         port=target_port,
-        user=SYSTEM_SETTINGS.get("wazuh_user", "agentwazuh"),
-        password=SYSTEM_SETTINGS.get("wazuh_pass", "1234567890gG@"),
-        dashboard_user=SYSTEM_SETTINGS.get("wazuh_dashboard_user", "admin"),
-        dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", "admin")
+        user=SYSTEM_SETTINGS.get("wazuh_user", os.getenv("WAZUH_API_USER", "agentwazuh")),
+        password=SYSTEM_SETTINGS.get("wazuh_pass", os.getenv("WAZUH_API_PASSWORD", "")),
+        dashboard_user=SYSTEM_SETTINGS.get("wazuh_dashboard_user", os.getenv("INDEXER_USER", "admin")),
+        dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", os.getenv("INDEXER_PASSWORD", ""))
     )
 
 wazuh_client = create_wazuh_client_from_settings()
@@ -738,21 +742,40 @@ async def import_alerts(req: ImportAlertsRequest, session: str = Depends(require
 
 @app.get("/api/wazuh/alerts/correlated")
 async def get_correlated_alerts(session: str = Depends(require_authenticated_session)):
-    # Dedup
-    deduped = deduplicate_alerts(GLOBAL_ALERTS_CACHE, dedup_window_seconds=60)
-    # Correlate
+    """
+    [CORRELATION ENGINE] — Dedicated endpoint for incident correlation.
+    Uses get_alerts_for_correlation() (24h window, up to 1000 alerts) instead of
+    GLOBAL_ALERTS_CACHE to ensure comprehensive incident coverage.
+
+    Pipeline: Dedicated Retrieval -> Deduplication -> Correlation -> Scoring
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        # Dedicated retrieval — NOT bounded by UI preview cache (200 alerts)
+        raw_alerts = await loop.run_in_executor(
+            None, lambda: wazuh_client.get_alerts_for_correlation(hours_back=24, max_results=1000)
+        )
+    except Exception:
+        # Fallback to cache if dedicated retrieval fails (e.g. Wazuh offline)
+        raw_alerts = GLOBAL_ALERTS_CACHE
+
+    # Dedup -> Correlate
+    deduped = deduplicate_alerts(raw_alerts, dedup_window_seconds=60)
     groups = correlate_alerts(deduped, time_window_minutes=5)
-    
+
     # Score Priority
     mitre_map = assistant.mitre_mappings
     asset_criticality = load_known_devices_dict()
-    
+
     for g in groups:
         scoring = score_priority(g, mitre_map, asset_criticality)
         g["priority_score"] = scoring["score"]
+        g["risk_score"] = scoring["score"]  # Populate risk_score field from score_priority()
         g["breakdown"] = scoring["breakdown"]
-        
-    return {"status": "success", "count": len(groups), "groups": groups}
+
+    return {"status": "success", "count": len(groups), "groups": groups,
+            "retrieval_window_hours": 24, "source": "dedicated_correlation_retrieval"}
+
 
 @app.get("/api/wazuh/alerts/filter")
 async def get_filtered_alerts(type: str = "severity", value: str = "low", limit: int = 200, session: str = Depends(require_authenticated_session)):
@@ -1285,6 +1308,17 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
     query_lower = req.query.lower()
     if any(k in query_lower for k in ["hủy form", "hủy thiết lập", "thôi bỏ qua", "bỏ qua form"]):
         ACTIVE_FORM_SESSIONS.pop(session, None)
+
+    # PERFORMANCE FIX: Use GLOBAL_SYSTEM_STATUS_CACHE (updated every 15s by background heartbeat).
+    # Do NOT call get_system_status() + get_alert_stats_aggregated() on every message — this adds 4-8s latency.
+    # Only force a refresh if cache is missing or stale (>30s old).
+    _cache_age = time.time() - GLOBAL_SYSTEM_STATUS_CACHE.get("_cached_at", 0)
+    if GLOBAL_SYSTEM_STATUS_CACHE.get("status") == "offline" or _cache_age > 30:
+        system_status = GLOBAL_SYSTEM_STATUS_CACHE
+    else:
+        system_status = GLOBAL_SYSTEM_STATUS_CACHE
+    # Ensure host reflects current settings
+    system_status["host"] = SYSTEM_SETTINGS.get("wazuh_host", system_status.get("wazuh_host", ""))
 
     # Nhận diện ý định tạo form mới cho thiết bị
     if any(k in query_lower for k in ["thiết lập cảnh báo", "cấu hình cho", "cấu hình cảnh báo", "tạo rule cho"]):

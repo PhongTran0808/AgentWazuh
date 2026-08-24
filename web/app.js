@@ -29,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const groups = {};
             data.sessions.forEach(s => {
-                const proj = s.project_name || "Uncategorized";
+                const proj = s.project_name || "Default Project";
                 if (!groups[proj]) groups[proj] = [];
                 groups[proj].push(s);
             });
@@ -37,14 +37,43 @@ document.addEventListener("DOMContentLoaded", () => {
             for (const proj in groups) {
                 const groupDiv = document.createElement("div");
                 groupDiv.className = "history-group";
-                groupDiv.innerHTML = `<div class="history-group-header"><i class="fa-regular fa-folder-open"></i> ${proj}</div>`;
+                
+                const groupHeader = document.createElement("div");
+                groupHeader.className = "history-group-header";
+                groupHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; font-weight:700; color:#38bdf8; font-size:0.8rem; border-bottom:1px solid rgba(255,255,255,0.05);";
+                groupHeader.innerHTML = `
+                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="fa-regular fa-folder-open"></i> ${escapeHtml(proj)}</span>
+                    <button class="btn-history-action" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; font-size:0.75rem; padding:2px 4px;" title="Đổi Tên Dự Án này" onclick="event.stopPropagation(); window.promptRenameProject('${escapeHtml(proj)}')">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                `;
+                groupDiv.appendChild(groupHeader);
+
                 const listDiv = document.createElement("div");
                 groups[proj].forEach(s => {
                     const item = document.createElement("div");
                     item.className = "history-item";
                     if (s.id === current_session_id) item.classList.add("active");
-                    item.innerHTML = `<i class="fa-solid fa-message"></i> ${s.title}`;
-                    item.addEventListener("click", () => loadChatSession(s.id));
+                    item.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; cursor:pointer; border-radius:4px; font-size:0.8rem;";
+                    
+                    const titleSpan = document.createElement("span");
+                    titleSpan.style.cssText = "flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+                    titleSpan.innerHTML = `<i class="fa-solid fa-message"></i> ${escapeHtml(s.title)}`;
+                    titleSpan.onclick = () => loadChatSession(s.id);
+                    item.appendChild(titleSpan);
+
+                    const actionsDiv = document.createElement("div");
+                    actionsDiv.style.cssText = "display:flex; gap:4px; opacity:0.7;";
+                    actionsDiv.innerHTML = `
+                        <button class="btn-history-action" style="background:transparent; border:none; color:#cbd5e1; cursor:pointer; font-size:0.72rem; padding:2px;" title="Đổi Tên Hội Thoại" onclick="event.stopPropagation(); window.promptRenameSession('${s.id}', '${escapeHtml(s.title)}', '${escapeHtml(proj)}')">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button class="btn-history-action" style="background:transparent; border:none; color:#f87171; cursor:pointer; font-size:0.72rem; padding:2px;" title="Xóa Hội Thoại" onclick="event.stopPropagation(); window.promptDeleteSession('${s.id}')">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    `;
+                    item.appendChild(actionsDiv);
+
                     listDiv.appendChild(item);
                 });
                 groupDiv.appendChild(listDiv);
@@ -54,6 +83,70 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Error loading chat history:", e);
         }
     }
+
+    window.promptRenameProject = async function(oldProjectName) {
+        const newProjectName = prompt(`✏️ Nhập TÊN DỰ ÁN MỚI cho nhóm "${oldProjectName}":`, oldProjectName);
+        if (!newProjectName || newProjectName.trim() === "" || newProjectName.trim() === oldProjectName) return;
+
+        try {
+            const res = await fetch("/api/chat/project/rename", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ old_project_name: oldProjectName, new_project_name: newProjectName.trim() }),
+                credentials: "same-origin"
+            });
+            const data = await res.json();
+            if (res.ok) {
+                await loadChatHistoryList();
+            } else {
+                alert(data.detail || "Lỗi đổi tên dự án.");
+            }
+        } catch (e) {
+            alert(`Lỗi đổi tên dự án: ${e}`);
+        }
+    };
+
+    window.promptRenameSession = async function(sessionId, currentTitle, currentProject) {
+        const newTitle = prompt(`✏️ ĐỔI TÊN HỘI THOẠI:`, currentTitle);
+        if (newTitle === null) return;
+        
+        const newProject = prompt(`📁 THUỘC DỰ ÁN (Project):`, currentProject);
+        if (newProject === null) return;
+
+        try {
+            const res = await fetch(`/api/chat/history/${sessionId}/rename`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: newTitle.trim() || currentTitle, project_name: newProject.trim() || currentProject }),
+                credentials: "same-origin"
+            });
+            if (res.ok) {
+                await loadChatHistoryList();
+            }
+        } catch (e) {
+            alert(`Lỗi đổi tên hội thoại: ${e}`);
+        }
+    };
+
+    window.promptDeleteSession = async function(sessionId) {
+        if (!confirm("🗑️ Bạn có chắc chắn muốn xóa cuộc hội thoại này?")) return;
+        try {
+            const res = await fetch(`/api/chat/history/${sessionId}`, {
+                method: "DELETE",
+                credentials: "same-origin"
+            });
+            if (res.ok) {
+                if (current_session_id === sessionId) {
+                    current_session_id = null;
+                    const chatStream = document.getElementById("chat-stream");
+                    if (chatStream) chatStream.innerHTML = "";
+                }
+                await loadChatHistoryList();
+            }
+        } catch (e) {
+            alert(`Lỗi xóa hội thoại: ${e}`);
+        }
+    };
 
     async function createNewChat() {
         try {

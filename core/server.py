@@ -1103,6 +1103,14 @@ class CreateSessionRequest(BaseModel):
     title: str = "New Conversation"
     project_name: str = "Default Project"
 
+class RenameSessionRequest(BaseModel):
+    title: Optional[str] = None
+    project_name: Optional[str] = None
+
+class RenameProjectRequest(BaseModel):
+    old_project_name: str
+    new_project_name: str
+
 @app.get("/api/chat/history")
 async def get_chat_history(session: str = Depends(require_authenticated_session)):
     files = glob.glob(os.path.join(CHAT_SESSIONS_DIR, "*.json"))
@@ -1150,6 +1158,57 @@ async def get_chat_session(session_id: str, session: str = Depends(require_authe
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return {"status": "success", "session": data}
+
+@app.put("/api/chat/history/{session_id}/rename")
+async def rename_chat_session(session_id: str, req: RenameSessionRequest, session: str = Depends(require_authenticated_session)):
+    file_path = os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    if req.title and req.title.strip():
+        data["title"] = req.title.strip()
+    if req.project_name and req.project_name.strip():
+        data["project_name"] = req.project_name.strip()
+    data["updated_at"] = datetime.now().isoformat()
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    
+    return {"status": "success", "session": data}
+
+@app.put("/api/chat/project/rename")
+async def rename_project_group(req: RenameProjectRequest, session: str = Depends(require_authenticated_session)):
+    old_name = req.old_project_name.strip()
+    new_name = req.new_project_name.strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="Tên dự án không được để trống!")
+    
+    files = glob.glob(os.path.join(CHAT_SESSIONS_DIR, "*.json"))
+    updated_count = 0
+    for f in files:
+        try:
+            with open(f, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            if data.get("project_name") == old_name:
+                data["project_name"] = new_name
+                data["updated_at"] = datetime.now().isoformat()
+                with open(f, "w", encoding="utf-8") as file:
+                    json.dump(data, file, indent=4, ensure_ascii=False)
+                updated_count += 1
+        except Exception:
+            pass
+    return {"status": "success", "message": f"Đã đổi tên dự án từ '{old_name}' thành '{new_name}' cho {updated_count} cuộc hội thoại.", "updated_count": updated_count}
+
+@app.delete("/api/chat/history/{session_id}")
+async def delete_chat_session(session_id: str, session: str = Depends(require_authenticated_session)):
+    file_path = os.path.join(CHAT_SESSIONS_DIR, f"{session_id}.json")
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        return {"status": "success", "message": "Đã xóa cuộc hội thoại thành công."}
+    raise HTTPException(status_code=404, detail="Session not found")
 
 @app.put("/api/chat/history/{session_id}/message")
 async def add_chat_message(session_id: str, msg: ChatMessage, session: str = Depends(require_authenticated_session)):

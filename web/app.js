@@ -123,10 +123,6 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Error appending message:", e);
         }
     }
-        } catch (e) {
-            console.error("Error saving message:", e);
-        }
-    }
 
     function resetGlobalState() {
         globalState = {

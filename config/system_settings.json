@@ -1,15 +1,8 @@
 {
-  "session_timeout_minutes": 30,
-  "icmp_ping_interval_seconds": 15,
-  "ping_retry_threshold": 3,
-  "wazuh_host": "172.16.175.145",
+  "wazuh_host": "192.168.1.201",
   "wazuh_port": 55000,
-  "wazuh_user": "agentwazuh",
-  "wazuh_pass": "1234567890gG@",
-  "wazuh_dashboard_user": "admin",
-  "wazuh_dashboard_pass": "admin",
-  "uptime_kuma_push_token": "agentwazuh-push-secret-999",
-  "uptime_kuma_push_url": "",
-  "device_cache_ttl_days": 7,
-  "ui_theme": "cyber_dark"
+  "user": "wazuh",
+  "password": "wazuh",
+  "ping_interval": 15,
+  "ping_retry": 3
 }

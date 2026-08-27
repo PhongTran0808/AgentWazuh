@@ -1,12 +1,7 @@
-# PROGRESS LOG - AGENTWAZUH
+# PROJECT PROGRESS — DUAL-TIER CLOUD HA PORTAL
 
-## Completed Milestones
-1. [x] Refactored monolithic root files into modular packages (`core/`, `services/`, `mcp_layer/`, `langgraph_engine/`, `tools/`).
-2. [x] Provisioned readonly account `agentwazuh` for secure REST API access on Port 55000.
-3. [x] Developed LangGraph StateGraph Form Engine (`config_form_graph.py`) with `await_human_approval` HITL interrupt node and anti-infinite loop safeguards.
-4. [x] Built Wazuh MCP Server (`mcp_layer/wazuh_mcp.py`) exposing 4 tools (`get_monitored_devices`, `search_alerts`, `create_incident_case`, `render_generative_ui_grid`).
-5. [x] Created `services/case_manager.py` for dispatching incident cases to TheHive v5, Jira, and Generic Webhooks.
-6. [x] Created `tools/generative_ui_tool.py` utilizing FastUI and Pydantic schemas for DataGrid HTML generation.
-7. [x] Developed comprehensive E2E Diagnostic Test suite (`tests/test_diagnostic_e2e.py`) achieving 5/5 PASSED status in 4.11s.
-8. [x] Localized Web UI timestamps to ICT (UTC+7).
-9. [x] Created comprehensive onboarding documentation `PROJECT_ONBOARDING.md`.
+- [x] Host Wi-Fi Network Alias (`192.168.1.237/24`) permanently bound via `nmcli`.
+- [x] Applied Critical Fix 1: Locked `middleware.py` background poller to **2000ms (2.0s)**.
+- [x] Applied Critical Fix 2: Incorporated Physical Host Crash Fencing with Force NFS Lock Release into Active-Passive plan.
+- [x] Active-Active Premium Dual-Console Tabbed UI (`index.html`) deployed on Node 1 & Node 3.
+- [x] Empirical verification complete: Sub-16ms status response, clean failover, 0 socket timeouts.

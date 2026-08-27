@@ -10,6 +10,7 @@ import requests
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 from datetime import datetime
+from services.audit_logger import audit_logger
 
 # --- SSL Configuration ---
 _VERIFY_SSL_ENV = os.getenv("WAZUH_VERIFY_SSL", "true").strip().lower()
@@ -166,6 +167,12 @@ class WazuhClient:
         auth_url = f"https://{self.host}:{self.port}/security/user/authenticate"
         try:
             logger.info(f"[Wazuh API 55000] Authenticating -> {auth_url} (User: {self.user})")
+            audit_logger.log_wazuh_api(
+                action="REQUEST /security/user/authenticate",
+                status="INFO",
+                message=f"Gửi xác thực tài khoản {self.user}",
+                payload={"host": self.host, "port": self.port, "user": self.user}
+            )
             res = requests.post(
                 auth_url,
                 auth=(self.user, self.password),
@@ -180,6 +187,12 @@ class WazuhClient:
                 self.base_url = f"https://{self.host}:{self.port}"
                 self.last_auth_error = None
                 logger.info(f"✅ [TOKEN_REFRESHED] JWT acquired. Valid for {TOKEN_TTL_SECONDS}s.")
+                audit_logger.log_wazuh_api(
+                    action="RESPONSE 200 OK",
+                    status="SUCCESS",
+                    message=f"Nhận JWT Token (hết hạn sau {TOKEN_TTL_SECONDS}s)",
+                    payload={"user": self.user, "ttl_seconds": TOKEN_TTL_SECONDS}
+                )
                 self._record_conn_attempt(True)
                 return True
             elif res.status_code == 401:
@@ -187,6 +200,12 @@ class WazuhClient:
                 self._token_expires_at = 0.0
                 self.last_auth_error = f"Sai thông tin đăng nhập (User: {self.user})"
                 logger.warning(f"❌ [AUTH_FAILED] 401 Unauthorized")
+                audit_logger.log_wazuh_api(
+                    action="AUTH_FAILED",
+                    status="ERROR",
+                    message=f"Xác thực thất bại HTTP 401: {self.last_auth_error}",
+                    payload={"user": self.user, "status_code": 401}
+                )
                 self._record_conn_attempt(False, "auth_401")
                 return False
             else:
@@ -194,6 +213,12 @@ class WazuhClient:
                 self._token_expires_at = 0.0
                 self.last_auth_error = f"Xác thực thất bại (HTTP {res.status_code} từ {self.host})"
                 logger.warning(f"❌ [AUTH_FAILED] HTTP {res.status_code}")
+                audit_logger.log_wazuh_api(
+                    action="AUTH_FAILED",
+                    status="ERROR",
+                    message=f"Xác thực thất bại: {self.last_auth_error}",
+                    payload={"status_code": res.status_code}
+                )
                 self._record_conn_attempt(False, f"http_{res.status_code}")
                 return False
         except Exception as e:
@@ -201,6 +226,12 @@ class WazuhClient:
             self._token_expires_at = 0.0
             self.last_auth_error = f"Không thể kết nối tới {self.host}:{self.port} ({e})"
             logger.error(f"❌ [AUTH_FAILED] Connection Error: {e}")
+            audit_logger.log_wazuh_api(
+                action="CONNECTION_ERROR",
+                status="ERROR",
+                message=f"Lỗi kết nối API: {e}",
+                payload={"error": str(e)}
+            )
             self._record_conn_attempt(False, "connection_error")
             return False
 
@@ -419,6 +450,12 @@ class WazuhClient:
         if not session:
             return []
         try:
+            audit_logger.log_indexer(
+                action="SEARCH wazuh-alerts-4.x-*",
+                status="INFO",
+                message="Truy vấn DSL: Lọc cảnh báo gần nhất",
+                payload=search_dsl
+            )
             r = session.post(
                 f"https://{self.host}/api/console/proxy?path=wazuh-alerts-4.x-*%2F_search&method=GET",
                 json=search_dsl,
@@ -427,6 +464,12 @@ class WazuhClient:
             )
             if r.status_code == 200:
                 hits = r.json().get("hits", {}).get("hits", [])
+                audit_logger.log_indexer(
+                    action="RECEIVE_PAYLOAD",
+                    status="SUCCESS",
+                    message=f"Nhận về {len(hits)} alerts gần nhất từ OpenSearch",
+                    payload={"total_hits": len(hits)}
+                )
                 return [
                     {
                         "id": h.get("_id", h.get("_source", {}).get("id", "")),

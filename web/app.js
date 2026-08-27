@@ -1038,4 +1038,126 @@ function formatLocalTime(tsStr) {
 
     // Load initial history
     loadChatHistoryList();
+
+    // --- AUDIT LOGS CONSOLE CONTROLLER ---
+    async function fetchAndRenderAuditLogs() {
+        try {
+            const res = await fetch("/api/system/audit-logs?limit=50", { credentials: "same-origin" });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.logs) return;
+
+            const tbody = document.getElementById("audit-logs-tbody");
+            if (!tbody) return;
+
+            if (data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b; padding: 1rem;">Chưa có nhật ký hoạt động nào.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.logs.map(log => {
+                let statusBadgeClass = "badge-info";
+                let statusIcon = "fa-circle-info";
+
+                if (log.status === "SUCCESS") {
+                    statusBadgeClass = "badge-success";
+                    statusIcon = "fa-circle-check";
+                } else if (log.status === "WARNING") {
+                    statusBadgeClass = "badge-warning";
+                    statusIcon = "fa-triangle-exclamation";
+                } else if (log.status === "ERROR") {
+                    statusBadgeClass = "badge-error";
+                    statusIcon = "fa-circle-xmark";
+                }
+
+                let sourceBadgeClass = "source-badge-wazuh";
+                if (log.source.includes("Indexer") || log.source.includes("OpenSearch")) sourceBadgeClass = "source-badge-indexer";
+                else if (log.source.includes("AI")) sourceBadgeClass = "source-badge-ai";
+                else if (log.source.includes("LangGraph")) sourceBadgeClass = "source-badge-langgraph";
+                else if (log.source.includes("User")) sourceBadgeClass = "source-badge-user";
+
+                const safePayload = encodeURIComponent(log.payload_preview || "");
+
+                return `
+                    <tr class="audit-row row-${log.status.toLowerCase()}" onclick="window.viewAuditLogDetail('${log.id}', '${safePayload}')">
+                        <td class="cell-time"><code>${escapeHtml(log.timestamp)}</code></td>
+                        <td class="cell-source"><span class="source-tag ${sourceBadgeClass}">${escapeHtml(log.source)}</span></td>
+                        <td class="cell-action"><code>${escapeHtml(log.action)}</code></td>
+                        <td class="cell-status">
+                            <span class="status-pill ${statusBadgeClass}">
+                                <i class="fa-solid ${statusIcon}"></i> ${escapeHtml(log.status)}
+                            </span>
+                        </td>
+                        <td class="cell-summary" title="Nhấp chuột để xem chi tiết JSON">
+                            <span class="summary-text">${escapeHtml(log.message)}</span>
+                            ${log.payload_preview ? `<span class="payload-chip"><i class="fa-solid fa-code"></i> JSON</span>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (err) {
+            console.error("Audit Log Fetch Error:", err);
+        }
+    }
+
+    window.viewAuditLogDetail = function(id, encodedPayload) {
+        try {
+            const payload = decodeURIComponent(encodedPayload);
+            let formatted = payload;
+            try {
+                formatted = JSON.stringify(JSON.parse(payload), null, 2);
+            } catch (e) {
+                // plain text
+            }
+            const modalJson = document.getElementById("modal-log-json");
+            if (modalJson) modalJson.textContent = formatted || "Không có payload thô.";
+            const modal = document.getElementById("log-modal");
+            if (modal) modal.classList.remove("hidden");
+        } catch (e) {
+            console.error("View detail error:", e);
+        }
+    };
+
+    window.clearAuditLogs = async function() {
+        if (!confirm("Bạn có chắc chắn muốn xóa sạch bộ đệm Nhật ký Hoạt động?")) return;
+        try {
+            await fetch("/api/system/audit-logs", { method: "DELETE", credentials: "same-origin" });
+            await fetchAndRenderAuditLogs();
+        } catch (e) {
+            console.error("Clear log error:", e);
+        }
+    };
+
+    function setupAuditLogsController() {
+        const autoRefreshCheckbox = document.getElementById("audit-auto-refresh");
+        const btnClear = document.getElementById("btn-clear-audit-logs");
+        const btnToggle = document.getElementById("btn-toggle-audit-panel");
+        const logBody = document.getElementById("audit-log-body");
+
+        if (btnClear) btnClear.addEventListener("click", window.clearAuditLogs);
+        if (btnToggle && logBody) {
+            btnToggle.addEventListener("click", () => {
+                logBody.classList.toggle("collapsed");
+                const icon = btnToggle.querySelector("i");
+                if (icon) {
+                    if (logBody.classList.contains("collapsed")) {
+                        icon.className = "fa-solid fa-chevron-up";
+                    } else {
+                        icon.className = "fa-solid fa-chevron-down";
+                    }
+                }
+            });
+        }
+
+        fetchAndRenderAuditLogs();
+
+        // Live update every 3 seconds
+        setInterval(() => {
+            if (autoRefreshCheckbox && autoRefreshCheckbox.checked) {
+                fetchAndRenderAuditLogs();
+            }
+        }, 3000);
+    }
+
+    setupAuditLogsController();
 });

@@ -1,99 +1,77 @@
-# AgentWazuh — SOC AI Incident Assistant
+# 🛡️ AGENT WAZUH — SOC AI ASSISTANT & SECURITY CO-PILOT SYSTEM
 
-> **Xây dựng hệ thống AI hỗ trợ phân tích, tương quan và ưu tiên cảnh báo an ninh mạng trong SOC**  
-> *Đề tài Tiểu luận Chuyên ngành An toàn Thông tin*
+## 📌 1. TỔNG QUAN ĐỀ TÀI & Ý TƯỞNG HỆ THỐNG
 
----
-
-## 📌 Giới Thiệu Đề Tài
-
-**AgentWazuh** là một hệ thống Trợ lý AI và nền tảng xử lý cảnh báo, được triển khai tích hợp trực tiếp vào môi trường **Wazuh SIEM / SOC**. Dự án hỗ trợ nhà phân tích an toàn thông tin (SOC Analyst) trong quá trình đọc hiểu, tóm tắt bằng chứng, tương quan cảnh báo (Correlation), và đánh giá độ ưu tiên (Priority Scoring) hoàn toàn tự động.
-
-Hệ thống kết hợp sức mạnh tính toán logic thuần (Python) để xử lý dữ liệu và sức mạnh của AI (qua PI Agent / OpenRouter API) để diễn giải ngữ nghĩa, đảm bảo câu trả lời minh bạch, giải thích được và hoàn toàn dựa trên dữ liệu thật.
+**AgentWazuh** là hệ thống Trợ lý An ninh Mạng AI (SOC AI Co-Pilot) hoạt động dựa trên mô hình **Multi-Agent AI**. Hệ thống kết nối trực tiếp với **Wazuh SIEM Manager** để giám sát, phân tích nhật ký (log), tự động tính toán điểm rủi ro (Risk Score & Health Score), phát hiện tấn công theo thời gian thực và đưa ra khuyến nghị phản ứng sự cố khẩn cấp.
 
 ---
 
-## 🏗️ Phạm Vi Dự Án (Project Scope)
+## 🏗️ 2. KIẾN TRÚC VÀ CÁC THÀNH PHẦN HỆ THỐNG
 
-Dự án được thiết kế dưới 2 khía cạnh rõ ràng để đáp ứng yêu cầu chấm điểm học thuật lẫn giá trị thực tiễn:
+### 2.1 Cổng dịch vụ (Ports)
+- **Port 8080**: Giao diện SOC AI Assistant & REST API Core Backend (`core/server.py`).
+- **Wazuh Manager REST API**: `https://192.168.1.201:55000` (hoặc `192.168.1.210:55000`).
+  - **Tài khoản mặc định API**: User `wazuh`, Password `wazuh` (hoặc `admin` / `adminpassword`).
 
-### 1. [CORE-THESIS] — Trọng Tâm Chấm Điểm
-Đây là 3 module logic lõi (thuần Python, không phụ thuộc AI), quyết định tính chuyên môn của đề tài:
-- **Deduplication Engine**: Lọc và loại bỏ cảnh báo trùng lặp (giảm nhiễu) trong khung thời gian 60 giây.
-- **Correlation Engine**: Nhóm các cảnh báo liên quan lại với nhau dựa trên IP nguồn/đích hoặc Rule ID, tạo thành **Incident Group** thay vì từng cảnh báo riêng lẻ.
-- **Priority Scoring System**: Tính điểm ưu tiên (0-100) cho từng nhóm sự cố dựa trên mức độ nghiêm trọng của Rule, ma trận MITRE ATT&CK (Static Lookup) và độ quan trọng của tài sản (Asset Criticality).
-
-### 2. [EXTENSION] — Tính Năng Bổ Trợ (Điểm Cộng Thực Tiễn)
-- **AI Master Advisor**: Chatbot AI diễn giải dữ liệu sử dụng mô hình qua OpenRouter (hoặc Local Ollama) thông qua công cụ PI CLI offload. Không cho phép AI tự động chặn IP (1-Click Remediation giữ thủ công).
-- **Giao diện SOC Dashboard**: Web UI hiện đại với các biểu đồ, chế độ xem gộp (Incident Group) hoặc đơn lẻ (Single Alert), tích hợp cơ chế bảo mật xác thực phiên.
-- **Dynamic Network Map**: Vẽ tự động cấu trúc mạng từ dữ liệu thiết bị (Node/Link) và IP thu thập được.
+### 2.2 Các mô hình AI Agents (5 Agents phối hợp)
+1. **Log Ingestion Agent**: Thu thập log sự kiện từ Wazuh Manager API (`/alerts`).
+2. **Device Discovery & Inventory Agent**: Quản lý thiết bị đã biết (`config/known_devices.json`) và thiết bị mới phát hiện.
+3. **Risk Scoring Agent**: Tính điểm Health Score (0-100) và Risk Score dựa trên mức độ nghiêm trọng (Alert Level 1-15) & Asset Criticality.
+4. **Threat Intelligence Agent**: Phân tích hành vi tấn công (Brute Force, SSH Attack, Web Attack, Port Scan).
+5. **Mitigation & SOC Action Agent**: Đề xuất kịch bản ngăn chặn khẩn cấp (Block IP, Isolation, Firewall Rule).
 
 ---
 
-## 🏛️ Kiến Trúc Hệ Thống (Hybrid Architecture)
+## 🚀 3. HƯỚNG DẪN KHỞI ĐỘNG HỆ THỐNG (RUNNING PROCEDURE)
 
-```text
- ┌─────────────────────────────────────────────────────────────┐
- │               User / SOC Analyst Web Dashboard              │
- └──────────────────────────────┬──────────────────────────────┘
-                                │ (HTTP REST API)
-                                ▼
- ┌─────────────────────────────────────────────────────────────┐
- │                FastAPI Web Server (Port 8080)               │
- └──────────────────────────────┬──────────────────────────────┘
-                                │
-                                ▼
- ┌─────────────────────────────────────────────────────────────┐
- │        [CORE-THESIS] Python Correlation Engine (Logic)      │
- │  (Deduplicate -> Correlate (Incident) -> Priority Score)    │
- └──────────────┬──────────────────────────────┬───────────────┘
-                │                              │
-                ▼                              ▼
- ┌──────────────────────────────┐ ┌────────────────────────────┐
- │  Wazuh REST API Client       │ │  PI Agent / OpenRouter API │
- │  (Data Ingestion / Webhook)  │ │  (AI Semantics & Summary)  │
- └──────────────┬───────────────┘ └──────────────┬─────────────┘
-                │                              │
-                ▼                              ▼
- ┌─────────────────────────────────────────────────────────────┐
- │                 Wazuh Manager (SIEM Server)                 │
- └─────────────────────────────────────────────────────────────┘
+### 3.1 Lệnh khởi động độc lập (Port 8080)
+```bash
+cd "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh"
+python3 server.py
+```
+
+### 3.2 Lệnh khởi động đồng thời cả 2 hệ thống AgentWazuh (8080) & SoDoMang (9090)
+```bash
+python3 /tmp/start_agentwazuh_and_sodomang.py
 ```
 
 ---
 
-## ✨ Tính Năng Nổi Bật
+## ⚙️ 4. CẤU HÌNH HỆ THỐNG (SYSTEM SETTINGS)
 
-- 🔄 **Tương Quan Cảnh Báo (Correlation)**: Tự động gom nhóm hàng ngàn cảnh báo thành các Incident Group gọn gàng.
-- 🎯 **Chấm Điểm Rủi Ro (Priority Scoring)**: Mỗi nhóm sự cố đều được chấm điểm ưu tiên dựa trên tài sản (Asset Criticality) và Tactic MITRE.
-- 👁️ **Minh Bạch Dữ Liệu AI**: Hệ thống ghi nhận mọi dữ liệu chuyển ra AI bên ngoài (OpenRouter) vào file log `logs/openrouter_audit.log` (có đính kèm trạng thái lọc IP nội bộ).
-- 🌐 **Con Chat Tổng SOC Master (Global Advisor)**: Hỗ trợ 2 chế độ (Hỏi đáp toàn bộ bối cảnh hệ thống SOC hoặc Điều tra sâu). AI chỉ được phép đọc dữ liệu (Zero Hallucination).
-- ⚡ **Quản Trị Thiết Bị Tự Động**: Nạp và ghi đè known devices và vẽ topology động.
+File cấu hình đặt tại: `config/system_settings.json`
+```json
+{
+  "wazuh_host": "192.168.1.201",
+  "wazuh_port": 55000,
+  "user": "wazuh",
+  "password": "wazuh",
+  "ping_interval": 15,
+  "ping_retry": 3
+}
+```
+
+File lưu danh sách thiết bị giám sát: `config/known_devices.json`
 
 ---
 
-## 📝 Giấy Phép & Tác Giả
+## 🛠️ 5. CÁC LỖI THƯỜNG GẶP VÀ CÁCH KHẮC PHỤC (TROUBLESHOOTING & KNOWN BUGS)
 
-- **Tác giả**: PhongTran0808 (`phongtran080809@gmail.com`)
-- **Kho lưu trữ**: [https://github.com/PhongTran0808/AgentWazuh](https://github.com/PhongTran0808/AgentWazuh)
-- **Giấy phép**: MIT License
+### 🔴 Lỗi 1: `HTTP 401 Unauthorized` khi gọi Wazuh REST API 55000
+- **Nguyên nhân**: Mật khẩu API không chính xác hoặc Token hết hạn.
+- **Khắc phục**: Wazuh 4.x sử dụng tài khoản `wazuh` / `wazuh` trên API cổng 55000 để lấy Bearer Token qua endpoint `POST /security/user/authenticate?raw=true`.
 
----
+### 🔴 Lỗi 2: Agent báo `Never connected` trên Wazuh Dashboard
+- **Nguyên nhân**:
+  1. Chuỗi `key` trả về từ API `/agents/{id}/key` là dạng **Base64**. Nếu ghi trực tiếp vào `/var/ossec/etc/client.keys` mà không decode sẽ làm hỏng bắt tay SSL.
+  2. File `/var/ossec/etc/ossec.conf` trong Agent bị lưu IP cũ (`172.16.175.145`).
+- **Khắc phục chuẩn**:
+  - Decode Base64 key trước khi ghi vào `/var/ossec/etc/client.keys`:
+    ```python
+    plain_key = base64.b64decode(b64_key).decode('utf-8').strip()
+    ```
+  - Cập nhật `<address>192.168.1.201</address>` trong `ossec.conf` và khởi động lại dịch vụ Agent.
 
-## 🖼️ Nguồn Tài Nguyên Bên Thứ 3 (Third-Party Resources)
-
-### Bộ Icon Thiết Bị Mạng (`web/assets/icons/`)
-
-| File | Mô tả | Nguồn |
-|------|-------|-------|
-| `firewall.svg` | Firewall — shield + flame | **Nguyên bản**, tạo riêng cho dự án này |
-| `router.svg`   | Router — cylinder + antennas | **Nguyên bản**, tạo riêng cho dự án này |
-| `switch.svg`   | Switch — rack unit + ports | **Nguyên bản**, tạo riêng cho dự án này |
-| `server.svg`   | Server — 3 rack units + drive bays | **Nguyên bản**, tạo riêng cho dự án này |
-| `siem.svg`     | SIEM / Wazuh Manager — rack + eye | **Nguyên bản**, tạo riêng cho dự án này |
-| `pc.svg`       | PC / Endpoint — monitor + keyboard | **Nguyên bản**, tạo riêng cho dự án này |
-| `unknown.svg`  | Thiết bị chưa xác minh — dấu hỏi | **Nguyên bản**, tạo riêng cho dự án này |
-
-> **Ghi chú**: Toàn bộ 7 icon SVG trong thư mục `web/assets/icons/` là tác phẩm **nguyên bản do nhóm AgentWazuh tạo ra**, không sử dụng tài nguyên từ bên thứ ba.
-> Phong cách thiết kế lấy cảm hứng từ cộng đồng icon mạng như [network-automation/networking-icons](https://github.com/network-automation/networking-icons) nhưng không sao chép bất kỳ file nào từ repo đó.
-
+### 🔴 Lỗi 3: `Duplicate agent name` khi chạy `agent-auth`
+- **Nguyên nhân**: Tên Agent đã được đăng ký trước đó trên Manager REST API.
+- **Khắc phục**: Sử dụng script lấy Key trực tiếp qua REST API thay vì chạy lại `agent-auth`, hoặc xóa Agent cũ qua DELETE `/agents?agents_list=...` trước khi đăng ký mới.

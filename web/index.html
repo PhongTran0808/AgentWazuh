@@ -157,6 +157,52 @@
                 </div>
             </section>
         </main>
+
+        <!-- Section: Agent Activity Log Console (Audit Logs) -->
+        <section class="audit-log-section">
+            <div class="audit-log-header">
+                <div class="audit-title-group">
+                    <i class="fa-solid fa-list-check audit-icon"></i>
+                    <div>
+                        <h2 class="audit-title">Agent Activity Log Console (Hệ Thống Audit Log Trực Quan)</h2>
+                        <p class="audit-subtitle">Theo dõi toàn bộ luồng giao tiếp giữa AgentWazuh, Wazuh Manager (Port 55000/443), OpenSearch, LangGraph Engine và AI Advisor.</p>
+                    </div>
+                </div>
+                <div class="audit-controls">
+                    <label class="auto-refresh-toggle">
+                        <input type="checkbox" id="audit-auto-refresh" checked>
+                        <span>Auto-refresh (3s)</span>
+                    </label>
+                    <button id="btn-clear-audit-logs" class="btn-chip-action danger" title="Clear Logs">
+                        <i class="fa-solid fa-trash-can"></i> Clear Logs
+                    </button>
+                    <button id="btn-toggle-audit-panel" class="btn-chip-action" title="Thu gọn / Mở rộng">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="audit-log-body" class="audit-log-body">
+                <div class="audit-table-wrapper">
+                    <table class="audit-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 100px;">Thời Gian</th>
+                                <th style="width: 140px;">Phân Loại</th>
+                                <th style="width: 220px;">Hành Động</th>
+                                <th style="width: 110px;">Trạng Thái</th>
+                                <th>Chi Tiết / Dữ Liệu (Payload Summary)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-logs-tbody">
+                            <tr>
+                                <td colspan="5" class="loading-state">Đang tải nhật ký hoạt động...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
     </div>
 
     <!-- Modals -->

@@ -1,69 +1,92 @@
 [
   {
-    "id": "001",
-    "ip": "172.16.175.210",
-    "name": "DMZ-Server-Main",
-    "type": "SERVER",
-    "criticality": 8,
-    "verified": true,
-    "status": "never_connected",
-    "os": "Ubuntu 22.04 LTS (Nginx)"
-  },
-  {
-    "id": "002",
-    "ip": "172.16.175.220",
-    "name": "DNS-Server",
-    "type": "SERVER",
-    "criticality": 9,
-    "verified": true,
-    "status": "never_connected",
-    "os": "Windows Server 2022 (DNS)"
-  },
-  {
-    "id": "003",
-    "ip": "172.16.175.232",
-    "name": "Manager-Admin-PC",
-    "type": "PC",
-    "criticality": 7,
-    "verified": true,
-    "status": "never_connected",
-    "os": "Windows 11 Pro Admin"
-  },
-  {
-    "id": "004",
-    "ip": "172.16.175.241",
-    "name": "PC-PB1-VLAN10",
-    "type": "PC",
-    "criticality": 4,
-    "verified": true,
-    "status": "never_connected",
-    "os": "Windows 11 Enterprise"
-  },
-  {
-    "id": "005",
-    "ip": "172.16.175.252",
-    "name": "Dell-R760-DR",
-    "type": "SERVER",
-    "criticality": 9,
-    "verified": true,
-    "status": "never_connected",
-    "os": "VMware ESXi 8.0 (DR Host)"
-  },
-  {
-    "id": "000",
-    "ip": "172.16.175.145",
-    "name": "Wazuh-Manager-VMware",
-    "type": "WAZUH",
+    "id": "dev_wazuh_vm",
+    "name": "Wazuh-Manager-Main",
+    "ip": "192.168.1.210",
+    "type": "wazuh",
+    "role": "wazuh_manager",
     "criticality": 10,
-    "verified": true,
-    "status": "active",
-    "os": "Wazuh SIEM Server 4.14.7 (VMware)"
+    "status": "ONLINE"
   },
   {
-    "ip": "192.168.99.99",
-    "name": "Unregistered-Phantom-Router",
-    "type": "router",
-    "role": "infrastructure_device",
-    "verified_by": "manual"
+    "id": "dev_dmz_sw",
+    "name": "Catalyst-9300L-DMZ",
+    "ip": "172.16.175.209",
+    "type": "switch",
+    "role": "dmz_switch",
+    "criticality": 8,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_dmz_srv1",
+    "name": "DMZ-Server-Main",
+    "ip": "172.16.175.210",
+    "type": "server",
+    "role": "dmz_web_server",
+    "criticality": 9,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_dmz_srv2",
+    "name": "DMZ-Server-Backup",
+    "ip": "172.16.175.211",
+    "type": "server",
+    "role": "dmz_backup_server",
+    "criticality": 8,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_dc_fg600f_1",
+    "name": "DC-FortiGate-600F-Pri",
+    "ip": "172.16.175.200",
+    "type": "firewall",
+    "role": "primary_firewall",
+    "criticality": 10,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_dc_fg600f_2",
+    "name": "DC-FortiGate-600F-Sec",
+    "ip": "172.16.175.201",
+    "type": "firewall",
+    "role": "secondary_firewall",
+    "criticality": 9,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_dr_fg400f",
+    "name": "DR-FortiGate-400F",
+    "ip": "172.16.175.250",
+    "type": "firewall",
+    "role": "dr_firewall",
+    "criticality": 8,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_br1_fg60f",
+    "name": "Br1-FortiGate-60F",
+    "ip": "192.168.10.1",
+    "type": "firewall",
+    "role": "branch1_firewall",
+    "criticality": 7,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_br2_fg50f",
+    "name": "Br2-FortiGate-50F",
+    "ip": "192.168.20.1",
+    "type": "firewall",
+    "role": "branch2_firewall",
+    "criticality": 7,
+    "status": "ONLINE"
+  },
+  {
+    "id": "dev_pc_pb1",
+    "name": "PC-PB1-VLAN10",
+    "ip": "172.16.175.241",
+    "type": "pc",
+    "role": "vlan10_workstation",
+    "criticality": 6,
+    "status": "ONLINE"
   }
 ]

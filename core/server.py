@@ -24,6 +24,7 @@ if str(BASE_DIR) not in sys.path:
 
 from services.wazuh_client import WazuhClient
 from services.incident_assistant import IncidentAssistant
+from services.audit_logger import audit_logger
 from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from mcp_layer.wazuh_mcp import get_agents, search_alerts, get_manager_status
@@ -657,6 +658,21 @@ async def get_status(session: str = Depends(require_authenticated_session)):
 async def get_wazuh_live_logs():
     """Trả về nhật ký thời gian thực các gói yêu cầu REST API giữa AgentWazuh ↔ Wazuh Server."""
     return {"status": "success", "count": len(LIVE_API_LOGS), "logs": list(LIVE_API_LOGS)}
+
+@app.get("/api/system/audit-logs")
+async def get_system_audit_logs(limit: int = 50):
+    """
+    Trả về danh sách Nhật ký Hoạt động (Activity / Audit Logs) trực quan theo dạng Ring Buffer (500 events).
+    Theo dõi toàn bộ luồng giao tiếp giữa AgentWazuh, Wazuh Manager (Port 55000/443), LangGraph Engine và AI Advisor.
+    """
+    logs = audit_logger.get_logs(limit=limit)
+    return {"status": "success", "count": len(logs), "logs": logs}
+
+@app.delete("/api/system/audit-logs")
+async def clear_system_audit_logs():
+    """Xóa sạch bộ đệm nhật ký hoạt động."""
+    audit_logger.clear_logs()
+    return {"status": "success", "message": "Cleared all audit logs"}
 
 @app.get("/api/wazuh/alerts")
 async def get_alerts(session: str = Depends(require_authenticated_session)):

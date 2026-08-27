@@ -1,17 +1,13 @@
-# ARCHITECTURE DECISIONS - AGENTWAZUH (PI-LANG-MCP)
+# ARCHITECTURE DECISIONS — CLOUD DUAL-TIER HA SYSTEM
 
-## ADR-001: Modular Architecture Standardization
-- **Decided**: Migrate flat file structure into 5 distinct specialized packages: `core/`, `services/`, `mcp_layer/`, `langgraph_engine/`, `tools/`.
-- **Rationale**: Prevents technical debt, circular imports, and allows clean isolation between web API, SIEM connectors, MCP tools, and graph engines.
+## 1. 2000ms Polling Interval (Cluster DDoS Protection)
+- **Decision**: Set `time.sleep(2.0)` (2000ms / 2 seconds) inside `middleware.py` background poller loop.
+- **Rationale**: Eliminates Proxmox API socket exhaustion (`pvedaemon`/`pveproxy`) and prevents connection timeouts under cluster load.
 
-## ADR-002: Dual-Mode Connection & Fallback to Wazuh SIEM
-- **Decided**: `WazuhClient` connects directly to REST API (Port 55000) using JWT authentication with readonly account `agentwazuh`. If REST API is restarting or restricted, it falls back to Wazuh Dashboard (Port 443) OpenSearch Console Proxy (`/api/console/proxy`).
-- **Rationale**: Guarantees 99.9% data availability even during Wazuh Manager API maintenance windows.
+## 2. Physical Host Crash Fencing & Direct Force NFS Lock Release
+- **Decision**: In Active-Passive failover, if the target host SSH/ping times out (>3s), bypass `qm stop` CLI commands and forcibly release NFS disk locks on Node 3 (`/nfs/cloud-disks/`) via `fuser -k` or lock file purging.
+- **Rationale**: Prevents fencing deadlocks when a physical node suffers a power outage or total network cut.
 
-## ADR-003: Model Synchronization to (github-copilot) gpt-4.1
-- **Decided**: Default PI Agent CLI model is explicitly bound to `github-copilot/gpt-4.1`.
-- **Rationale**: Ensures zero hallucination, fast response times, and full synchronization with active local development environment.
-
-## ADR-004: Incident Case Management & Generative UI Integration
-- **Decided**: Created `services/case_manager.py` and `tools/` directory containing `case_management_tool.py` (TheHive v5 / Jira / Webhook dispatch) and `generative_ui_tool.py` (FastUI & Pydantic DataGrid Engine).
-- **Rationale**: Transforms AgentWazuh from terminal output into an Enterprise SOAR platform capable of generating structured HTML DataGrids and dispatching actionable tickets to SOC analysts.
+## 3. Active-Active Premium Package (Zero Downtime)
+- **Decision**: Serve dual concurrent VM Console Tabs (`VM 100` and `VM 200`) in the frontend UI without auto-switching iframe overrides.
+- **Rationale**: Gives customers full visibility and control over both machines. If one node fails, the customer uses the other machine console directly without any loading screens or page freeze.

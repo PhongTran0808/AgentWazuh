@@ -592,3 +592,170 @@ html, body {
 
 .interactive-chip { background: #1e293b; border: 1px solid var(--border-color); color: var(--accent-cyan); font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.2rem 0; }
 .interactive-chip:hover { background: #334155; }
+
+/* ==========================================================================
+   AGENT ACTIVITY LOG CONSOLE (PROXMOX-STYLE AUDIT LOG TABLE V16.0)
+   ========================================================================== */
+.audit-log-section {
+    margin: 1rem;
+    background: #0b0f19;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+.audit-log-header {
+    padding: 0.75rem 1.2rem;
+    background: #0f172a;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.audit-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.audit-icon { font-size: 1.3rem; color: #38bdf8; }
+.audit-title { font-size: 0.95rem; font-weight: 700; margin: 0; color: #f8fafc; }
+.audit-subtitle { font-size: 0.75rem; color: #64748b; margin: 0.15rem 0 0 0; }
+
+.audit-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+}
+.auto-refresh-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    cursor: pointer;
+    user-select: none;
+}
+.auto-refresh-toggle input[type="checkbox"] {
+    accent-color: #38bdf8;
+    cursor: pointer;
+}
+
+.btn-chip-action.danger {
+    border-color: #ef4444;
+    color: #f87171;
+}
+.btn-chip-action.danger:hover {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.audit-log-body {
+    max-height: 280px;
+    overflow-y: auto;
+    transition: max-height 0.3s ease;
+}
+
+.audit-log-body.collapsed {
+    max-height: 0;
+    overflow: hidden;
+}
+
+.audit-table-wrapper {
+    width: 100%;
+}
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    text-align: left;
+}
+
+.audit-table th {
+    position: sticky;
+    top: 0;
+    background: #020617;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 0.75rem;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--border-color);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    z-index: 10;
+}
+
+.audit-table td {
+    padding: 0.45rem 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+    vertical-align: middle;
+}
+
+.audit-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.audit-row:hover {
+    background: rgba(56, 189, 248, 0.08) !important;
+}
+
+/* Row Status Highlights (Proxmox-Style Task Row Highlights) */
+.audit-row.row-error { background: rgba(239, 68, 68, 0.12); }
+.audit-row.row-warning { background: rgba(245, 158, 11, 0.1); }
+.audit-row.row-success { background: rgba(16, 185, 129, 0.04); }
+.audit-row.row-info { background: rgba(2, 6, 23, 0.4); }
+
+/* Source Badges */
+.source-tag {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    display: inline-block;
+    font-family: var(--font-mono);
+}
+.source-badge-wazuh { background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; }
+.source-badge-indexer { background: #1e1b4b; color: #a78bfa; border: 1px solid #6366f1; }
+.source-badge-ai { background: #064e3b; color: #34d399; border: 1px solid #10b981; }
+.source-badge-langgraph { background: #451a03; color: #fbbf24; border: 1px solid #d97706; }
+.source-badge-user { background: #0284c7; color: #ffffff; }
+
+/* Status Pill Badges */
+.status-pill {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-transform: uppercase;
+}
+.status-pill.badge-info { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid #0284c7; }
+.status-pill.badge-success { background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid #10b981; }
+.status-pill.badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+.status-pill.badge-error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
+
+.cell-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.summary-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 550px;
+}
+.payload-chip {
+    font-size: 0.68rem;
+    background: #1e293b;
+    border: 1px solid var(--border-color);
+    color: var(--accent-cyan);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+

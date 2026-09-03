@@ -1,0 +1,81 @@
+{
+  "providers": {
+    "omniroute": {
+      "baseUrl": "http://localhost:20128/v1",
+      "api": "openai-completions",
+      "apiKey": "${OMNIROUTE_API_KEY}",
+      "models": [
+        {
+          "id": "auto/best-coding",
+          "name": "OmniRoute Best Coding",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 2000000,
+          "maxTokens": 1048576
+        },
+        {
+          "id": "auto/best-reasoning",
+          "name": "OmniRoute Best Reasoning",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 2000000,
+          "maxTokens": 1048576
+        },
+        {
+          "id": "auto/best-coding-fast",
+          "name": "OmniRoute Best Coding Fast",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 2000000,
+          "maxTokens": 1048576
+        },
+        {
+          "id": "auto/best-free",
+          "name": "OmniRoute Best Free",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1000000,
+          "maxTokens": 384000
+        },
+        {
+          "id": "auto/best-vision",
+          "name": "OmniRoute Best Vision",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 1050000,
+          "maxTokens": 1048576
+        }
+      ]
+    }
+  }
+}

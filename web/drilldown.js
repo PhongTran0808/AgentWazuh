@@ -190,3 +190,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fetchFilteredLogs();
 });
+    async function pollWazuhStatus() {
+        try {
+            const res = await fetch('/api/wazuh/status', { credentials: 'same-origin' });
+            const data = await res.json();
+            const statusIpEl = document.getElementById('status-host') || document.getElementById('status-wazuh-ip');
+            const indicatorEl = document.querySelector('.header-status .status-indicator');
+            if (statusIpEl && indicatorEl) {
+                statusIpEl.textContent = 'Wazuh Server: ' + (data.wazuh_host || 'N/A');
+                if (data.status === 'online') {
+                    indicatorEl.className = 'status-indicator online';
+                } else if (data.status === 'offline') {
+                    indicatorEl.className = 'status-indicator offline';
+                } else {
+                    indicatorEl.className = 'status-indicator warning';
+                }
+            }
+        } catch (err) {
+            console.error('Failed to poll Wazuh status:', err);
+            const indicatorEl = document.querySelector('.header-status .status-indicator');
+            if (indicatorEl) indicatorEl.className = 'status-indicator offline';
+        }
+    }
+    setInterval(pollWazuhStatus, 3000);
+    pollWazuhStatus();

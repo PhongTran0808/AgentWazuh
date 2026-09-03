@@ -1,0 +1,11 @@
+<group name="web,bruteforce,fim,">
+  <rule id="100060" level="7" frequency="10" timeframe="60">
+    <if_matched_sid>550</if_matched_sid>
+    <same_source_ip />
+    <match>Failed password for root</match>
+    <description>SSH TEST123</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+</group>

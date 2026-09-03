@@ -14,6 +14,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let current_session_id = null;
 
+    async function pollWazuhStatus() {
+        try {
+            const res = await fetch("/api/wazuh/status", { credentials: "same-origin" });
+            const data = await res.json();
+            
+            // support both dashboard (status-wazuh-ip) and other pages (status-host)
+            const statusIpEl = document.getElementById("status-wazuh-ip") || document.getElementById("status-host");
+            const indicatorEl = document.querySelector(".header-status .status-indicator");
+            
+            if (statusIpEl && indicatorEl) {
+                statusIpEl.textContent = `Wazuh Server: ${data.wazuh_host || "N/A"}`;
+                if (data.status === "online") {
+                    indicatorEl.className = "status-indicator online";
+                } else if (data.status === "offline") {
+                    indicatorEl.className = "status-indicator offline";
+                } else {
+                    indicatorEl.className = "status-indicator warning";
+                }
+            }
+        } catch (err) {
+            console.error("Failed to poll Wazuh status:", err);
+            const indicatorEl = document.querySelector(".header-status .status-indicator");
+            if (indicatorEl) indicatorEl.className = "status-indicator offline";
+        }
+    }
+    
+    // Poll every 3 seconds
+    setInterval(pollWazuhStatus, 3000);
+    pollWazuhStatus();
+
     async function loadChatHistoryList() {
         try {
             const res = await fetch("/api/chat/history", { credentials: "same-origin" });
@@ -186,7 +216,11 @@ document.addEventListener("DOMContentLoaded", () => {
                         } else {
                             const div = document.createElement("div");
                             div.className = "chat-bubble system";
-                            let parsedHtml = window.marked ? marked.parse(msg.content) : msg.content.replace(/\n/g, "<br>");
+                            let cleanContent = (msg.content || "")
+                                .replace(/```(?:json:form|json)?\s*\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\}\s*```/g, "")
+                                .replace(/\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\}/g, "")
+                                .trim();
+                            let parsedHtml = window.marked ? marked.parse(cleanContent || msg.content) : (cleanContent || msg.content).replace(/\n/g, "<br>");
                             div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI Master Advisor:</strong><div class="msg-text">${parsedHtml}</div></div>`;
                             chatStream.appendChild(div);
                         }
@@ -791,7 +825,9 @@ function formatLocalTime(tsStr) {
             }
 
             setTimeout(() => {
-                updateChatBot(loadingId, inv.layer_2_llm_reasoning, inv.reasoning_steps, inv.config_form);
+                const textToRender = inv.layer_2_llm_reasoning || inv.answer || inv.summary || "";
+                const formToRender = inv.config_form || inv.active_form_session || null;
+                updateChatBot(loadingId, textToRender, inv.reasoning_steps || [], formToRender);
                 renderEvidenceDetail(inv, alertObj);
             }, 600);
             
@@ -813,12 +849,40 @@ function formatLocalTime(tsStr) {
     }
 
     function updateChatBot(id, markdownText, steps = [], configForm = null) {
-        appendMessageToSession("ai", markdownText);
+        if (!markdownText) markdownText = "";
+
+        // 1. Auto-extract CONFIG_FORM JSON from markdownText if configForm is null
+        if (!configForm) {
+            const formMatch = markdownText.match(/```(?:json:form|json)?\s*(\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\})\s*```/) ||
+                              markdownText.match(/(\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\})/);
+            if (formMatch) {
+                try {
+                    configForm = JSON.parse(formMatch[1]);
+                } catch (e) {
+                    console.error("Failed to parse extracted CONFIG_FORM JSON:", e);
+                }
+            }
+        }
+
+        // Ensure form_data and form_id exist
+        if (configForm && configForm.form_data) {
+            if (!configForm.form_data.form_id) {
+                configForm.form_data.form_id = "form_" + Date.now();
+            }
+        }
+
+        // 2. Strip raw CONFIG_FORM JSON text from markdownText so it doesn't print raw text to the user
+        let cleanMarkdown = markdownText
+            .replace(/```(?:json:form|json)?\s*\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\}\s*```/g, "")
+            .replace(/\{\s*"type"\s*:\s*"CONFIG_FORM"[\s\S]*?\}/g, "")
+            .trim();
+
+        appendMessageToSession("ai", cleanMarkdown || markdownText);
         const div = document.getElementById(id);
         if (!div) return;
 
         const content = div.querySelector(".msg-text");
-        let parsedHtml = window.marked ? marked.parse(markdownText) : markdownText.replace(/\n/g, "<br>");
+        let parsedHtml = window.marked ? marked.parse(cleanMarkdown || markdownText) : (cleanMarkdown || markdownText).replace(/\n/g, "<br>");
 
         if (configForm && configForm.form_data) {
             const f = configForm.form_data;
@@ -831,27 +895,27 @@ function formatLocalTime(tsStr) {
                         <span class="status-pill pill-secure" style="font-size: 0.7rem;"><i class="fa-solid fa-shield"></i> HITL Guarded</span>
                     </div>
                     
-                    <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 1rem 0;">${configForm.description}</p>
+                    <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 1rem 0;">${configForm.description || "Vui lòng kiểm tra và duyệt thông số cấu hình bên dưới trước khi áp dụng lên Wazuh Manager."}</p>
                     
                     <div style="display: flex; flex-direction: column; gap: 0.8rem;">
                         <div>
                             <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Tên quy tắc cảnh báo:</label>
-                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name}" class="input-setting-control" style="width: 100%;">
+                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name || ''}" class="input-setting-control" style="width: 100%;">
                         </div>
 
                         <div>
                             <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Chuỗi nhận diện Log Match:</label>
-                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern}" class="input-setting-control" style="width: 100%;">
+                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern || ''}" class="input-setting-control" style="width: 100%;">
                         </div>
 
                         <div style="display: flex; gap: 0.8rem;">
                             <div style="flex: 1;">
                                 <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Ngưỡng số lần:</label>
-                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency}" class="input-setting-control" style="width: 100%;">
+                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency || 5}" class="input-setting-control" style="width: 100%;">
                             </div>
                             <div style="flex: 1;">
                                 <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Thời gian (giây):</label>
-                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe}" class="input-setting-control" style="width: 100%;">
+                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe || 60}" class="input-setting-control" style="width: 100%;">
                             </div>
                             <div style="flex: 1;">
                                 <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Mức độ Rule Level:</label>

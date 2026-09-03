@@ -450,7 +450,7 @@ def list_monitored_devices(
     wazuh_agents: List[Dict[str, Any]],
     recent_alerts: Optional[List[Dict[str, Any]]] = None,
     ttl_days: int = 7,
-    wazuh_host: str = "192.168.1.248"
+    wazuh_host: str = ""
 ) -> Dict[str, Any]:
     """
     Xác minh & Phân loại Danh sách Thiết bị Giám sát (2 LOẠI RÕ RÀNG):

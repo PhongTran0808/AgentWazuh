@@ -13,7 +13,7 @@ from datetime import datetime
 from services.audit_logger import audit_logger
 
 # --- SSL Configuration ---
-_VERIFY_SSL_ENV = os.getenv("WAZUH_VERIFY_SSL", "true").strip().lower()
+_VERIFY_SSL_ENV = os.getenv("WAZUH_VERIFY_SSL", "false").strip().lower()
 _SSL_VERIFY: bool = _VERIFY_SSL_ENV not in ("false", "0", "no")
 
 if not _SSL_VERIFY:

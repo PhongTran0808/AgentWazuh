@@ -22,6 +22,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+# Load pass.env variables into os.environ
+pass_env_path = BASE_DIR / "pass.env"
+if pass_env_path.exists():
+    try:
+        for line in pass_env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ[k.strip()] = v.strip()
+    except Exception as e:
+        print(f"Error loading pass.env: {e}")
+
 from services.wazuh_client import WazuhClient
 from services.incident_assistant import IncidentAssistant
 from services.audit_logger import audit_logger
@@ -31,6 +43,12 @@ from mcp_layer.wazuh_mcp import get_agents, search_alerts, get_manager_status
 from ai_topology_parser import DynamicAITopologyParser
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
+
+@app.on_event("startup")
+async def startup_event():
+    import asyncio
+    asyncio.create_task(heartbeat_background_loop())
+
 WEB_DIR = BASE_DIR / "web"
 CONFIG_DIR = BASE_DIR / "config"
 KNOWN_DEVICES_PATH = CONFIG_DIR / "known_devices.json"
@@ -53,23 +71,71 @@ async def add_anti_cache_headers(request: Request, call_next):
     return response
 
 def load_system_settings() -> Dict[str, Any]:
-    if SETTINGS_PATH.exists():
-        try:
-            return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {
+    settings = {
         "session_timeout_minutes": 30,
         "icmp_ping_interval_seconds": 15,
         "ping_retry_threshold": 3,
-        "wazuh_host": "192.168.1.248",
+        "wazuh_host": os.getenv("WAZUH_HOST", ""),
         "wazuh_port": 55000,
         "wazuh_user": "admin",
         "uptime_kuma_push_token": "agentwazuh-push-secret-999",
         "ui_theme": "cyber_dark"
     }
+    if SETTINGS_PATH.exists():
+        try:
+            settings.update(json.loads(SETTINGS_PATH.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+
+    # Sync from pass.env (os.environ) to settings
+    env_host = os.getenv("WAZUH_HOST")
+    env_port = os.getenv("WAZUH_PORT")
+    changed = False
+    if env_host and env_host != settings.get("wazuh_host"):
+        settings["wazuh_host"] = env_host
+        changed = True
+    if env_port and str(env_port).isdigit() and int(env_port) != settings.get("wazuh_port"):
+        settings["wazuh_port"] = int(env_port)
+        changed = True
+        
+    if changed:
+        try:
+            SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+            
+    return settings
 
 SYSTEM_SETTINGS = load_system_settings()
+
+def sync_pass_env_from_settings(host: str, port: int):
+    pass_env_path = BASE_DIR / "pass.env"
+    if not pass_env_path.exists():
+        return
+    try:
+        lines = pass_env_path.read_text(encoding="utf-8").splitlines()
+        new_lines = []
+        host_found = False
+        port_found = False
+        for line in lines:
+            if line.strip().startswith("WAZUH_HOST="):
+                new_lines.append(f"WAZUH_HOST={host}")
+                host_found = True
+            elif line.strip().startswith("WAZUH_PORT="):
+                new_lines.append(f"WAZUH_PORT={port}")
+                port_found = True
+            else:
+                new_lines.append(line)
+        if not host_found:
+            new_lines.append(f"WAZUH_HOST={host}")
+        if not port_found:
+            new_lines.append(f"WAZUH_PORT={port}")
+        
+        pass_env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        os.environ["WAZUH_HOST"] = host
+        os.environ["WAZUH_PORT"] = str(port)
+    except Exception as e:
+        print(f"Error syncing pass.env: {e}")
 
 def load_sessions() -> Dict[str, float]:
     if SESSIONS_PATH.exists():
@@ -306,7 +372,7 @@ async def heartbeat_background_loop():
         await asyncio.sleep(interval_secs)
 
 def create_wazuh_client_from_settings(host: str = None, port: int = None) -> WazuhClient:
-    target_host = host or SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
+    target_host = host or SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "N/A")
     target_port = port or SYSTEM_SETTINGS.get("wazuh_port") or 55000
     return WazuhClient(
         host=target_host,
@@ -439,10 +505,16 @@ async def login_endpoint(req: LoginRequest, response: Response):
             SYSTEM_SETTINGS["wazuh_host"] = clean_host
             SYSTEM_SETTINGS["wazuh_port"] = req.wazuh_port or 55000
             SETTINGS_PATH.write_text(json.dumps(SYSTEM_SETTINGS, indent=2), encoding="utf-8")
+            sync_pass_env_from_settings(SYSTEM_SETTINGS.get("wazuh_host", ""), SYSTEM_SETTINGS.get("wazuh_port", 55000))
         
-        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
+        target_host = SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "N/A")
         # 3. Create fresh WazuhClient instance for new session with credentials
         wazuh_client = create_wazuh_client_from_settings(host=target_host, port=SYSTEM_SETTINGS.get("wazuh_port", 55000))
+
+        # Force immediate cache refresh
+        global GLOBAL_SYSTEM_STATUS_CACHE
+        GLOBAL_SYSTEM_STATUS_CACHE = wazuh_client.get_system_status()
+        GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
 
         # 4. Issue fresh session token
         token = secrets.token_hex(32)
@@ -529,14 +601,21 @@ async def update_settings(req: SystemSettingsRequest, session: str = Depends(req
     target_host = new_data.get("wazuh_host", "").strip()
     
     if not target_host or target_host in ["127.0.0.1", "localhost"]:
-        target_host = SYSTEM_SETTINGS.get("wazuh_host") or "192.168.1.234"
+        target_host = SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "N/A")
         new_data["wazuh_host"] = target_host
         
     SYSTEM_SETTINGS.update(new_data)
     SETTINGS_PATH.write_text(json.dumps(SYSTEM_SETTINGS, indent=2), encoding="utf-8")
+    sync_pass_env_from_settings(SYSTEM_SETTINGS.get("wazuh_host", ""), SYSTEM_SETTINGS.get("wazuh_port", 55000))
     
     test_client = create_wazuh_client_from_settings(host=target_host, port=new_data.get("wazuh_port", 55000))
     wazuh_client = test_client
+    
+    # Force immediate cache refresh
+    global GLOBAL_SYSTEM_STATUS_CACHE
+    GLOBAL_SYSTEM_STATUS_CACHE = wazuh_client.get_system_status()
+    GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
+    
     return {"status": "success", "settings": SYSTEM_SETTINGS, "message": "🟢 Đã cập nhật và lưu cấu hình hệ thống thành công!"}
 
 # REST APIs for Multi-Provider AI Model Configuration & On-Demand Ollama
@@ -1310,6 +1389,7 @@ async def update_active_form_session(req: UpdateFormSessionRequest, session: str
 @app.post("/api/wazuh/investigate")
 @app.post("/api/wazuh/investigate/scoped")
 async def investigate(req: InvestigateRequest, session: str = Depends(require_authenticated_session)):
+    global GLOBAL_SYSTEM_STATUS_CACHE
     alerts = GLOBAL_ALERTS_CACHE
     alert_to_use = req.alert_data
     if not alert_to_use and req.alert_id:
@@ -1359,7 +1439,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         }
 
     # Luôn kiểm tra status thực tế và nạp alert_stats mới nhất từ OpenSearch
-    wazuh_client.host = SYSTEM_SETTINGS.get("wazuh_host", "192.168.1.248")
+    wazuh_client.host = SYSTEM_SETTINGS.get("wazuh_host", os.getenv("WAZUH_HOST", "N/A"))
     system_status = wazuh_client.get_system_status()
     system_status["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
     GLOBAL_SYSTEM_STATUS_CACHE = system_status

@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import shutil
+import requests
 
 logger = logging.getLogger("IncidentAssistant")
 
@@ -40,7 +42,9 @@ class IncidentAssistant:
         internal_ip_status = "Có" if has_internal_ip else "Không"
         log_entry = f"[{timestamp}] - Đã gửi {alert_count} alerts tới OpenRouter - Khai báo IP nội bộ: {internal_ip_status}\n"
         try:
-            with open("/tmp/openrouter_audit.log", "a", encoding="utf-8") as f:
+            import tempfile
+            log_path = os.path.join(tempfile.gettempdir(), "openrouter_audit.log")
+            with open(log_path, "a", encoding="utf-8") as f:
                 f.write(log_entry)
         except Exception:
             pass
@@ -82,7 +86,7 @@ class IncidentAssistant:
         agent_rules = "\n\n".join(agent_rules_list)
         full_prompt = f"{agent_rules}\n\n{system_prompt}\n\n{user_prompt}"
         
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", dir="/tmp", delete=False, encoding="utf-8") as tf:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as tf:
             tf.write(full_prompt)
             temp_prompt_path = tf.name
 
@@ -124,28 +128,64 @@ class IncidentAssistant:
             else:
                 model_flag = ["--model", "openrouter/anthropic/claude-3-5-haiku"]
 
-            cmd = ["pi", "-nt"] + model_flag + ["-p", f"@{temp_prompt_path}"]
+            pi_bin = shutil.which("pi")
+            if not pi_bin and os.name == 'nt':
+                fallback_path = os.path.expanduser("~\\AppData\\Local\\pi-node\\current\\pi.cmd")
+                if os.path.exists(fallback_path):
+                    pi_bin = fallback_path
+            pi_bin = pi_bin or "pi"
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=45,
-                env=env
-            )
-            
-            stdout_str = result.stdout.strip()
-            stderr_str = result.stderr.strip()
+            try:
+                cmd = [pi_bin, "-nt"] + model_flag + ["-p", f"@{temp_prompt_path}"]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    env=env
+                )
+                stdout_str = result.stdout.strip()
+                if result.returncode == 0 and stdout_str and "Rate limit exceeded" not in stdout_str and "429" not in stdout_str:
+                    return stdout_str
+                else:
+                    logger.warning(f"⚠️ PI CLI returned 429 or error code {result.returncode}. Stderr: {result.stderr.strip()}")
+            except Exception as e:
+                logger.error(f"⚠️ PI CLI Execution Exception: {e}")
 
-            if result.returncode == 0 and stdout_str and "Rate limit exceeded" not in stdout_str and "429" not in stdout_str:
-                return stdout_str
-            else:
-                logger.warning(f"⚠️ PI CLI returned 429 or error. Generating local SOC fallback synthesis...")
-                return self._generate_fallback_analysis(user_prompt, system_context)
+            # Fallback 1: Native Python LLM Calls via requests if API Keys exist
+            g_key = env.get("GEMINI_API_KEY")
+            or_key = env.get("OPENROUTER_API_KEY")
+            o_key = env.get("OPENAI_API_KEY")
+
+            if g_key:
+                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={g_key}"
+                resp = requests.post(
+                    gemini_url,
+                    json={"contents": [{"parts": [{"text": full_prompt}]}]},
+                    headers={"Content-Type": "application/json"},
+                    timeout=45
+                )
+                if resp.status_code == 200:
+                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            elif or_key or o_key:
+                api_key = or_key if or_key else o_key
+                url = "https://openrouter.ai/api/v1/chat/completions" if or_key else "https://api.openai.com/v1/chat/completions"
+                model = "openrouter/anthropic/claude-3-5-haiku" if or_key else "gpt-4o-mini"
+                resp = requests.post(
+                    url,
+                    json={"model": model, "messages": [{"role": "user", "content": full_prompt}]},
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    timeout=45
+                )
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"].strip()
+
+            # Fallback 2: Local Hardcoded SOC Report
+            return self._generate_fallback_analysis(user_prompt, system_context)
                 
         except Exception as e:
-            logger.error(f"⚠️ PI CLI Exception: {e}")
-            return self._generate_fallback_analysis(user_prompt, system_context)
+            logger.error(f"⚠️ LLM Exception: {e}")
+            return f"⚠️ Lỗi kết nối AI: {e}\n\n" + self._generate_fallback_analysis(user_prompt, system_context)
         finally:
             if temp_prompt_path and os.path.exists(temp_prompt_path):
                 try:
@@ -155,7 +195,7 @@ class IncidentAssistant:
 
     def _generate_fallback_analysis(self, user_prompt: str, system_context: Optional[Dict[str, Any]]) -> str:
         """Hàm tổng hợp báo cáo phân tích sự cố chuẩn SOC hoàn toàn bằng Python lõi khi API AI bên ngoài bị giới hạn/timeout."""
-        host = system_context.get("wazuh_host", "192.168.1.248") if system_context else "192.168.1.248"
+        host = system_context.get("wazuh_host", os.getenv("WAZUH_HOST", "N/A")) if system_context else os.getenv("WAZUH_HOST", "N/A")
         stats = system_context.get("alert_stats", {}) if system_context else {}
         total = stats.get("total_24h", 0)
         high = stats.get("high", 0)
@@ -188,7 +228,7 @@ class IncidentAssistant:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
         static_info = self.lookup_static_rule(rule_id) if rule_id else None
-        current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["127.0.0.1", "localhost", ""]) else "192.168.1.248"
+        current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["127.0.0.1", "localhost", ""]) else os.getenv("WAZUH_HOST", "N/A")
 
         model_label = "PI Agent (OpenRouter)"
 

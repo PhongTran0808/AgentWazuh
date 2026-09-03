@@ -517,7 +517,10 @@ html, body {
 .header-actions { display: flex; align-items: center; gap: 0.6rem; }
 .btn-chip-action { background: #1e293b; border: 1px solid var(--border-color); color: #f8fafc; font-size: 0.82rem; padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; }
 .btn-chip-action:hover { background: #334155; border-color: var(--accent-cyan); }
-.status-indicator.online { width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 8px #10b981; }
+.status-indicator { width: 8px; height: 8px; border-radius: 50%; display: inline-block; transition: all 0.3s ease; }
+.status-indicator.online { background: #10b981; box-shadow: 0 0 8px #10b981; }
+.status-indicator.offline { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+.status-indicator.warning { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
 
 .app-body-container { display: flex; height: calc(100vh - 65px); overflow: hidden; }
 .history-sidebar { width: 260px; background-color: var(--bg-surface); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; transition: width 0.2s ease; overflow-y: auto; overflow-x: hidden; white-space: nowrap; }

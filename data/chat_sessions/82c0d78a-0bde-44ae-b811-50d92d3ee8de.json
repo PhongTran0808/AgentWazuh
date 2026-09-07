@@ -1,0 +1,30 @@
+{
+    "id": "82c0d78a-0bde-44ae-b811-50d92d3ee8de",
+    "title": "New Conversation",
+    "project_name": "Default Project",
+    "created_at": "2026-09-07T09:54:51.235578",
+    "updated_at": "2026-09-07T09:56:26.758766",
+    "messages": [
+        {
+            "role": "user",
+            "content": "Báo cáo 24h qua",
+            "timestamp": "2026-09-07T02:55:02.398Z"
+        },
+        {
+            "role": "ai",
+            "content": "### 📊 BÁO CÁO PHÂN TÍCH SỰ CỐ AN NINH (DỮ LIỆU THẬT - LOCAL ENGINE)\n\n- **Máy chủ Wazuh Manager**: `192.168.1.208`\n- **Tổng số Cảnh báo 24h qua**: `43` (Mức độ Cao: `0`, Trung bình: `8`)\n- **Trạng thái Kết nối**: `CONNECTED - LIVE REALTIME`\n\n#### 🛡️ Đánh giá Kỹ thuật & Khuyến nghị SOC Analyst:\n1. **Phát hiện Hành vi**: Cảnh báo phát sinh từ luồng giám sát Wazuh Agent & FortiGate Remote Syslog.\n2. **Khái quát Sự cố**: Hệ thống ghi nhận các lượt kết nối bị từ chối/truy cập bất thường trên cổng dịch vụ.\n3. **Quy trình Khuyến nghị Phòng thủ (Playbook)**:\n   - Kiểm tra IP nguồn gửi traffic trên thiết bị tường lửa FortiGate.\n   - Xác minh nhật ký đăng nhập trên các máy chủ DMZ Web Server.\n   - Nếu phát hiện bão log, tiến hành kích hoạt Rule lọc tần suất nháp qua giao diện Form Cấu Hình.",
+            "timestamp": "2026-09-07T02:55:37.088Z"
+        },
+        {
+            "role": "user",
+            "content": "Phân tích sự cố Alert QZ_IeaABsuWwDd13gzqL (Unknown problem somewhere in the system.)",
+            "timestamp": "2026-09-07T02:56:06.552Z"
+        },
+        {
+            "role": "ai",
+            "content": "**BÁO CÁO TỔNG HỢP 24 GIỜ QUA (DỮ LIỆU THỰC TẾ TỪ WAZUH SERVER)**\n\n---\n\n### 1. Tổng quan số lượng và mức độ cảnh báo\n\n| Mức độ cảnh báo | Số lượng |\n|----------------|----------|\n| Critical       | 0        |\n| High           | 0        |\n| Medium         | 8        |\n| Low            | 35       |\n| **Tổng cộng**  | **43**   |\n\n---\n\n### 2. Phân bố thời gian theo giờ (UTC+7)\n\n| Khung giờ (Giờ Việt Nam - UTC+7) | Số lượng cảnh báo | Tỷ lệ    |\n|----------------------------------|------------------|----------|\n| 09:00 - 10:00                    | 43               | 100%     |\n\n---\n\n### 3. 5 Rule phát sinh cảnh báo nhiều nhất\n\n| Rule ID | Số lượng | Mô tả                                                     |\n|---------|----------|-----------------------------------------------------------|\n| 1002    | 80       | Unknown problem somewhere in the system.                  |\n| 19007   | 69       | CIS Win 11: Max log file size ≥32,768 KB                  |\n| 19008   | 34       | CIS Win 11: Event Log behavior on max size (Disabled)     |\n| 550     | 5        | Integrity checksum changed.                               |\n| 533     | 4        | Listened ports status (netstat) changed.                  |\n\n---\n\n### 4. Thiết bị đang giám sát (Realtime Active)\n\nHiện tại hệ thống Wazuh **CHƯA KẾT NỐI hoặc KHÔNG NHẬN DỮ LIỆU TỪ THIẾT BỊ NÀO TRONG PHIÊN HIỆN TẠI (0 thiết bị active)**.\n\n---\n\n#### Nguồn: Dữ liệu thực tế từ Wazuh Server.",
+            "timestamp": "2026-09-07T02:56:07.352Z"
+        }
+    ],
+    "network_snapshot": {}
+}

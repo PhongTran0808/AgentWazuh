@@ -496,17 +496,29 @@ def list_monitored_devices(
         if ip and ip in monitored_ips:
             continue
 
+        name_lower = name.lower()
+        is_net_appliance = any(k in name_lower for k in ["forti", "cisco", "firewall", "router", "switch"])
+        
+        if is_net_appliance:
+            dev_type_str = "Thiết bị Mạng (Remote Syslog Agentless)"
+            if "forti" in name_lower or "firewall" in name_lower:
+                os_full = "FortiOS 7.2 (Remote Syslog Stream)"
+            elif "cisco" in name_lower or "router" in name_lower or "switch" in name_lower:
+                os_full = "Cisco IOS-XE / NX-OS (Syslog Integration)"
+        else:
+            dev_type_str = "Endpoint có Agent (Host Agent)"
+
         item = {
             "name": name,
             "ip": ip or "Dynamic IP",
-            "type": "Endpoint có Agent",
+            "type": dev_type_str,
             "os_model": os_full,
             "agent_status": agent_status_str,
             "last_seen": agent.get("lastKeepAlive", "Gần đây"),
             "monitoring_since": agent.get("dateAdd", "Đã đăng ký"),
             "criticality": "Cao" if is_active else "Trung bình",
             "is_verified": True,
-            "verification_method": "Cách 1: Active Wazuh Agent API"
+            "verification_method": "Cách 2: Remote Syslog / Agent API" if is_net_appliance else "Cách 1: Active Wazuh Agent API"
         }
         monitored_list.append(item)
         if ip:

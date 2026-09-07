@@ -407,7 +407,24 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
    - Khi người dùng hỏi về "thiết bị đang giám sát" hoặc "Wazuh đang giám sát thiết bị gì":
    - Bạn BẮT BUỘC chỉ liệt kê các thiết bị có trạng thái ACTIVE REALTIME (ví dụ: 'active (Kết nối thời gian thực)' hoặc 'active (Đang truyền log phiên hiện tại)').
    - Nếu KHÔNG có Agent nào active và KHÔNG có gói log Syslog nào xuất hiện trong 15 phút gần đây (các thiết bị đều là inactive hoặc CMDB record), bạn PHẢI khẳng định trung thực: "Hiện tại hệ thống Wazuh CHƯA KẾT NỐI hoặc KHÔNG NHẬN DỮ LIỆU TỪ THIẾT BỊ NÀO TRONG PHIÊN HIỆN TẠI (0 thiết bị active)."
-   - TUYỆT ĐỐI KHÔNG lấy các log cũ từ nhiều giờ/ngày trước của phiên kết nối trước đó để báo cáo là thiết bị đang hoạt động!"""
+   - TUYỆT ĐỐI KHÔNG lấy các log cũ từ nhiều giờ/ngày trước của phiên kết nối trước đó để báo cáo là thiết bị đang hoạt động!
+11. QUY TẮC PHÁT SINH FORM CẤU HÌNH RULE XML (CONFIG_FORM GENERATION):
+   - Khi người dùng hỏi/yêu cầu "tạo rule", "viết rule XML", "tạo quy tắc tương quan", "cấu hình rule":
+   - Bạn BẮT BUỘC chèn khối JSON CONFIG_FORM vào cuối câu trả lời dạng:
+```json:form
+{
+  "type": "CONFIG_FORM",
+  "title": "⚡ Bảng Cấu Hình Rule XML & Tương Quan Wazuh",
+  "description": "Nhấp nút [⚡ Tạo Rule Mẫu XML] hoặc chỉnh sửa thông số bên dưới để test và áp dụng trực tiếp lên Wazuh Manager.",
+  "form_data": {
+    "rule_name": "Rule Cảnh Báo Mới",
+    "match_pattern": "authentication failure",
+    "frequency": 5,
+    "timeframe": 60,
+    "level": 10
+  }
+}
+```"""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 

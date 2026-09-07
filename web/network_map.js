@@ -387,9 +387,7 @@ function renderVisNetwork(devices, wazuhHost) {
             from: serverNodeId,
             to: dev.id,
             color: { color: edgeColor, highlight: edgeColor },
-            width: dev.badge === "UNDER_ATTACK" ? 3 : 1.5,
-            dashes: dev.health?.status === "offline" ? [4, 4] : false,
-            smooth: { type: "curvedCW", roundness: 0.15 },
+            smooth: false,
             font: { size: 0 },
             arrows: { to: { enabled: false } }
         });

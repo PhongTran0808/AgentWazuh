@@ -94,6 +94,7 @@
 
             <div class="preset-chips">
                 <button class="chip-btn" data-query="Báo cáo 24h qua"><i class="fa-solid fa-chart-pie"></i> Báo cáo 24h qua</button>
+                <button class="chip-btn" onclick="openXmlRuleBuilderModal()" style="background: rgba(56, 189, 248, 0.18); border-color: #38bdf8; color: #38bdf8;"><i class="fa-solid fa-code"></i> ⚡ Tạo Rule Mẫu XML</button>
                 <button class="chip-btn" data-query="Danh sách các cảnh báo mức độ Low (thấp) hiện tại là gì, trích xuất 1 log mẫu"><i class="fa-solid fa-file-code"></i> Trích xuất Log Low</button>
                 <button class="chip-btn" data-query="Danh sách thiết bị đang giám sát"><i class="fa-solid fa-server"></i> Kiểm tra Agents</button>
                 <button class="chip-btn" data-query="Thống kê cảnh báo Medium và High"><i class="fa-solid fa-triangle-exclamation"></i> Thống kê Severity</button>
@@ -338,6 +339,101 @@
                 </button>
                 <button id="btn-submit-import" class="btn-primary" style="padding: 0.6rem 1.4rem;">
                     <i class="fa-solid fa-file-arrow-up"></i> Nạp Dữ Liệu Vào System
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- INTERACTIVE WAZUH XML RULE & CORRELATION BUILDER MODAL -->
+    <div id="xml-rule-builder-modal" class="modal-overlay hidden" style="z-index: 99999;">
+        <div class="modal-card" style="max-width: 920px; width: 95vw; background: #090d16; border: 1px solid #38bdf8; border-radius: 12px; padding: 1.5rem; color: #f8fafc; box-shadow: 0 0 35px rgba(56, 189, 248, 0.25);">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 0.8rem; margin-bottom: 1.2rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <i class="fa-solid fa-code" style="font-size: 1.3rem; color: #38bdf8;"></i>
+                    <h3 style="margin: 0; font-size: 1.15rem; color: #f8fafc;">Bảng Cấu Hình & Tương Quan Rule XML Wazuh (Interactive XML Builder)</h3>
+                </div>
+                <button class="btn-close" onclick="closeXmlRuleBuilderModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.2rem; margin-bottom: 1rem;">
+                <!-- Left Column: Form Controls (Editable Inputs) -->
+                <div style="display: flex; flex-direction: column; gap: 0.8rem; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #1e293b;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #38bdf8; font-size: 0.9rem;"><i class="fa-solid fa-pen-to-square"></i> Thông Số Đầu Vào Rule</h4>
+                    
+                    <div style="display: flex; gap: 0.6rem;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Rule ID (Mã ID):</label>
+                            <input type="number" id="builder-rule-id" value="100201" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Rule Level (Severity):</label>
+                            <select id="builder-rule-level" class="input-setting-control" style="width: 100%;" onchange="syncXmlFromForm()">
+                                <option value="3">Level 3 - Informational</option>
+                                <option value="5">Level 5 - Low</option>
+                                <option value="7">Level 7 - Medium</option>
+                                <option value="10" selected>Level 10 - High (Cảnh báo)</option>
+                                <option value="12">Level 12 - Critical (Nghiêm trọng)</option>
+                                <option value="15">Level 15 - Emergency</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Nhóm Quy Tắc (Group Name):</label>
+                        <input type="text" id="builder-group-name" value="custom_rules,docker,syslog" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                    </div>
+
+                    <div>
+                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Mô Tả Quy Tắc (Description):</label>
+                        <input type="text" id="builder-rule-desc" value="Phát hiện hành vi tấn công Malware / Command Injection từ Docker Container" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                    </div>
+
+                    <div>
+                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Chuỗi Khớp Log (Match / Regex):</label>
+                        <input type="text" id="builder-rule-match" value="malware_executed|unauthorized_cmd|reverse_shell" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                    </div>
+
+                    <div style="display: flex; gap: 0.6rem;">
+                        <div style="flex: 1.2;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Parent Rule ID (if_sid):</label>
+                            <input type="text" id="builder-rule-ifsid" value="5710" placeholder="Ví dụ: 5710 (Kế thừa rule)" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Tần Suất (Freq):</label>
+                            <input type="number" id="builder-rule-freq" value="5" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Cửa Sổ (Time s):</label>
+                            <input type="number" id="builder-rule-time" value="60" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Live Interactive XML Editor & Test Results -->
+                <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="margin: 0; color: #4ade80; font-size: 0.9rem;"><i class="fa-solid fa-code-compare"></i> Mã Nguồn Wazuh XML Rule</h4>
+                        <button class="btn-action" onclick="copyXmlRuleCode()" style="font-size: 0.72rem; padding: 2px 8px;"><i class="fa-solid fa-copy"></i> Copy XML</button>
+                    </div>
+
+                    <textarea id="builder-rule-xml" style="width: 100%; height: 230px; background: #020617; border: 1px solid #22c55e; border-radius: 8px; color: #4ade80; font-family: 'Fira Code', monospace; font-size: 0.82rem; padding: 0.8rem; resize: vertical; box-sizing: border-box;" oninput="syncFormFromXml()"></textarea>
+
+                    <div id="builder-test-badge" style="padding: 0.6rem 0.8rem; background: #0f172a; border: 1px dashed #334155; border-radius: 6px; font-size: 0.8rem; color: #94a3b8;">
+                        <i class="fa-solid fa-vial-circle-check"></i> Chưa chạy thử nghiệm. Nhấn nút <strong>[🧪 Dry-Run Test]</strong> bên dưới để giả lập quy tắc trên tập logs thực tế.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons Footer -->
+            <div style="display: flex; gap: 0.8rem; justify-content: flex-end; border-top: 1px solid #1e293b; padding-top: 0.8rem;">
+                <button class="btn-chip-action" onclick="closeXmlRuleBuilderModal()" style="padding: 0.6rem 1.2rem;">
+                    Đóng
+                </button>
+                <button class="btn-action" onclick="runRuleDryRun()" style="padding: 0.6rem 1.4rem; background: #1e293b; border: 1px solid #f59e0b; color: #f59e0b;">
+                    <i class="fa-solid fa-flask"></i> 🧪 Dry-Run Test Rule
+                </button>
+                <button class="btn-primary" id="btn-builder-apply" onclick="applyXmlRule()" style="padding: 0.6rem 1.6rem; background: #10b981; border-color: #059669;">
+                    <i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager
                 </button>
             </div>
         </div>

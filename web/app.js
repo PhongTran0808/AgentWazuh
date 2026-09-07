@@ -1225,3 +1225,187 @@ function formatLocalTime(tsStr) {
 
     setupAuditLogsController();
 });
+
+// --- INTERACTIVE WAZUH XML RULE & CORRELATION BUILDER LOGIC ---
+window.openXmlRuleBuilderModal = function(presetData) {
+    const modal = document.getElementById("xml-rule-builder-modal");
+    if (!modal) return;
+
+    if (presetData) {
+        if (presetData.rule_id) document.getElementById("builder-rule-id").value = presetData.rule_id;
+        if (presetData.level) document.getElementById("builder-rule-level").value = presetData.level;
+        if (presetData.group_name) document.getElementById("builder-group-name").value = presetData.group_name;
+        if (presetData.description || presetData.rule_name) document.getElementById("builder-rule-desc").value = presetData.description || presetData.rule_name;
+        if (presetData.match_pattern) document.getElementById("builder-rule-match").value = presetData.match_pattern;
+        if (presetData.if_sid) document.getElementById("builder-rule-ifsid").value = presetData.if_sid;
+        if (presetData.frequency) document.getElementById("builder-rule-freq").value = presetData.frequency;
+        if (presetData.timeframe) document.getElementById("builder-rule-time").value = presetData.timeframe;
+    }
+
+    syncXmlFromForm();
+    modal.classList.remove("hidden");
+};
+
+window.closeXmlRuleBuilderModal = function() {
+    const modal = document.getElementById("xml-rule-builder-modal");
+    if (modal) modal.classList.add("hidden");
+};
+
+window.syncXmlFromForm = function() {
+    const ruleId = document.getElementById("builder-rule-id").value.trim() || "100201";
+    const level = document.getElementById("builder-rule-level").value || "10";
+    const groupName = document.getElementById("builder-group-name").value.trim() || "custom_rules,";
+    const desc = document.getElementById("builder-rule-desc").value.trim() || "Rule mô tả";
+    const match = document.getElementById("builder-rule-match").value.trim() || "pattern";
+    const ifSid = document.getElementById("builder-rule-ifsid").value.trim();
+    const freq = document.getElementById("builder-rule-freq").value || "5";
+    const time = document.getElementById("builder-rule-time").value || "60";
+
+    let ifSidXml = ifSid ? `\n    <if_sid>${ifSid}</if_sid>` : "";
+    let corrXml = (freq && time) ? `\n    <frequency>${freq}</frequency>\n    <timeframe>${time}</timeframe>` : "";
+
+    const xml = `<group name="${groupName}">
+  <rule id="${ruleId}" level="${level}">` + ifSidXml + `
+    <match>${match}</match>` + corrXml + `
+    <description>${desc}</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+</group>`;
+
+    const xmlEl = document.getElementById("builder-rule-xml");
+    if (xmlEl) xmlEl.value = xml;
+};
+
+window.syncFormFromXml = function() {
+    const xmlEl = document.getElementById("builder-rule-xml");
+    if (!xmlEl) return;
+    const xml = xmlEl.value;
+
+    const idMatch = xml.match(/id=["'](\d+)["']/);
+    if (idMatch) document.getElementById("builder-rule-id").value = idMatch[1];
+
+    const lvlMatch = xml.match(/level=["'](\d+)["']/);
+    if (lvlMatch) document.getElementById("builder-rule-level").value = lvlMatch[1];
+
+    const grpMatch = xml.match(/group name=["']([^"']+)["']/);
+    if (grpMatch) document.getElementById("builder-group-name").value = grpMatch[1];
+
+    const descMatch = xml.match(/<description>(.*?)<\/description>/s);
+    if (descMatch) document.getElementById("builder-rule-desc").value = descMatch[1].trim();
+
+    const matchMatch = xml.match(/<match>(.*?)<\/match>/s);
+    if (matchMatch) document.getElementById("builder-rule-match").value = matchMatch[1].trim();
+
+    const ifSidMatch = xml.match(/<if_sid>(.*?)<\/if_sid>/);
+    if (ifSidMatch) document.getElementById("builder-rule-ifsid").value = ifSidMatch[1].trim();
+
+    const freqMatch = xml.match(/<frequency>(.*?)<\/frequency>/);
+    if (freqMatch) document.getElementById("builder-rule-freq").value = freqMatch[1].trim();
+
+    const timeMatch = xml.match(/<timeframe>(.*?)<\/timeframe>/);
+    if (timeMatch) document.getElementById("builder-rule-time").value = timeMatch[1].trim();
+};
+
+window.copyXmlRuleCode = function() {
+    const xmlEl = document.getElementById("builder-rule-xml");
+    if (xmlEl && xmlEl.value) {
+        navigator.clipboard.writeText(xmlEl.value).then(() => {
+            alert("📋 Đã chép mã nguồn XML Rule vào clipboard!");
+        });
+    }
+};
+
+window.runRuleDryRun = async function() {
+    const xmlEl = document.getElementById("builder-rule-xml");
+    const badge = document.getElementById("builder-test-badge");
+    if (!xmlEl || !badge) return;
+
+    badge.style.background = "#0f172a";
+    badge.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang chạy giả lập Dry-Run thử nghiệm Rule XML...`;
+
+    try {
+        const res = await fetch("/api/rules/dry-run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rule_xml: xmlEl.value }),
+            credentials: "same-origin"
+        });
+        const data = await res.json();
+        if (data.status === "success" && data.result) {
+            const r = data.result;
+            badge.style.background = "rgba(16, 185, 129, 0.15)";
+            badge.style.borderColor = "#10b981";
+            badge.style.color = "#34d399";
+            badge.innerHTML = `<strong>🟢 Đã kiểm tra Dry-Run thành công!</strong><br>` +
+                `• Khớp <strong>${r.would_match_count}</strong> alerts trong lịch sử.<br>` +
+                `• Ước tính rủi ro False Positive: <strong>${r.estimated_false_positive_risk}</strong>.`;
+        } else {
+            badge.style.background = "rgba(239, 68, 68, 0.15)";
+            badge.style.borderColor = "#ef4444";
+            badge.style.color = "#f87171";
+            badge.innerHTML = `🔴 <strong>Dry-Run Thất bại:</strong> ${data.detail || data.message || "Lỗi cú pháp XML"}`;
+        }
+    } catch (e) {
+        badge.style.background = "rgba(239, 68, 68, 0.15)";
+        badge.style.borderColor = "#ef4444";
+        badge.style.color = "#f87171";
+        badge.innerHTML = `🔴 <strong>Lỗi AJAX:</strong> ${e.message || e}`;
+    }
+};
+
+window.applyXmlRule = async function() {
+    const xmlEl = document.getElementById("builder-rule-xml");
+    const btnApply = document.getElementById("btn-builder-apply");
+    if (!xmlEl || !btnApply) return;
+
+    const rule_name = document.getElementById("builder-rule-desc").value.trim();
+    const match_pattern = document.getElementById("builder-rule-match").value.trim();
+    const frequency = parseInt(document.getElementById("builder-rule-freq").value) || 5;
+    const timeframe = parseInt(document.getElementById("builder-rule-time").value) || 60;
+    const level = parseInt(document.getElementById("builder-rule-level").value) || 10;
+    const rule_id = parseInt(document.getElementById("builder-rule-id").value) || 100201;
+    const if_sid = document.getElementById("builder-rule-ifsid").value.trim();
+    const group_name = document.getElementById("builder-group-name").value.trim();
+
+    btnApply.disabled = true;
+    btnApply.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp rule & khởi động lại Wazuh...`;
+
+    try {
+        const res = await fetch("/api/wazuh/apply-rule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                rule_name,
+                match_pattern,
+                frequency,
+                timeframe,
+                level,
+                rule_id,
+                if_sid,
+                group_name,
+                raw_xml: xmlEl.value
+            }),
+            credentials: "same-origin"
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+            btnApply.style.background = "#10b981";
+            btnApply.innerHTML = `<i class="fa-solid fa-circle-check"></i> Đã áp dụng thành công Rule [${data.rule_id}]!`;
+            setTimeout(() => {
+                btnApply.disabled = false;
+                btnApply.innerHTML = `<i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager`;
+                closeXmlRuleBuilderModal();
+            }, 1800);
+        } else {
+            alert("🔴 Lỗi áp dụng Rule: " + (data.detail || data.message));
+            btnApply.disabled = false;
+            btnApply.innerHTML = `<i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager`;
+        }
+    } catch (e) {
+        alert("🔴 Lỗi kết nối: " + e.message);
+        btnApply.disabled = false;
+        btnApply.innerHTML = `<i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager`;
+    }
+};

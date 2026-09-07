@@ -413,11 +413,18 @@ class RuleGenerateRequest(BaseModel):
     frequency: Optional[int] = 5
 
 class ApplyRuleRequest(BaseModel):
-    rule_name: str
-    match_pattern: str
-    frequency: int
-    timeframe: int
-    level: int
+    rule_name: Optional[str] = "Custom Rule"
+    match_pattern: Optional[str] = ""
+    frequency: Optional[int] = 5
+    timeframe: Optional[int] = 60
+    level: Optional[int] = 10
+    rule_id: Optional[int] = None
+    if_sid: Optional[str] = None
+    group_name: Optional[str] = "custom_rules,"
+    raw_xml: Optional[str] = None
+
+class DryRunRuleCustomRequest(BaseModel):
+    rule_xml: str
 
 class RuleApproveRequest(BaseModel):
     filename: str
@@ -1539,13 +1546,18 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
 @app.post("/api/wazuh/apply-rule")
 async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_authenticated_session)):
     timestamp = int(time.time())
-    new_rule_id = 100060
+    new_rule_id = req.rule_id or 100201
     
-    rule_xml = f"""<group name="web,bruteforce,fim,">
-  <rule id="{new_rule_id}" level="{req.level}" frequency="{req.frequency}" timeframe="{req.timeframe}">
-    <if_matched_sid>550</if_matched_sid>
-    <same_source_ip />
+    if req.raw_xml and req.raw_xml.strip():
+        rule_xml = req.raw_xml.strip()
+    else:
+        grp = req.group_name or "custom_rules,"
+        if_sid_line = f"\n    <if_sid>{req.if_sid}</if_sid>" if req.if_sid else ""
+        rule_xml = f"""<group name="{grp}">
+  <rule id="{new_rule_id}" level="{req.level}">""" + if_sid_line + f"""
     <match>{req.match_pattern}</match>
+    <frequency>{req.frequency}</frequency>
+    <timeframe>{req.timeframe}</timeframe>
     <description>{req.rule_name}</description>
     <mitre>
       <id>T1110</id>
@@ -1557,6 +1569,9 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
     file_path = PENDING_RULES_DIR / filename
     file_path.write_text(rule_xml, encoding="utf-8")
 
+    local_rules_path = CONFIG_DIR / "local_rules.xml"
+    local_rules_path.write_text(rule_xml, encoding="utf-8")
+
     return {
         "status": "success",
         "rule_id": new_rule_id,
@@ -1565,6 +1580,11 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
         "message": f"✔ Đã áp dụng Rule {new_rule_id} ({req.rule_name}) thành công lên Wazuh Manager!",
         "reloaded_wazuh": True
     }
+
+@app.post("/api/rules/dry-run")
+async def dry_run_rule_custom_endpoint(req: DryRunRuleCustomRequest, session: str = Depends(require_authenticated_session)):
+    results = dry_run_rule(req.rule_xml, GLOBAL_ALERTS_CACHE)
+    return {"status": "success", "result": results}
 
 @app.post("/api/wazuh/rules/dry-run")
 async def dry_run_rule_endpoint(req: RuleGenerateRequest, session: str = Depends(require_authenticated_session)):
@@ -1646,5 +1666,5 @@ async def approve_rule(req: RuleApproveRequest, session: str = Depends(require_a
     return {"status": "success", "approved": True, "filename": req.filename, "message": f"🟢 Analyst đã phê duyệt Rule {req.filename}. Rule sẵn sàng áp dụng lên Wazuh Manager."}
 
 if __name__ == "__main__":
-    print("🚀 [AgentWazuh SOC Assistant]: Starting server on http://127.0.0.1:8080")
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    print("🚀 [AgentWazuh SOC Assistant]: Starting server on http://0.0.0.0:8080 (LAN Accessible)")
+    uvicorn.run(app, host="0.0.0.0", port=8080)

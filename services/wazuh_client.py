@@ -72,21 +72,32 @@ class WazuhClient:
 
     def __init__(
         self,
-        host: str = "172.16.175.145",
+        host: Optional[str] = None,
         port: int = 55000,
         user: str = "agentwazuh",
         password: str = "",
         dashboard_user: str = "admin",
         dashboard_pass: str = ""
     ):
-        self.host = host if (host and host not in ["127.0.0.1", "localhost", "admin"]) else "172.16.175.145"
+        # Dynamic IP resolution: Priority 1: Passed param -> Priority 2: ENV WAZUH_HOST -> Priority 3: system_settings.json
+        resolved_host = host if (host and host not in ["127.0.0.1", "localhost", "admin"]) else os.getenv("WAZUH_HOST", "")
+        if not resolved_host:
+            try:
+                settings_file = Path(__file__).resolve().parent.parent / "config" / "system_settings.json"
+                if settings_file.exists():
+                    data = json.loads(settings_file.read_text(encoding="utf-8"))
+                    resolved_host = data.get("wazuh_host", "")
+            except Exception:
+                pass
+
+        self.host = resolved_host or ""
         self.port = port
         self.user = user
         # Load from env if not explicitly provided — never log the actual value
         self.password = password or os.getenv("WAZUH_API_PASSWORD", "")
         self.dashboard_user = dashboard_user
         self.dashboard_pass = dashboard_pass or os.getenv("INDEXER_PASSWORD", "admin")
-        self.base_url = f"https://{self.host}:{self.port}"
+        self.base_url = f"https://{self.host}:{self.port}" if self.host else ""
         self._ssl_verify: bool = _SSL_VERIFY
 
         # --- Token Cache ---

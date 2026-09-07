@@ -2,7 +2,7 @@
   "session_timeout_minutes": 30,
   "icmp_ping_interval_seconds": 15,
   "ping_retry_threshold": 3,
-  "wazuh_host": "192.168.1.234",
+  "wazuh_host": "192.168.1.208",
   "wazuh_port": 55000,
   "wazuh_user": "agentwazuh",
   "uptime_kuma_push_token": "agentwazuh-push-secret-999",

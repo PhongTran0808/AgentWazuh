@@ -738,3 +738,83 @@ function riskColor(risk) {
     }
     setInterval(pollWazuhStatus, 3000);
     pollWazuhStatus();
+
+window.openWazuhApiInspectorModal = function() {
+    const modal = document.getElementById("wazuh-api-inspector-modal");
+    if (modal) {
+        modal.style.display = "flex";
+        window.refreshWazuhApiInspector();
+    }
+};
+
+window.closeWazuhApiInspectorModal = function() {
+    const modal = document.getElementById("wazuh-api-inspector-modal");
+    if (modal) modal.style.display = "none";
+};
+
+window.copyTextToClipboard = function(text, btnElement) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const origText = btnElement.innerHTML;
+        btnElement.innerHTML = `<i class="fa-solid fa-check" style="color:#22c55e;"></i> Đã Sao Chép!`;
+        setTimeout(() => { btnElement.innerHTML = origText; }, 1800);
+    }).catch(err => {
+        alert("Không thể sao chép: " + err);
+    });
+};
+
+window.refreshWazuhApiInspector = async function() {
+    const listBox = document.getElementById("wazuh-api-inspector-list");
+    if (!listBox) return;
+    
+    try {
+        const res = await fetch("/api/wazuh/live-logs");
+        const data = await res.json();
+        const logs = data.logs || [];
+        
+        if (logs.length === 0) {
+            listBox.innerHTML = `<div style="color:#64748b; text-align:center; padding:2rem;">Chưa có dữ liệu gói tin REST API nào được ghi nhận.</div>`;
+            return;
+        }
+        
+        let html = "";
+        logs.forEach(log => {
+            const methodColor = log.method === "GET" ? "#38bdf8" : log.method === "POST" ? "#22c55e" : log.method === "PUT" ? "#f59e0b" : "#ef4444";
+            const statusColor = log.status_code === 200 ? "#22c55e" : "#ef4444";
+            const rawUrl = log.url || "";
+            const rawCurl = log.curl_command || "";
+            
+            html += `
+            <div style="background:#0b1329; border:1px solid #1e293b; border-radius:8px; padding:0.9rem; font-size:0.82rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="background:${methodColor}; color:#000; font-weight:700; font-size:0.72rem; padding:2px 6px; border-radius:4px;">${log.method}</span>
+                        <span style="color:${statusColor}; font-weight:700; font-size:0.75rem; border:1px solid ${statusColor}; padding:1px 5px; border-radius:4px;">${log.status_code}</span>
+                        <span style="color:#e2e8f0; font-weight:600; word-break:break-all;">${rawUrl}</span>
+                    </div>
+                    <span style="color:#64748b; font-size:0.75rem;">${log.timestamp}</span>
+                </div>
+                
+                <div style="color:#94a3b8; font-size:0.78rem; margin-bottom:0.5rem; word-break:break-all;">
+                    ${log.detail || ''}
+                </div>
+
+                <div style="background:#020617; border:1px solid #1e293b; border-radius:4px; padding:0.4rem; font-size:0.72rem; color:#a78bfa; margin-bottom:0.6rem; word-break:break-all; white-space:pre-wrap;">
+                    ${rawCurl}
+                </div>
+                
+                <div style="display:flex; gap:0.5rem;">
+                    <button class="btn-chip-action" onclick="window.copyTextToClipboard('${rawUrl.replace(/'/g, "\\'")}', this)" style="font-size:0.72rem; padding:3px 8px; background:#1e293b; border:1px solid #3b82f6; color:#60a5fa;">
+                        <i class="fa-solid fa-copy"></i> 📋 Copy API Endpoint
+                    </button>
+                    <button class="btn-chip-action" onclick="window.copyTextToClipboard('${rawCurl.replace(/'/g, "\\'")}', this)" style="font-size:0.72rem; padding:3px 8px; background:#1e293b; border:1px solid #22c55e; color:#4ade80;">
+                        <i class="fa-solid fa-terminal"></i> 📋 Copy Lệnh Curl
+                    </button>
+                </div>
+            </div>`;
+        });
+        listBox.innerHTML = html;
+    } catch(e) {
+        listBox.innerHTML = `<div style="color:#ef4444; padding:1rem;">❌ Lỗi tải dữ liệu gói API Inspector: ${e.message}</div>`;
+    }
+};

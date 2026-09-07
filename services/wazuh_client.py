@@ -35,16 +35,40 @@ TOKEN_TTL_SECONDS: int = 840
 # Global ring buffer storing real-time API exchange logs with timestamps
 LIVE_API_LOGS: deque = deque(maxlen=100)
 
-def record_live_api_log(direction: str, method: str, url: str, status_code: int, detail: str):
+def record_live_api_log(direction: str, method: str, url: str, status_code: int, detail: str = "", headers: dict = None, request_payload: Any = None, response_preview: Any = None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    LIVE_API_LOGS.appendleft({
+    
+    # Generate 1-click executable curl command for copying
+    headers_str = ""
+    if headers:
+        for k, v in headers.items():
+            if k.lower() == "authorization":
+                headers_str += f' -H "Authorization: Bearer <JWT_TOKEN>"'
+            else:
+                headers_str += f' -H "{k}: {v}"'
+
+    body_str = f" -d '{json.dumps(request_payload)}'" if request_payload else ""
+    curl_cmd = f'curl -k -X {method.upper()} "{url}"{headers_str}{body_str}'
+    
+    endpoint_path = url.replace("https://", "").replace("http://", "")
+    if "/" in endpoint_path:
+        endpoint_path = "/" + endpoint_path.split("/", 1)[-1]
+        
+    entry = {
+        "id": f"pkt-{int(time.time()*1000)}-{len(LIVE_API_LOGS)}",
         "timestamp": timestamp,
-        "direction": direction,
-        "method": method,
+        "direction": direction or "AgentAI ➔ Wazuh Server (REST API)",
+        "method": method.upper(),
         "url": url,
+        "endpoint": endpoint_path,
         "status_code": status_code,
-        "detail": detail
-    })
+        "detail": detail,
+        "headers": headers or {},
+        "request_payload": request_payload,
+        "response_preview": response_preview,
+        "curl_command": curl_cmd
+    }
+    LIVE_API_LOGS.appendleft(entry)
 
 
 class WazuhClient:
@@ -190,6 +214,19 @@ class WazuhClient:
                 verify=self._ssl_verify,
                 timeout=4.0
             )
+            
+            # Record live packet log
+            record_live_api_log(
+                direction="AgentAI ➔ Wazuh Server (Port 55000)",
+                method="POST",
+                url=auth_url,
+                status_code=res.status_code,
+                detail=f"Authentication request for user '{self.user}'",
+                headers={"Content-Type": "application/json"},
+                request_payload={"user": self.user},
+                response_preview=res.json() if res.status_code == 200 else res.text[:200]
+            )
+
             if res.status_code == 200:
                 token = res.json().get("data", {}).get("token")
                 self._jwt_token = token
@@ -220,23 +257,12 @@ class WazuhClient:
                 self._record_conn_attempt(False, "auth_401")
                 return False
             else:
-                self._jwt_token = None
-                self._token_expires_at = 0.0
-                self.last_auth_error = f"Xác thực thất bại (HTTP {res.status_code} từ {self.host})"
-                logger.warning(f"❌ [AUTH_FAILED] HTTP {res.status_code}")
-                audit_logger.log_wazuh_api(
-                    action="AUTH_FAILED",
-                    status="ERROR",
-                    message=f"Xác thực thất bại: {self.last_auth_error}",
-                    payload={"status_code": res.status_code}
-                )
+                self.last_auth_error = f"Lỗi HTTP {res.status_code}: {res.text[:100]}"
                 self._record_conn_attempt(False, f"http_{res.status_code}")
                 return False
         except Exception as e:
-            self._jwt_token = None
-            self._token_expires_at = 0.0
-            self.last_auth_error = f"Không thể kết nối tới {self.host}:{self.port} ({e})"
-            logger.error(f"❌ [AUTH_FAILED] Connection Error: {e}")
+            self.last_auth_error = str(e)
+            logger.error(f"❌ [AUTH_ERROR] Exception: {e}")
             audit_logger.log_wazuh_api(
                 action="CONNECTION_ERROR",
                 status="ERROR",
@@ -268,14 +294,34 @@ class WazuhClient:
                 new_token = self._get_valid_token()
                 if not new_token:
                     logger.error("[AUTH_FAILED] Re-auth after 401 failed.")
+                    record_live_api_log("AgentAI ➔ Wazuh Server (Port 55000)", method, url, resp.status_code, "401 Unauthorized", headers, kwargs.get("json") or kwargs.get("params"), resp.text[:200])
                     return resp
                 headers["Authorization"] = f"Bearer {new_token}"
                 resp = requests.request(method, url, headers=headers, verify=self._ssl_verify, **kwargs)
                 if resp.status_code == 401:
                     logger.error("[AUTH_FAILED] Retry also 401. Aborting.")
+            
+            resp_preview = None
+            try:
+                if resp and resp.text:
+                    resp_preview = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:200]
+            except Exception:
+                resp_preview = resp.text[:200] if resp else None
+
+            record_live_api_log(
+                direction="AgentAI ➔ Wazuh Server (Port 55000)",
+                method=method,
+                url=url,
+                status_code=resp.status_code if resp else 500,
+                detail=f"REST API call: {method} {url}",
+                headers=headers,
+                request_payload=kwargs.get("json") or kwargs.get("params"),
+                response_preview=resp_preview
+            )
             return resp
         except Exception as e:
             logger.error(f"❌ [REQUEST_ERROR] {method} {url}: {e}")
+            record_live_api_log("AgentAI ➔ Wazuh Server (Port 55000)", method, url, 500, f"Exception: {e}", headers, kwargs.get("json") or kwargs.get("params"), None)
             return None
 
     def _get_dashboard_session(self) -> Optional[requests.Session]:

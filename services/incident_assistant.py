@@ -228,7 +228,7 @@ class IncidentAssistant:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
         static_info = self.lookup_static_rule(rule_id) if rule_id else None
-        current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["127.0.0.1", "localhost", ""]) else os.getenv("WAZUH_HOST", "N/A")
+        current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["", "N/A", "admin", "none", "null"]) else os.getenv("WAZUH_HOST", "127.0.0.1")
 
         model_label = "PI Agent (OpenRouter)"
 

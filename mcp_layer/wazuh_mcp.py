@@ -10,7 +10,7 @@ logger = logging.getLogger("WazuhMCPServer")
 # Initialize FastMCP Server for Wazuh
 mcp = FastMCP("Wazuh-MCP-Server")
 
-WAZUH_HOST = os.getenv("WAZUH_HOST", "")
+WAZUH_HOST = os.getenv("WAZUH_HOST") or "127.0.0.1"
 WAZUH_PORT = int(os.getenv("WAZUH_PORT") or "55000")
 WAZUH_USER = os.getenv("WAZUH_API_USER", "agentwazuh")
 WAZUH_PASS = os.getenv("WAZUH_API_PASSWORD", "")

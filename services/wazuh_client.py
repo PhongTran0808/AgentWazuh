@@ -103,18 +103,31 @@ class WazuhClient:
         dashboard_user: str = "admin",
         dashboard_pass: str = ""
     ):
-        # Dynamic IP resolution: Priority 1: Passed param -> Priority 2: ENV WAZUH_HOST -> Priority 3: system_settings.json
-        resolved_host = host if (host and host not in ["127.0.0.1", "localhost", "admin"]) else os.getenv("WAZUH_HOST", "")
-        if not resolved_host:
+        # Dynamic IP resolution: Priority 1: Passed param -> Priority 2: ENV WAZUH_HOST -> Priority 3: system_settings.json -> Priority 4: 127.0.0.1
+        def _is_valid_host(h: Optional[str]) -> bool:
+            if not h:
+                return False
+            h_str = str(h).strip().lower()
+            if h_str in ["", "n/a", "admin", "0.0.0.0", "none", "null"]:
+                return False
+            return True
+
+        resolved_host = host if _is_valid_host(host) else os.getenv("WAZUH_HOST", "")
+        if not _is_valid_host(resolved_host):
             try:
                 settings_file = Path(__file__).resolve().parent.parent / "config" / "system_settings.json"
                 if settings_file.exists():
                     data = json.loads(settings_file.read_text(encoding="utf-8"))
-                    resolved_host = data.get("wazuh_host", "")
+                    candidate = data.get("wazuh_host", "")
+                    if _is_valid_host(candidate):
+                        resolved_host = candidate
             except Exception:
                 pass
 
-        self.host = resolved_host or ""
+        if not _is_valid_host(resolved_host):
+            resolved_host = "127.0.0.1"
+
+        self.host = resolved_host
         self.port = port
         self.user = user
         # Load from env if not explicitly provided — never log the actual value

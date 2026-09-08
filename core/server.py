@@ -375,7 +375,7 @@ async def heartbeat_background_loop():
         await asyncio.sleep(interval_secs)
 
 def create_wazuh_client_from_settings(host: str = None, port: int = None) -> WazuhClient:
-    target_host = host or SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "N/A")
+    target_host = host or os.getenv("WAZUH_HOST") or SYSTEM_SETTINGS.get("wazuh_host") or "127.0.0.1"
     target_port = port or SYSTEM_SETTINGS.get("wazuh_port") or 55000
     return WazuhClient(
         host=target_host,

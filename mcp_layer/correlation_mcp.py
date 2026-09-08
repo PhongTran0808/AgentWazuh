@@ -16,11 +16,14 @@ class OpenSearchCorrelationTool:
 
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None,
                  username: Optional[str] = None, password: Optional[str] = None):
-        self.host = host or os.getenv("OPENSEARCH_HOST", "192.168.1.208")
+        # Auto-detect host: if /var/ossec exists or no OPENSEARCH_HOST set, default to 127.0.0.1
+        default_host = "127.0.0.1" if os.path.exists("/var/ossec") else "127.0.0.1"
+        self.host = host or os.getenv("OPENSEARCH_HOST") or os.getenv("WAZUH_API_HOST") or default_host
         self.port = port or int(os.getenv("OPENSEARCH_PORT", "443"))
         self.username = username or os.getenv("OPENSEARCH_USER", "admin")
         self.password = password or os.getenv("OPENSEARCH_PASS", "admin")
         self.verify_certs = os.getenv("OPENSEARCH_VERIFY_CERTS", "false").lower() == "true"
+
 
     def _parse_timestamp(self, ts_str: str) -> datetime:
         """Parses various ISO 8601 timestamp formats into datetime object."""

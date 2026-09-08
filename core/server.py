@@ -35,14 +35,16 @@ if pass_env_path.exists():
         print(f"Error loading pass.env: {e}")
 
 from services.wazuh_client import WazuhClient
-from services.incident_assistant import IncidentAssistant
+from services.incident_assistant import IncidentAssistant, IncidentAssistantService
 from services.audit_logger import audit_logger
 from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from mcp_layer.wazuh_mcp import get_agents, search_alerts, get_manager_status
+from mcp_layer.correlation_mcp import search_correlated_events
 from ai_topology_parser import DynamicAITopologyParser
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -406,6 +408,36 @@ class InvestigateRequest(BaseModel):
     alert_data: Optional[Dict[str, Any]] = None
     is_global_chat: Optional[bool] = False
     scope_filter: Optional[Dict[str, Any]] = None
+
+class CorrelationRequest(BaseModel):
+    target_ip: str
+    base_timestamp: Optional[str] = "2026-09-08T16:00:00Z"
+    time_window_minutes: Optional[int] = 15
+    rule_level: Optional[int] = 12
+    rule_id: Optional[str] = "100015"
+    rule_description: Optional[str] = "SSH brute force attempt detected"
+    agent_name: Optional[str] = "PC-PB1-VLAN10"
+
+@app.post("/api/wazuh/correlation")
+def analyze_correlation_endpoint(req: CorrelationRequest):
+    alert_payload = {
+        "rule": {
+            "id": req.rule_id,
+            "level": req.rule_level,
+            "description": req.rule_description
+        },
+        "agent": {
+            "name": req.agent_name
+        },
+        "data": {
+            "srcip": req.target_ip
+        },
+        "timestamp": req.base_timestamp
+    }
+    incident_service = IncidentAssistantService()
+    result = incident_service.analyze_incident(alert_payload)
+    return result
+
 
 class RuleGenerateRequest(BaseModel):
     prompt: str

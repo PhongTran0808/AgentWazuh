@@ -22,17 +22,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-# Load pass.env variables into os.environ
-pass_env_path = BASE_DIR / "pass.env"
-if pass_env_path.exists():
-    try:
-        for line in pass_env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ[k.strip()] = v.strip()
-    except Exception as e:
-        print(f"Error loading pass.env: {e}")
+# Load pass.env and .env variables into os.environ
+for env_file in [BASE_DIR / "pass.env", BASE_DIR / ".env"]:
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip().strip('"').strip("'")
+        except Exception as e:
+            print(f"Error loading {env_file.name}: {e}")
+
 
 from services.wazuh_client import WazuhClient
 from services.incident_assistant import IncidentAssistant, IncidentAssistantService

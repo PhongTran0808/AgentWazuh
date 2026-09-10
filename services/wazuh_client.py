@@ -98,8 +98,8 @@ class WazuhClient:
         self,
         host: Optional[str] = None,
         port: int = 55000,
-        user: str = "agentwazuh",
-        password: str = "",
+        user: Optional[str] = None,
+        password: Optional[str] = None,
         dashboard_user: str = "admin",
         dashboard_pass: str = ""
     ):
@@ -129,9 +129,11 @@ class WazuhClient:
 
         self.host = resolved_host
         self.port = port
-        self.user = user
+        # Wazuh's local/default API account is wazuh/wazuh.  The old
+        # agentwazuh account only existed in the former OVA setup.
+        self.user = user or os.getenv("WAZUH_API_USER", "wazuh")
         # Load from env if not explicitly provided — never log the actual value
-        self.password = password or os.getenv("WAZUH_API_PASSWORD", "")
+        self.password = password if password is not None else os.getenv("WAZUH_API_PASSWORD", "wazuh")
         self.dashboard_user = dashboard_user
         self.dashboard_pass = dashboard_pass or os.getenv("INDEXER_PASSWORD", "admin")
         self.base_url = f"https://{self.host}:{self.port}" if self.host else ""

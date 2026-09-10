@@ -78,9 +78,12 @@ def load_system_settings() -> Dict[str, Any]:
         "session_timeout_minutes": 30,
         "icmp_ping_interval_seconds": 15,
         "ping_retry_threshold": 3,
-        "wazuh_host": os.getenv("WAZUH_HOST", ""),
+        "wazuh_host": os.getenv("WAZUH_HOST", "127.0.0.1"),
         "wazuh_port": 55000,
-        "wazuh_user": "admin",
+        "wazuh_user": os.getenv("WAZUH_API_USER", "wazuh"),
+        "wazuh_pass": os.getenv("WAZUH_API_PASSWORD", "wazuh"),
+        "wazuh_dashboard_user": os.getenv("INDEXER_USER", "admin"),
+        "wazuh_dashboard_pass": os.getenv("INDEXER_PASSWORD", "admin"),
         "uptime_kuma_push_token": "agentwazuh-push-secret-999",
         "ui_theme": "cyber_dark"
     }
@@ -89,6 +92,17 @@ def load_system_settings() -> Dict[str, Any]:
             settings.update(json.loads(SETTINGS_PATH.read_text(encoding="utf-8")))
         except Exception:
             pass
+
+    # Migrate the legacy OVA/settings keys once.  Older versions stored the
+    # password as `password` and silently ignored it when creating the client.
+    if settings.get("user") and not settings.get("wazuh_pass"):
+        settings["wazuh_pass"] = settings["password"]
+    if settings.get("user") and settings.get("wazuh_user") == "agentwazuh":
+        settings["wazuh_user"] = settings["user"]
+    if settings.get("wazuh_user") == "agentwazuh":
+        settings["wazuh_user"] = os.getenv("WAZUH_API_USER", "wazuh")
+    if settings.get("wazuh_host") in ("", "192.168.1.208", "192.168.1.248"):
+        settings["wazuh_host"] = os.getenv("WAZUH_HOST", "127.0.0.1")
 
     # Sync from pass.env (os.environ) to settings
     env_host = os.getenv("WAZUH_HOST")
@@ -332,6 +346,15 @@ async def heartbeat_background_loop():
             devices = load_known_devices_dict()
             nodes_status = {}
 
+            # ICMP checks may wait up to several seconds for an unreachable
+            # device.  Keep them off the asyncio event loop so dashboard HTTP
+            # requests remain responsive while the topology is refreshed.
+            device_ips = list(devices.keys())
+            icmp_states = await asyncio.gather(*(
+                loop.run_in_executor(None, check_icmp_health, ip)
+                for ip in device_ips
+            )) if device_ips else []
+
             for ip, dev in devices.items():
                 is_agent = any(a.get("ip") == ip for a in agents)
                 if is_agent:
@@ -339,7 +362,7 @@ async def heartbeat_background_loop():
                     is_active = agent_obj.get("status") == "active"
                     st = "up" if is_active else "down"
                 else:
-                    st = check_icmp_health(ip)
+                    st = icmp_states[device_ips.index(ip)]
 
                 prev_state = HEARTBEAT_CACHE["nodes"].get(ip, {})
                 down_since = prev_state.get("down_since")
@@ -380,10 +403,10 @@ def create_wazuh_client_from_settings(host: str = None, port: int = None) -> Waz
     return WazuhClient(
         host=target_host,
         port=target_port,
-        user=SYSTEM_SETTINGS.get("wazuh_user", os.getenv("WAZUH_API_USER", "agentwazuh")),
-        password=SYSTEM_SETTINGS.get("wazuh_pass", os.getenv("WAZUH_API_PASSWORD", "")),
+        user=SYSTEM_SETTINGS.get("wazuh_user", os.getenv("WAZUH_API_USER", "wazuh")),
+        password=SYSTEM_SETTINGS.get("wazuh_pass", os.getenv("WAZUH_API_PASSWORD", "wazuh")),
         dashboard_user=SYSTEM_SETTINGS.get("wazuh_dashboard_user", os.getenv("INDEXER_USER", "admin")),
-        dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", os.getenv("INDEXER_PASSWORD", ""))
+        dashboard_pass=SYSTEM_SETTINGS.get("wazuh_dashboard_pass", os.getenv("INDEXER_PASSWORD", "admin"))
     )
 
 wazuh_client = create_wazuh_client_from_settings()
@@ -492,9 +515,9 @@ class SystemSettingsRequest(BaseModel):
     session_timeout_minutes: Optional[int] = 30
     icmp_ping_interval_seconds: Optional[int] = 15
     ping_retry_threshold: Optional[int] = 3
-    wazuh_host: Optional[str] = "172.16.175.145"
+    wazuh_host: Optional[str] = "127.0.0.1"
     wazuh_port: Optional[int] = 55000
-    wazuh_user: Optional[str] = "agentwazuh"
+    wazuh_user: Optional[str] = "wazuh"
     uptime_kuma_push_token: Optional[str] = "agentwazuh-push-secret-999"
     uptime_kuma_push_url: Optional[str] = ""
     device_cache_ttl_days: Optional[int] = 7
@@ -638,7 +661,8 @@ async def get_settings(session: str = Depends(require_authenticated_session)):
 @app.post("/api/settings")
 async def update_settings(req: SystemSettingsRequest, session: str = Depends(require_authenticated_session)):
     global SYSTEM_SETTINGS, wazuh_client
-    new_data = req.dict()
+    # Do not let omitted fields reintroduce legacy OVA defaults.
+    new_data = req.dict(exclude_unset=True)
     target_host = new_data.get("wazuh_host", "").strip()
     
     if not target_host or target_host in ["127.0.0.1", "localhost"]:

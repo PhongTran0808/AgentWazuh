@@ -514,14 +514,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     btnSaveAllSettings?.addEventListener("click", async () => {
-        const hostVal = (settingWazuhHost && settingWazuhHost.value.trim()) ? settingWazuhHost.value.trim() : "172.16.175.145";
+        const hostVal = (settingWazuhHost && settingWazuhHost.value.trim()) ? settingWazuhHost.value.trim() : "127.0.0.1";
         const sysPayload = {
             session_timeout_minutes: parseInt(settingTimeoutMin ? settingTimeoutMin.value : 30) || 30,
             icmp_ping_interval_seconds: parseInt(settingPingInterval ? settingPingInterval.value : 15) || 15,
             ping_retry_threshold: parseInt(settingPingRetry ? settingPingRetry.value : 3) || 3,
             wazuh_host: hostVal,
             wazuh_port: parseInt(settingWazuhPort ? settingWazuhPort.value : 55000) || 55000,
-            wazuh_user: (settingWazuhUser && settingWazuhUser.value.trim()) ? settingWazuhUser.value.trim() : "agentwazuh",
+            wazuh_user: (settingWazuhUser && settingWazuhUser.value.trim()) ? settingWazuhUser.value.trim() : "wazuh",
             uptime_kuma_push_token: (settingKumaToken && settingKumaToken.value.trim()) ? settingKumaToken.value.trim() : "agentwazuh-push-secret-999",
             device_cache_ttl_days: parseInt((document.getElementById("setting-device-ttl") || {}).value) || 7,
             ui_theme: settingUITheme ? settingUITheme.value : "cyber_dark"

@@ -104,14 +104,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const geminiKeyEl = document.getElementById("input-gemini-key");
         const geminiModelEl = document.getElementById("select-gemini-model");
 
-        const hostVal = hostEl ? hostEl.value.trim() : "172.16.175.145";
+        const hostVal = hostEl ? hostEl.value.trim() : "127.0.0.1";
         const sysPayload = {
             session_timeout_minutes: parseInt(timeoutEl ? timeoutEl.value : 30) || 30,
             icmp_ping_interval_seconds: parseInt(intervalEl ? intervalEl.value : 15) || 15,
             ping_retry_threshold: parseInt(retryEl ? retryEl.value : 3) || 3,
             wazuh_host: hostVal,
             wazuh_port: parseInt(portEl ? portEl.value : 55000) || 55000,
-            wazuh_user: "agentwazuh",
+            wazuh_user: "wazuh",
             uptime_kuma_push_token: "agentwazuh-push-secret-999",
             device_cache_ttl_days: 7,
             ui_theme: "cyber_dark"

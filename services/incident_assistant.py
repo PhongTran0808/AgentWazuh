@@ -323,8 +323,8 @@ class IncidentAssistant:
                 from services.wazuh_client import WazuhClient
                 wc = WazuhClient(
                     host=current_host,
-                    user=os.getenv("WAZUH_API_USER", "agentwazuh"),
-                    password=os.getenv("WAZUH_API_PASSWORD", "")
+                    user=os.getenv("WAZUH_API_USER", "wazuh"),
+                    password=os.getenv("WAZUH_API_PASSWORD", "wazuh")
                 )
                 agg_stats = wc.get_alert_stats_aggregated(hours_back=24, tz_offset_hours=7)
             except Exception:

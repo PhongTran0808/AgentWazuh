@@ -12,19 +12,19 @@ mcp = FastMCP("Wazuh-MCP-Server")
 
 WAZUH_HOST = os.getenv("WAZUH_HOST") or "127.0.0.1"
 WAZUH_PORT = int(os.getenv("WAZUH_PORT") or "55000")
-WAZUH_USER = os.getenv("WAZUH_API_USER", "agentwazuh")
-WAZUH_PASS = os.getenv("WAZUH_API_PASSWORD", "")
+WAZUH_USER = os.getenv("WAZUH_API_USER", "wazuh")
+WAZUH_PASS = os.getenv("WAZUH_API_PASSWORD", "wazuh")
 DASHBOARD_USER = os.getenv("INDEXER_USER", "admin")
-DASHBOARD_PASS = os.getenv("INDEXER_PASSWORD", "")
+DASHBOARD_PASS = os.getenv("INDEXER_PASSWORD", "admin")
 
 if not WAZUH_PASS:
-    logger.warning("⚠️  [SECURITY] WAZUH_API_PASSWORD env variable is not set. MCP auth will fail.")
+    logger.warning("⚠️  [SECURITY] WAZUH_API_PASSWORD env variable is empty.")
 if not DASHBOARD_PASS:
-    logger.warning("⚠️  [SECURITY] INDEXER_PASSWORD env variable is not set. Dashboard session will fail.")
+    logger.warning("⚠️  [SECURITY] INDEXER_PASSWORD env variable is empty.")
 
 
 def get_wazuh_jwt_token() -> str:
-    """Authenticate with Wazuh REST API 55000 using agentwazuh readonly credentials."""
+    """Authenticate with the local Wazuh REST API using wazuh credentials."""
     url = f"https://{WAZUH_HOST}:{WAZUH_PORT}/security/user/authenticate"
     res = requests.post(url, auth=(WAZUH_USER, WAZUH_PASS), verify=False, timeout=5.0)
     if res.status_code == 200:

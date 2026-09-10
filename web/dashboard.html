@@ -102,7 +102,18 @@
                 <button class="chip-btn" data-query="Vẽ biểu đồ trực quan thống kê cảnh báo theo mức độ"><i class="fa-solid fa-chart-column"></i> Trực Quan Biểu Đồ Chart.js</button>
             </div>
 
-            <form id="chat-form" class="chat-input-area">
+            <form id="chat-form" class="chat-input-area" style="display: flex; gap: 0.5rem; align-items: center;">
+                <div class="chat-model-selector-container" style="display: flex; align-items: center; gap: 6px; background: #020617; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.6rem; min-width: 210px;">
+                    <i class="fa-solid fa-microchip" style="font-size: 0.85rem; color: #38bdf8;"></i>
+                    <select id="chat-model-select" style="background: transparent; border: none; color: #38bdf8; font-size: 0.82rem; font-weight: 600; outline: none; cursor: pointer; width: 100%;">
+                        <option value="auto" selected>⚡ Auto (Default CLI Model)</option>
+                        <option value="openrouter/free">🎁 OpenRouter Free Models</option>
+                        <option value="gemini/gemini-2.0-flash">💎 Gemini FREE (API Key)</option>
+                        <option value="github-copilot/gpt-4.1">🐙 Copilot: gpt-4.1</option>
+                        <option value="github-copilot/claude-haiku-4.5">🐙 Copilot: claude-haiku-4.5</option>
+                        <option value="github-copilot/gpt-5-mini">🐙 Copilot: gpt-5-mini</option>
+                    </select>
+                </div>
                 <input type="text" id="chat-input" placeholder="Hỏi Con Chat Tổng SOC Master: 'Báo cáo tổng quan', 'Vẽ sơ đồ mạng'..." autocomplete="off">
                 <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Gửi</button>
             </form>
@@ -242,19 +253,37 @@
                                 </div>
                             </div>
 
+                            <!-- Standardized Setup Guide Card -->
+                            <div class="setting-box-card" style="flex-direction: column; align-items: flex-start; background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(56, 189, 248, 0.3); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; gap: 0.6rem;">
+                                <h4 style="margin: 0; color: #38bdf8; font-size: 0.92rem;"><i class="fa-solid fa-wand-magic-sparkles"></i> Quy trình Chuẩn hóa Kết nối AI khi đổi máy:</h4>
+                                <ol style="margin: 0; padding-left: 1.2rem; font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
+                                    <li><strong>Kết nối GitHub Copilot:</strong> Mở Terminal chạy <code>pi auth github-copilot</code> (hoặc chọn <code>openrouter/free</code>).</li>
+                                    <li><strong>Chọn Model mặc định:</strong> Chọn <code>Auto (Default CLI Model)</code> để tự nhận dạng model tương thích trên máy.</li>
+                                    <li><strong>Hoặc Dùng Gemini FREE API Key:</strong> Điền API Key bên dưới nếu muốn gọi Gemini trực tiếp.</li>
+                                </ol>
+                            </div>
+
                             <div class="setting-box-card">
                                 <div class="setting-row-label">
                                     <strong>PI.dev Default Model Selection</strong>
                                     <span>Mô hình mặc định chạy qua PI.dev Framework.</span>
                                 </div>
                                 <select id="select-pi-model" class="input-setting-control" style="width: 320px;">
-                                    <option value="github-copilot/gpt-4.1" selected>github-copilot / gpt-4.1 (Hiện Tại - Sync Active)</option>
+                                    <option value="auto" selected>⚡ Auto (Tự Động Chọn Model Tương Thích)</option>
                                     <option value="openrouter/free">openrouter/free (Miễn phí - OpenRouter)</option>
-                                    <option value="google/gemini-2.5-flash">google/gemini-2.5-flash</option>
-                                    <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
-                                    <option value="google/gemma-4-31b-it:free">google/gemma-4-31b-it:free</option>
-                                    <option value="openai/gpt-oss-20b:free">openai/gpt-oss-20b:free</option>
+                                    <option value="gemini/gemini-2.0-flash">gemini/gemini-2.0-flash (Gemini FREE)</option>
+                                    <option value="github-copilot/gpt-4.1">github-copilot / gpt-4.1</option>
+                                    <option value="github-copilot/claude-haiku-4.5">github-copilot / claude-haiku-4.5</option>
+                                    <option value="github-copilot/gpt-5-mini">github-copilot / gpt-5-mini</option>
                                 </select>
+                            </div>
+
+                            <div class="setting-box-card" style="margin-top: 0.8rem;">
+                                <div class="setting-row-label">
+                                    <strong>Google Gemini FREE API Key</strong>
+                                    <span>API Key dự phòng khi chạy trên máy chưa login GitHub Copilot.</span>
+                                </div>
+                                <input type="password" id="input-gemini-key" class="input-setting-control" placeholder="AIzaSy..." style="width: 320px;">
                             </div>
                         </div>
                     </div>

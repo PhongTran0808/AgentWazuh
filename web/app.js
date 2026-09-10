@@ -539,7 +539,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const geminiKeyVal = inputGeminiKey ? inputGeminiKey.value.trim() : "";
         const openaiKeyVal = inputOpenAIKey ? inputOpenAIKey.value.trim() : "";
         const anthropicKeyVal = inputAnthropicKey ? inputAnthropicKey.value.trim() : "";
-        const piModelVal = selectPiModel ? selectPiModel.value : "openrouter/anthropic/claude-3-5-haiku";
+        const piModelVal = selectPiModel ? selectPiModel.value : "auto";
 
         const aiPayload = {
             mode: currentAIMode || "pi_dev",
@@ -803,6 +803,9 @@ function formatLocalTime(tsStr) {
         }, 300);
 
         try {
+            const chatModelEl = document.getElementById("chat-model-select");
+            const selectedModel = chatModelEl ? chatModelEl.value : "auto";
+
             const res = await fetch("/api/wazuh/investigate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -810,7 +813,8 @@ function formatLocalTime(tsStr) {
                     query: query,
                     alert_id: alertObj ? alertObj.id : null,
                     alert_data: alertObj,
-                    is_global_chat: true
+                    is_global_chat: true,
+                    model: selectedModel
                 }),
                 credentials: "same-origin"
             });

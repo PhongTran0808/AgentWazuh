@@ -41,7 +41,7 @@ Trong các Trung tâm Giám sát An ninh mạng (SOC - Security Operations Cente
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **PI Agent Framework (`.pi/`)**: Đóng vai trò Sổ tay Chỉ huy (System Prompt / Policy / Chains / Modular Skills). Sử dụng mô hình AI được đồng bộ: `github-copilot/gpt-4.1`.
+1. **PI Agent Framework (`.pi/`)**: Đóng vai trò Sổ tay Chỉ huy (System Prompt / Policy / Chains / Modular Skills). Hỗ trợ linh hoạt AI Model Selector (`auto`, `openrouter/free`, `gemini/gemini-2.0-flash`, `github-copilot`).
 2. **LangGraph Engine (`langgraph_engine/`)**: Động cơ điều phối trạng thái (State Management) xây dựng bằng Python `langgraph.graph.StateGraph`. Xử lý chính xác logic Form HITL, ngắt luồng (Interrupt) chờ Analyst phê duyệt và chống kẹt vòng lặp vô hạn.
 3. **Wazuh MCP Server (`mcp_layer/`)**: Lớp kết nối chuẩn hóa theo giao thức **Model Context Protocol (MCP)** của Anthropic. Cung cấp các MCP Tool an toàn cho LLM truy vấn thiết bị, log OpenSearch, tạo Hồ sơ sự cố và sinh giao diện FastUI.
 4. **FastAPI Core (`core/server.py`) & Services (`services/`)**: Máy chủ backend điều khiển API RESTful, quản lý cấu hình hệ thống, xác thực tài khoản readonly `agentwazuh`, xử lý đa luồng bất đồng bộ (`asyncio`) và phục vụ giao diện Web UI mượt mà.
@@ -71,7 +71,7 @@ AgentWazuh/
 │
 ├── config/                          # Cấu hình tĩnh & động của hệ thống
 │   ├── admin_auth.json              # Credential mã hóa đăng nhập Web UI
-│   ├── ai_config.json               # Cấu hình AI Provider (pi_model: github-copilot/gpt-4.1)
+│   ├── ai_config.json               # Cấu hình AI Provider (pi_model: auto / openrouter / gemini / copilot)
 │   ├── known_devices.json           # Cache danh sách thiết bị giám sát (Agent ID, IP, Status)
 │   ├── pending_rules/               # Lưu trữ các file XML quy tắc nháp chờ duyệt
 │   ├── sessions.json                # Quản lý phiên làm việc Token người dùng
@@ -133,7 +133,7 @@ AgentWazuh/
 | **`core/server.py`** | **FastAPI Server (Port 8080)**. Định nghĩa các endpoint REST: `/api/wazuh/alerts`, `/api/wazuh/investigate`, `/api/settings`, `/api/ai/config`. Tích hợp middleware xác thực session token, kiểm tra kết nối Wazuh khi lưu cấu hình và tự động chuyển giao câu hỏi cho `IncidentAssistant`. |
 | **`services/wazuh_client.py`** | **Dual-Mode SIEM Connector**. Kết nối Wazuh REST API **Port 55000** bằng tài khoản readonly `agentwazuh` lấy JWT Token. Nếu Port 55000 bị chặn hoặc khởi động lại, tự động **Fallback** sang **Wazuh Dashboard Port 443** qua OpenSearch Console Proxy (`/api/console/proxy`). |
 | **`services/correlation_engine.py`** | **Động cơ Tương quan & Phân tích**. Chịu trách nhiệm tính toán tỷ lệ phân bố mức độ nghiêm trọng (Critical/High/Medium/Low), danh sách thiết bị giám sát thực tế từ Wazuh, gom cụm theo giờ (`tz_offset_hours=7` cho Việt Nam) và tính điểm rủi ro Risk Score. |
-| **`services/incident_assistant.py`** | **Cầu nối PI CLI Subprocess**. Nhận yêu cầu phân tích từ người dùng, nạp ngữ cảnh log thực tế từ Wazuh, đọc file cấu hình `config/ai_config.json` để chọn model (`github-copilot/gpt-4.1`) và thực thi lệnh shell `pi -nt --model ... -p @prompt_temp`. |
+| **`services/incident_assistant.py`** | **Cầu nối PI CLI Subprocess**. Nhận yêu cầu phân tích từ người dùng, nạp ngữ cảnh log thực tế từ Wazuh, đọc file cấu hình `config/ai_config.json` hoặc lựa chọn từ Model Selector (`auto`, `openrouter/free`, `gemini/gemini-2.0-flash`, `github-copilot`) và thực thi lệnh shell `pi -nt`. |
 | **`services/case_manager.py`** | **Quản lý Hồ sơ Sự cố**. Đóng gói JSON Payload chuẩn hóa chứa thông tin sự cố (Title, Risk Score, MITRE TTPs, Log Evidence, Playbook) và gửi HTTP POST sang **TheHive v5 API** (`/api/v1/case`), **Jira API**, hoặc **Webhook Receiver**. |
 | **`langgraph_engine/graphs/config_form_graph.py`** | **Động cơ Form HITL LangGraph**. Xây dựng đồ thị trạng thái 5 nút (`collect_info` ➔ `generate_draft_xml` ➔ `dry_run_check` ➔ `await_human_approval` ➔ `apply_config`). Nút 4 trả về `awaiting_approval=True` để tạm dừng chờ người dùng bấm nút Approve trên Web UI. |
 | **`langgraph_engine/state.py`** | **Typing Schema**. Định nghĩa `ConfigFormState` chứa thông tin rule ID, tên rule, điều kiện mẫu log, XML nháp, kết quả kiểm thử Sandbox và trạng thái phê duyệt. |
@@ -164,7 +164,7 @@ AgentWazuh/
       ┌────────────────────┴────────────────────┐
       ▼                                         ▼
 [Truy vấn Log Thật từ Wazuh]        [Lấy Model Config từ ai_config.json]
-(services/wazuh_client.py)          (Đồng bộ: github-copilot/gpt-4.1)
+(services/wazuh_client.py)          (Dynamic Model Selection)
       │                                         │
       └────────────────────┬────────────────────┘
                            ▼
@@ -217,7 +217,7 @@ AgentWazuh/
 - [x] **Xác thực Cấp Thấp Bảo mật (Service Account)**: Tạo và tích hợp tài khoản readonly `agentwazuh` truy xuất JWT Token chính thức trên Wazuh API Port 55000.
 - [x] **Cơ chế Kết nối Kép Fallback (Dual-Mode Connectivity)**: Đảm bảo nếu API Port 55000 bận, hệ thống tự động chuyển sang OpenSearch Console Proxy trên Port 443 mà không gián đoạn dịch vụ.
 - [x] **LangGraph Form Engine & Anti-Loop**: Hoàn thiện `config_form_graph.py` với nút ngắt HITL `await_human_approval` và cơ chế chống kẹt vòng lặp vô hạn (chạy E2E test chỉ 1.24s).
-- [x] **Đồng bộ AI Model**: Thiết lập mặc định `github-copilot/gpt-4.1` trên cả giao diện Web UI, file `config/ai_config.json` và PI CLI subprocess.
+- [x] **Đồng bộ AI Model Selector**: Hỗ trợ chọn Model trực tiếp trên thanh Chat, tự động fallback an toàn (PI CLI default -> OpenRouter Free -> Gemini FREE API Key) chống lỗi trên các môi trường máy khác nhau.
 - [x] **Phân hệ Case Management**: Xây dựng `services/case_manager.py` và `tools/case_management_tool.py` hỗ trợ đẩy Hồ sơ sự cố sang TheHive v5 / Jira / Webhook.
 - [x] **Generative UI DataGrid Engine**: Xây dựng `tools/generative_ui_tool.py` sử dụng Pydantic Model Schema sinh giao diện Bảng HTML tương tác cao.
 - [x] **Đồng bộ Múi giờ Việt Nam (UTC+7)**: Khắc phục triệt để lỗi lệch giờ trên Web UI bằng hàm `formatLocalTime()` chuyển đổi ISO UTC (`10:21`) sang giờ địa phương (`17:21`).

@@ -409,6 +409,7 @@ class InvestigateRequest(BaseModel):
     alert_data: Optional[Dict[str, Any]] = None
     is_global_chat: Optional[bool] = False
     scope_filter: Optional[Dict[str, Any]] = None
+    model: Optional[str] = None
 
 class CorrelationRequest(BaseModel):
     target_ip: str
@@ -1568,7 +1569,8 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         system_context=system_status,
         is_global_chat=bool(req.is_global_chat),
         scope_filter=req.scope_filter,
-        recent_alerts=alerts
+        recent_alerts=alerts,
+        model_override=req.model
     )
 
     if active_form:

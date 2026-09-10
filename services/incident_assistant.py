@@ -57,7 +57,7 @@ class IncidentAssistant:
                 return True
         return False
 
-    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool, system_context: Optional[Dict[str, Any]] = None) -> str:
+    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool, system_context: Optional[Dict[str, Any]] = None, model_override: Optional[str] = None) -> str:
         """
         Offload request to PI Agent CLI and log audit.
         """
@@ -107,13 +107,15 @@ class IncidentAssistant:
                     pass
 
             ai_cfg_file = self.base_dir / "config" / "ai_config.json"
-            model_flag = []
-            if ai_cfg_file.exists():
+            target_model = None
+            if model_override and model_override.strip() and model_override.lower() != "auto":
+                target_model = model_override.strip()
+            elif ai_cfg_file.exists():
                 try:
                     cfg = json.loads(ai_cfg_file.read_text(encoding="utf-8"))
-                    pi_model = cfg.get("pi_model", "openrouter/anthropic/claude-3-5-haiku")
-                    if pi_model:
-                        model_flag = ["--model", pi_model]
+                    cfg_model = cfg.get("pi_model", "auto")
+                    if cfg_model and cfg_model.lower() != "auto":
+                        target_model = cfg_model
                     g_key = cfg.get("cloud_api_key") or cfg.get("gemini_api_key")
                     o_key = cfg.get("openai_api_key")
                     or_key = cfg.get("openrouter_api_key") or env.get("OPENROUTER_API_KEY")
@@ -125,8 +127,8 @@ class IncidentAssistant:
                         env["OPENROUTER_API_KEY"] = or_key
                 except Exception:
                     pass
-            else:
-                model_flag = ["--model", "openrouter/anthropic/claude-3-5-haiku"]
+
+            model_flag = ["--model", target_model] if target_model else []
 
             pi_bin = shutil.which("pi")
             if not pi_bin and os.name == 'nt':
@@ -135,6 +137,7 @@ class IncidentAssistant:
                     pi_bin = fallback_path
             pi_bin = pi_bin or "pi"
 
+            # 1. Thử gọi PI với model được chọn
             try:
                 cmd = [pi_bin, "-nt"] + model_flag + ["-p", f"@{temp_prompt_path}"]
                 result = subprocess.run(
@@ -145,14 +148,39 @@ class IncidentAssistant:
                     env=env
                 )
                 stdout_str = result.stdout.strip()
-                if result.returncode == 0 and stdout_str and "Rate limit exceeded" not in stdout_str and "429" not in stdout_str:
+                err_str = result.stderr.strip()
+                has_error = (result.returncode != 0) or ("unsupported_api_for_model" in stdout_str or "unsupported_api_for_model" in err_str) or ("Rate limit" in stdout_str or "429" in stdout_str)
+                if not has_error and stdout_str:
                     return stdout_str
                 else:
-                    logger.warning(f"⚠️ PI CLI returned 429 or error code {result.returncode}. Stderr: {result.stderr.strip()}")
+                    logger.warning(f"⚠️ PI CLI Execution ({target_model or 'default'}) failed (code {result.returncode}). Stderr: {err_str[:200]}")
             except Exception as e:
-                logger.error(f"⚠️ PI CLI Execution Exception: {e}")
+                logger.error(f"⚠️ PI CLI Exception: {e}")
 
-            # Fallback 1: Native Python LLM Calls via requests if API Keys exist
+            # 2. Fallback A: Mặc định PI CLI (không dùng cờ --model)
+            if model_flag:
+                try:
+                    logger.info("🔄 Retrying PI CLI with default model (no --model flag)...")
+                    cmd_def = [pi_bin, "-nt", "-p", f"@{temp_prompt_path}"]
+                    res_def = subprocess.run(cmd_def, capture_output=True, text=True, timeout=45, env=env)
+                    def_stdout = res_def.stdout.strip()
+                    if res_def.returncode == 0 and def_stdout and "unsupported_api_for_model" not in def_stdout:
+                        return def_stdout
+                except Exception as e:
+                    logger.warning(f"⚠️ Fallback PI default model failed: {e}")
+
+            # 3. Fallback B: openrouter/free
+            try:
+                logger.info("🔄 Retrying PI CLI with --model openrouter/free...")
+                cmd_free = [pi_bin, "-nt", "--model", "openrouter/free", "-p", f"@{temp_prompt_path}"]
+                res_free = subprocess.run(cmd_free, capture_output=True, text=True, timeout=45, env=env)
+                free_stdout = res_free.stdout.strip()
+                if res_free.returncode == 0 and free_stdout:
+                    return free_stdout
+            except Exception as e:
+                logger.warning(f"⚠️ Fallback PI openrouter/free failed: {e}")
+
+            # Fallback 4: Native Python LLM Calls via requests nếu có API Key
             g_key = env.get("GEMINI_API_KEY")
             or_key = env.get("OPENROUTER_API_KEY")
             o_key = env.get("OPENAI_API_KEY")
@@ -180,7 +208,7 @@ class IncidentAssistant:
                 if resp.status_code == 200:
                     return resp.json()["choices"][0]["message"]["content"].strip()
 
-            # Fallback 2: Local Hardcoded SOC Report
+            # Fallback 5: Local Hardcoded SOC Report
             return self._generate_fallback_analysis(user_prompt, system_context)
                 
         except Exception as e:
@@ -223,7 +251,8 @@ class IncidentAssistant:
         system_context: Optional[Dict[str, Any]] = None,
         is_global_chat: bool = False,
         scope_filter: Optional[Dict[str, Any]] = None,
-        recent_alerts: Optional[List[Dict[str, Any]]] = None
+        recent_alerts: Optional[List[Dict[str, Any]]] = None,
+        model_override: Optional[str] = None
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
@@ -429,7 +458,7 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 
         # Thực thi qua PI Agent
-        llm_response = self._call_pi_agent(system_prompt, user_prompt, alert_count, has_internal, system_context)
+        llm_response = self._call_pi_agent(system_prompt, user_prompt, alert_count, has_internal, system_context, model_override=model_override)
 
         formatted_response = self._parse_drilldown_placeholders(llm_response)
 

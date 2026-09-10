@@ -1,6 +1,6 @@
 {
   "mode": "pi_dev",
-  "pi_model": "github-copilot/gpt-4.1",
+  "pi_model": "auto",
   "active_providers": [],
   "gemini_model": "gemini-2.5-flash",
   "openai_model": "gpt-4o-mini",

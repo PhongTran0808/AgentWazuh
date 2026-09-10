@@ -412,18 +412,18 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
    - Khi người dùng hỏi/yêu cầu "tạo rule", "viết rule XML", "tạo quy tắc tương quan", "cấu hình rule":
    - Bạn BẮT BUỘC chèn khối JSON CONFIG_FORM vào cuối câu trả lời dạng:
 ```json:form
-{
+{{
   "type": "CONFIG_FORM",
   "title": "⚡ Bảng Cấu Hình Rule XML & Tương Quan Wazuh",
   "description": "Nhấp nút [⚡ Tạo Rule Mẫu XML] hoặc chỉnh sửa thông số bên dưới để test và áp dụng trực tiếp lên Wazuh Manager.",
-  "form_data": {
+  "form_data": {{
     "rule_name": "Rule Cảnh Báo Mới",
     "match_pattern": "authentication failure",
     "frequency": 5,
     "timeframe": 60,
     "level": 10
-  }
-}
+  }}
+}}
 ```"""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"

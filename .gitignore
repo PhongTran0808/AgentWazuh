@@ -41,3 +41,4 @@ config/admin_auth.json
 config/ai_config.json
 config/known_devices.json
 logs/
+data/solpi_wazuh/

@@ -35,6 +35,14 @@ python3 server.py
 python3 /tmp/start_agentwazuh_and_sodomang.py
 ```
 
+### 3.3 SoL-Pi evidence pipeline cho Wazuh investigations
+
+Mỗi lượt gọi `POST /api/wazuh/investigate` tạo một **ObservationPack** cục bộ: snapshot alert/status được lưu dưới `data/solpi_wazuh/` (không commit Git) và AI chỉ nhận receipt gọn kèm SHA-256, handle, cùng các trường evidence được trích trực tiếp từ snapshot. Handle được trả tại `investigation.solpi.observation_handle`.
+
+Khi audit cần log gốc, gọi `GET /api/solpi/observations/{handle}?offset=0&limit=16384` với session đã đăng nhập. API trả chính xác theo trang và `next_offset`; raw log không bị đưa lại vào mọi prompt. Pipeline giữ tối đa sáu metadata lượt điều tra gần nhất mỗi session, để tiếp tục phân tích dài hạn mà không replay toàn bộ log/chat cũ.
+
+Thiết kế này áp dụng nguyên tắc SoL-Pi cho Python backend: ObservationPack, evidence-preserving receipt có hash, action fusion (archive + receipt + compact context trong một lượt) và online context compact. Các archive luôn ở local; không được gửi ra Git hoặc tự động chuyển cho dịch vụ ngoài phạm vi prompt đã rút gọn.
+
 ---
 
 ## ⚙️ 4. CẤU HÌNH HỆ THỐNG (SYSTEM SETTINGS)

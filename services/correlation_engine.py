@@ -234,6 +234,48 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
             })
         return groups
 
+    # Keep the core SOC workflow available on a lean local installation where
+    # optional graph/ML packages are not installed.  The result deliberately
+    # retains the same audit fields as the graph path, so priority scoring and
+    # the dashboard do not need a separate "degraded" response shape.
+    groups = []
+    for alert in alerts_sorted:
+        entity = get_entity(alert)
+        current_time = parse_wazuh_time(alert.get("timestamp", ""))
+        merged = False
+        for group in groups:
+            previous_time = group["time_span"]["end"]
+            if group["entity"] == entity and current_time - previous_time <= time_window_sec:
+                group["alert_ids"].append(alert.get("id", "unknown"))
+                group["alerts"].append(alert)
+                group["alert_count"] += alert.get("occurrence_count", 1)
+                group["graph_nodes_count"] += 1
+                group["time_span"]["end"] = current_time
+                group["last_seen"] = datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat()
+                merged = True
+                break
+        if not merged:
+            group_id = hashlib.md5(f"{entity}_{current_time}".encode()).hexdigest()[:12]
+            groups.append({
+                "group_id": f"INC-{group_id.upper()}",
+                "incident_id": f"INC-{group_id.upper()}",
+                "entity": entity,
+                "alert_ids": [alert.get("id", "unknown")],
+                "involved_alerts": 1,
+                "alerts": [alert],
+                "alert_count": alert.get("occurrence_count", 1),
+                "graph_nodes_count": 1,
+                "devices": [alert.get("agent", {}).get("name", "")] if alert.get("agent", {}).get("name") else [],
+                "source_ips": [alert.get("data", {}).get("srcip", "")] if alert.get("data", {}).get("srcip") else [],
+                "destination_ips": [alert.get("data", {}).get("dstip", "")] if alert.get("data", {}).get("dstip") else [],
+                "correlation_reason": "shared_entity_temporal_fallback",
+                "time_span": {"start": current_time, "end": current_time},
+                "first_seen": datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat(),
+                "last_seen": datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat(),
+                "risk_score": None,
+            })
+    return groups
+
 
 def dry_run_rule(rule_xml: str, sample_alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -278,39 +320,6 @@ def generate_config_diff(old_content: str, new_content: str, filename: str = "lo
     if not res:
         res = f"--- a/{filename}\n+++ b/{filename}\n@@ -0,0 +1,5 @@\n" + new_content
     return res
-
-
-    # Fallback nếu không có networkx: Nhóm theo entity và time window cơ bản
-    groups = []
-    for alert in alerts_sorted:
-        entity = get_entity(alert)
-        current_time = parse_wazuh_time(alert.get("timestamp", ""))
-        merged = False
-        for group in groups:
-            if group["entity"] == entity:
-                if current_time - group["time_span"]["start"] <= time_window_sec:
-                    group["alert_ids"].append(alert.get("id", "unknown"))
-                    group["alerts"].append(alert)
-                    group["alert_count"] += alert.get("occurrence_count", 1)
-                    if current_time > group["time_span"]["end"]:
-                        group["time_span"]["end"] = current_time
-                    merged = True
-                    break
-        if not merged:
-            group_id = hashlib.md5(f"{entity}_{current_time}".encode()).hexdigest()[:12]
-            groups.append({
-                "group_id": f"INC-{group_id.upper()}",
-                "entity": entity,
-                "alert_ids": [alert.get("id", "unknown")],
-                "alerts": [alert],
-                "alert_count": alert.get("occurrence_count", 1),
-                "graph_nodes_count": 1,
-                "time_span": {
-                    "start": current_time,
-                    "end": current_time
-                }
-            })
-    return groups
 
 
 def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any], asset_criticality: Dict[str, Any]) -> Dict[str, Any]:

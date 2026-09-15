@@ -37,6 +37,7 @@ for env_file in [BASE_DIR / "pass.env", BASE_DIR / ".env"]:
 
 from services.wazuh_client import WazuhClient
 from services.incident_assistant import IncidentAssistant, IncidentAssistantService
+from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
 from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
 from langgraph_engine.graphs.config_form_graph import config_form_graph
@@ -411,6 +412,7 @@ def create_wazuh_client_from_settings(host: str = None, port: int = None) -> Waz
 
 wazuh_client = create_wazuh_client_from_settings()
 assistant = IncidentAssistant()
+solpi_wazuh = WazuhSoLPi(BASE_DIR)
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
@@ -802,6 +804,21 @@ async def get_status(session: str = Depends(require_authenticated_session)):
 async def get_wazuh_live_logs():
     """Trả về nhật ký thời gian thực các gói yêu cầu REST API giữa AgentWazuh ↔ Wazuh Server."""
     return {"status": "success", "count": len(LIVE_API_LOGS), "logs": list(LIVE_API_LOGS)}
+
+@app.get("/api/solpi/observations/{handle}")
+async def recall_solpi_observation(
+    handle: str,
+    offset: int = 0,
+    limit: int = 16384,
+    session: str = Depends(require_authenticated_session),
+):
+    """Page through the exact local Wazuh observation backing an AI receipt."""
+    try:
+        return {"status": "success", "observation": solpi_wazuh.read_observation(handle, offset, limit)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Observation archive not found")
 
 @app.get("/api/system/audit-logs")
 async def get_system_audit_logs(limit: int = 50):
@@ -1545,14 +1562,24 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 }
             
             # Answer intervening question via PI while preserving LangGraph State
+            solpi_receipt = solpi_wazuh.build_investigation_package(
+                session, req.query, alert_to_use, alerts, system_status
+            )
             result = assistant.investigate_incident(
                 req.query,
                 alert_to_use,
                 system_context=system_status,
                 is_global_chat=bool(req.is_global_chat),
                 scope_filter=req.scope_filter,
-                recent_alerts=alerts
+                recent_alerts=alerts,
+                solpi_receipt=solpi_receipt.to_prompt_context(),
             )
+            result["solpi"] = {
+                "observation_handle": solpi_receipt.handle,
+                "source_sha256": solpi_receipt.sha256,
+                "source_bytes": solpi_receipt.source_bytes,
+                "evidence_count": len(solpi_receipt.evidence),
+            }
             result["active_form_session"] = active_form
             return {"status": "success", "investigation": result}
 
@@ -1587,6 +1614,9 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         }
 
     # Nếu câu hỏi dạng phân tích/hỏi đáp thường -> PI Engine xử lý (Conversational Layer)
+    solpi_receipt = solpi_wazuh.build_investigation_package(
+        session, req.query, alert_to_use, alerts, system_status
+    )
     result = assistant.investigate_incident(
         req.query,
         alert_to_use,
@@ -1594,8 +1624,15 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         is_global_chat=bool(req.is_global_chat),
         scope_filter=req.scope_filter,
         recent_alerts=alerts,
-        model_override=req.model
+        model_override=req.model,
+        solpi_receipt=solpi_receipt.to_prompt_context(),
     )
+    result["solpi"] = {
+        "observation_handle": solpi_receipt.handle,
+        "source_sha256": solpi_receipt.sha256,
+        "source_bytes": solpi_receipt.source_bytes,
+        "evidence_count": len(solpi_receipt.evidence),
+    }
 
     if active_form:
         result["active_form_session"] = active_form

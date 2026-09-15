@@ -252,7 +252,8 @@ class IncidentAssistant:
         is_global_chat: bool = False,
         scope_filter: Optional[Dict[str, Any]] = None,
         recent_alerts: Optional[List[Dict[str, Any]]] = None,
-        model_override: Optional[str] = None
+        model_override: Optional[str] = None,
+        solpi_receipt: Optional[str] = None,
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
@@ -267,6 +268,13 @@ class IncidentAssistant:
             {"step": 3, "title": "Threat Classification", "status": "COMPLETED", "detail": self._classify_threat(alert_data, static_info)},
             {"step": 4, "title": f"AI Synthesis ({model_label})", "status": "COMPLETED", "detail": "Mode: PI CLI OFFLOAD"}
         ]
+        if solpi_receipt:
+            reasoning_steps.insert(1, {
+                "step": "1a",
+                "title": "SoL-Pi Evidence Pack",
+                "status": "COMPLETED",
+                "detail": "Raw observation archived locally; compact receipt is hash-linked for audit recall."
+            })
 
         threat_class = self._classify_threat(alert_data, static_info)
 
@@ -406,6 +414,8 @@ class IncidentAssistant:
             context_lines.append("- Giới thiệu các khả năng chính của bạn: Phân tích sự cố SIEM Wazuh, trực quan hóa biểu đồ Chart.js, vẽ sơ đồ chuỗi tấn công Mermaid, tra cứu ma trận MITRE ATT&CK và CMDB thiết bị.")
 
         context_str = "\n".join(context_lines)
+        if solpi_receipt:
+            context_str = f"{context_str}\n\n{solpi_receipt}"
         has_internal = self._has_internal_ip(context_str)
 
         system_prompt = f"""Bạn là AgentWazuh AI Master Advisor — trợ lý điều tra sự cố an ninh mạng cho SOC.

@@ -50,5 +50,5 @@ echo -e "${BLUE}📦 [AgentWazuh] Installing Python requirements from requiremen
 $PY_BIN -m pip install -r requirements.txt --break-system-packages --quiet 2>/dev/null || $PY_BIN -m pip install -r requirements.txt
 
 echo -e "${GREEN}✅ [AgentWazuh] Dependencies installed successfully!${NC}"
-echo -e "${GREEN}⚡ Starting AgentWazuh AI SOC Assistant on http://0.0.0.0:8000...${NC}"
+echo -e "${GREEN}⚡ Starting AgentWazuh AI SOC Assistant on http://0.0.0.0:8080...${NC}"
 exec $PY_BIN server.py

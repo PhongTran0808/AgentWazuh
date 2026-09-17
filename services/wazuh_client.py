@@ -38,14 +38,20 @@ LIVE_API_LOGS: deque = deque(maxlen=100)
 def record_live_api_log(direction: str, method: str, url: str, status_code: int, detail: str = "", headers: dict = None, request_payload: Any = None, response_preview: Any = None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Generate 1-click executable curl command for copying
-    headers_str = ""
+    # Never persist Authorization headers (JWT tokens) in logs — security.
+    safe_headers = {}
     if headers:
         for k, v in headers.items():
             if k.lower() == "authorization":
-                headers_str += f' -H "Authorization: Bearer <JWT_TOKEN>"'
+                safe_headers[k] = "<JWT_TOKEN>"
             else:
-                headers_str += f' -H "{k}: {v}"'
+                safe_headers[k] = v
+
+    # Generate 1-click executable curl command for copying
+    headers_str = ""
+    if safe_headers:
+        for k, v in safe_headers.items():
+            headers_str += f' -H "{k}: {v}"'
 
     body_str = f" -d '{json.dumps(request_payload)}'" if request_payload else ""
     curl_cmd = f'curl -k -X {method.upper()} "{url}"{headers_str}{body_str}'
@@ -63,7 +69,7 @@ def record_live_api_log(direction: str, method: str, url: str, status_code: int,
         "endpoint": endpoint_path,
         "status_code": status_code,
         "detail": detail,
-        "headers": headers or {},
+        "headers": safe_headers,
         "request_payload": request_payload,
         "response_preview": response_preview,
         "curl_command": curl_cmd
@@ -414,7 +420,9 @@ class WazuhClient:
             ver_res = self._request_with_auth_retry("GET", f"{self.base_url}/manager/info", timeout=4.0)
             version = "Wazuh v4.14.7"
             if ver_res and ver_res.status_code == 200:
-                version = ver_res.json().get("data", {}).get("affected_items", [{}])[0].get("version", version)
+                info_items = ver_res.json().get("data", {}).get("affected_items", [])
+                if info_items:
+                    version = info_items[0].get("version", version)
 
             self._record_conn_attempt(True)
             return {

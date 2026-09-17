@@ -1,11 +1,14 @@
 import json
 import logging
+import os
 import requests
 from typing import Dict, Any, List, Optional
 
 from datetime import datetime, timezone
 
 logger = logging.getLogger("CaseManager")
+
+VERIFY_TLS = os.getenv("THEHIVE_VERIFY_SSL", "false").strip().lower() not in ("false", "0", "no")
 
 
 class CaseManager:
@@ -85,7 +88,7 @@ class CaseManager:
             "flag": True
         }
         try:
-            res = requests.post(url, json=thehive_payload, headers=headers, verify=False, timeout=5.0)
+            res = requests.post(url, json=thehive_payload, headers=headers, verify=VERIFY_TLS, timeout=5.0)
             return {"status": "success", "http_code": res.status_code, "data": res.json()}
         except Exception as e:
             return {"status": "error", "message": str(e)}

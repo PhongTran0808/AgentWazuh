@@ -53,7 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
             tree.innerHTML = "";
             
             if (!data.sessions || data.sessions.length === 0) {
-                tree.innerHTML = '<div style="padding: 1rem; font-size: 0.8rem; color: #64748b;">Chưa có lịch sử.</div>';
+                tree.innerHTML = '<div class="loading-state">Chưa có lịch sử.</div>';
                 return;
             }
 
@@ -70,10 +70,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 
                 const groupHeader = document.createElement("div");
                 groupHeader.className = "history-group-header";
-                groupHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; font-weight:700; color:#38bdf8; font-size:0.8rem; border-bottom:1px solid rgba(255,255,255,0.05);";
                 groupHeader.innerHTML = `
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><i class="fa-regular fa-folder-open"></i> ${escapeHtml(proj)}</span>
-                    <button class="btn-history-action" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; font-size:0.75rem; padding:2px 4px;" title="Đổi Tên Dự Án này" onclick="event.stopPropagation(); window.promptRenameProject('${escapeHtml(proj)}')">
+                    <span class="history-group-name"><i class="fa-regular fa-folder-open"></i> ${escapeHtml(proj)}</span>
+                    <button class="btn-history-action" title="Đổi Tên Dự Án này" onclick="event.stopPropagation(); window.promptRenameProject('${escapeHtml(proj)}')">
                         <i class="fa-solid fa-pen-to-square"></i>
                     </button>
                 `;
@@ -84,21 +83,20 @@ document.addEventListener("DOMContentLoaded", () => {
                     const item = document.createElement("div");
                     item.className = "history-item";
                     if (s.id === current_session_id) item.classList.add("active");
-                    item.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:0.4rem 0.6rem; cursor:pointer; border-radius:4px; font-size:0.8rem;";
-                    
+
                     const titleSpan = document.createElement("span");
-                    titleSpan.style.cssText = "flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;";
+                    titleSpan.className = "history-item-title";
                     titleSpan.innerHTML = `<i class="fa-solid fa-message"></i> ${escapeHtml(s.title)}`;
                     titleSpan.onclick = () => loadChatSession(s.id);
                     item.appendChild(titleSpan);
 
                     const actionsDiv = document.createElement("div");
-                    actionsDiv.style.cssText = "display:flex; gap:4px; opacity:0.7;";
+                    actionsDiv.className = "history-item-actions";
                     actionsDiv.innerHTML = `
-                        <button class="btn-history-action" style="background:transparent; border:none; color:#cbd5e1; cursor:pointer; font-size:0.72rem; padding:2px;" title="Đổi Tên Hội Thoại" onclick="event.stopPropagation(); window.promptRenameSession('${s.id}', '${escapeHtml(s.title)}', '${escapeHtml(proj)}')">
+                        <button class="btn-history-action" title="Đổi Tên Hội Thoại" onclick="event.stopPropagation(); window.promptRenameSession('${s.id}', '${escapeHtml(s.title)}', '${escapeHtml(proj)}')">
                             <i class="fa-solid fa-pen"></i>
                         </button>
-                        <button class="btn-history-action" style="background:transparent; border:none; color:#f87171; cursor:pointer; font-size:0.72rem; padding:2px;" title="Xóa Hội Thoại" onclick="event.stopPropagation(); window.promptDeleteSession('${s.id}')">
+                        <button class="btn-history-action danger" title="Xóa Hội Thoại" onclick="event.stopPropagation(); window.promptDeleteSession('${s.id}')">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
                     `;
@@ -275,9 +273,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Drawer Settings elements
     const settingsModal = document.getElementById("settings-modal");
-    const navItems = document.querySelectorAll(".settings-sidebar .nav-item");
-    const tabContents = document.querySelectorAll(".settings-tab-content");
-
     const settingTimeoutMin = document.getElementById("setting-timeout-min");
     const settingUITheme = document.getElementById("setting-ui-theme");
     const settingWazuhHost = document.getElementById("setting-wazuh-host");
@@ -428,17 +423,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Sidebar Tab Switching Handler
-    navItems.forEach(item => {
-        item.addEventListener("click", () => {
-            navItems.forEach(i => i.classList.remove("active"));
-            tabContents.forEach(c => c.classList.add("hidden"));
-            item.classList.add("active");
-            const targetId = item.getAttribute("data-tab");
-            const targetContent = document.getElementById(targetId);
-            if (targetContent) targetContent.classList.remove("hidden");
-        });
-    });
+    // Sidebar tab switching is owned by the shared settings_drawer.js.
 
     // PI.dev Agent Framework Initialization
     const engineModePi = document.getElementById("engine-mode-pi");
@@ -632,7 +617,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } catch (err) {
             const errorHtml = `
-                <div class="login-error-alert" style="margin: 1rem; border-color: #ef4444; background: rgba(239, 68, 68, 0.1); color: #f87171;">
+                <div class="inline-alert danger">
                     <i class="fa-solid fa-plug-circle-xmark"></i> Mất kết nối tới Wazuh Server/Backend. Đang thử kết nối lại...
                 </div>
             `;
@@ -647,10 +632,10 @@ document.addEventListener("DOMContentLoaded", () => {
         alertsList.innerHTML = "";
         if (!alerts || alerts.length === 0) {
             alertsList.innerHTML = `
-                <div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #94a3b8;">
-                    <i class="fa-solid fa-shield-check" style="font-size: 2.5rem; color: #10b981; margin-bottom: 0.8rem; display: block;"></i>
-                    <strong style="color: #f8fafc; display: block; margin-bottom: 0.4rem;">Chưa có Cảnh báo mới (0 Real Alerts)</strong>
-                    <span style="font-size: 0.8rem; color: #64748b;">Hệ thống đang ở chế độ Real-Time Fetch từ Wazuh API. Toàn bộ log giả lập cũ đã được gỡ bỏ 100%.</span>
+                <div class="empty-state">
+                    <i class="fa-solid fa-shield-check empty-icon ok"></i>
+                    <strong>Chưa có Cảnh báo mới (0 Real Alerts)</strong>
+                    <span>Hệ thống đang ở chế độ Real-Time Fetch từ Wazuh API. Toàn bộ log giả lập cũ đã được gỡ bỏ 100%.</span>
                 </div>
             `;
             return;
@@ -720,10 +705,10 @@ function formatLocalTime(tsStr) {
         alertsList.innerHTML = "";
         if (!groups || groups.length === 0) {
             alertsList.innerHTML = `
-                <div class="empty-state" style="padding: 2rem 1rem; text-align: center; color: #94a3b8;">
-                    <i class="fa-solid fa-layer-group" style="font-size: 2.5rem; color: #10b981; margin-bottom: 0.8rem; display: block;"></i>
-                    <strong style="color: #f8fafc; display: block; margin-bottom: 0.4rem;">Chưa có Incident Group</strong>
-                    <span style="font-size: 0.8rem; color: #64748b;">Chưa có cảnh báo nào được tương quan thành nhóm.</span>
+                <div class="empty-state">
+                    <i class="fa-solid fa-layer-group empty-icon ok"></i>
+                    <strong>Chưa có Incident Group</strong>
+                    <span>Chưa có cảnh báo nào được tương quan thành nhóm.</span>
                 </div>
             `;
             return;
@@ -776,12 +761,12 @@ function formatLocalTime(tsStr) {
 
     async function investigateAlert(query, alertObj = null) {
         const progressBarHtml = `
-            <div class="ai-loading-container" style="margin-bottom: 12px; padding: 10px 14px; background: rgba(15, 23, 42, 0.7); border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25);">
-                <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 6px;">
-                    <span id="loading-percent" style="font-size: 0.95rem; color: #10b981; font-weight: 700;">0%</span>
+            <div class="ai-loading-container">
+                <div class="ai-loading-head">
+                    <span id="loading-percent" class="ai-loading-percent">0%</span>
                 </div>
-                <div class="progress-bar-bg" style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
-                    <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #10b981); transition: width 0.3s ease; box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);"></div>
+                <div class="progress-bar-bg">
+                    <div id="progress-bar-fill" class="progress-bar-fill"></div>
                 </div>
             </div>
         `;
@@ -891,39 +876,39 @@ function formatLocalTime(tsStr) {
         if (configForm && configForm.form_data) {
             const f = configForm.form_data;
             const formCardHtml = `
-                <div class="hitl-card-container" id="hitl_card_${f.form_id}" style="margin-top: 1.2rem; background: #0f172a; border: 1px solid #38bdf8; border-radius: 14px; padding: 1.2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.8rem; margin-bottom: 1rem;">
-                        <h4 style="margin: 0; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <div class="hitl-card" id="hitl_card_${f.form_id}">
+                    <div class="hitl-card__head">
+                        <h4>
                             <i class="fa-solid fa-sliders"></i> ${configForm.title || "Human-In-The-Loop Interactive Form"}
                         </h4>
-                        <span class="status-pill pill-secure" style="font-size: 0.7rem;"><i class="fa-solid fa-shield"></i> HITL Guarded</span>
+                        <span class="status-pill pill-secure"><i class="fa-solid fa-shield"></i> HITL Guarded</span>
                     </div>
-                    
-                    <p style="font-size: 0.82rem; color: #94a3b8; margin: 0 0 1rem 0;">${configForm.description || "Vui lòng kiểm tra và duyệt thông số cấu hình bên dưới trước khi áp dụng lên Wazuh Manager."}</p>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+
+                    <p class="hitl-card__desc">${configForm.description || "Vui lòng kiểm tra và duyệt thông số cấu hình bên dưới trước khi áp dụng lên Wazuh Manager."}</p>
+
+                    <div class="hitl-fields">
                         <div>
-                            <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Tên quy tắc cảnh báo:</label>
-                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name || ''}" class="input-setting-control" style="width: 100%;">
+                            <label class="field-label" for="hitl_input_name_${f.form_id}">Tên quy tắc cảnh báo:</label>
+                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name || ''}" class="input-setting-control">
                         </div>
 
                         <div>
-                            <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Chuỗi nhận diện Log Match:</label>
-                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern || ''}" class="input-setting-control" style="width: 100%;">
+                            <label class="field-label" for="hitl_input_match_${f.form_id}">Chuỗi nhận diện Log Match:</label>
+                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern || ''}" class="input-setting-control">
                         </div>
 
-                        <div style="display: flex; gap: 0.8rem;">
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Ngưỡng số lần:</label>
-                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency || 5}" class="input-setting-control" style="width: 100%;">
+                        <div class="hitl-row">
+                            <div>
+                                <label class="field-label" for="hitl_input_freq_${f.form_id}">Ngưỡng số lần:</label>
+                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency || 5}" class="input-setting-control">
                             </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Thời gian (giây):</label>
-                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe || 60}" class="input-setting-control" style="width: 100%;">
+                            <div>
+                                <label class="field-label" for="hitl_input_time_${f.form_id}">Thời gian (giây):</label>
+                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe || 60}" class="input-setting-control">
                             </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 0.78rem; color: #cbd5e1; display: block; margin-bottom: 0.3rem;">Mức độ Rule Level:</label>
-                                <select id="hitl_input_level_${f.form_id}" class="input-setting-control" style="width: 100%;">
+                            <div>
+                                <label class="field-label" for="hitl_input_level_${f.form_id}">Mức độ Rule Level:</label>
+                                <select id="hitl_input_level_${f.form_id}" class="input-setting-control">
                                     <option value="5" ${f.level === 5 ? 'selected' : ''}>Level 5 - Low</option>
                                     <option value="7" ${f.level === 7 ? 'selected' : ''}>Level 7 - Medium</option>
                                     <option value="10" ${f.level === 10 ? 'selected' : ''}>Level 10 - High</option>
@@ -932,7 +917,7 @@ function formatLocalTime(tsStr) {
                             </div>
                         </div>
 
-                        <button id="hitl_btn_apply_${f.form_id}" class="btn-primary" style="margin-top: 0.6rem; padding: 0.7rem 1.2rem; font-size: 0.88rem; width: 100%;">
+                        <button id="hitl_btn_apply_${f.form_id}" class="btn btn--primary btn--block btn--lg">
                             <i class="fa-solid fa-bolt"></i> Áp Dụng Vào Wazuh Manager
                         </button>
                     </div>
@@ -972,8 +957,7 @@ function formatLocalTime(tsStr) {
                 const chartContainerId = "chart_canvas_" + Date.now() + "_" + idx;
                 
                 const wrapper = document.createElement("div");
-                wrapper.className = "chart-wrapper-card";
-                wrapper.style.cssText = "margin: 1rem 0; background: #0f172a; padding: 1.2rem; border-radius: 12px; border: 1px solid #38bdf8; position: relative; max-width: 100%; min-height: 260px;";
+                wrapper.className = "chart-wrapper-card artifact-block";
                 
                 const canvas = document.createElement("canvas");
                 canvas.id = chartContainerId;
@@ -1041,9 +1025,9 @@ function formatLocalTime(tsStr) {
 
     function renderEvidenceDetail(inv, alertObj) {
         const steps = inv.reasoning_steps || [];
-        let stepperHtml = '<div class="reasoning-stepper" style="margin-bottom: 1.2rem;">';
+        let stepperHtml = '<div class="reasoning-stepper">';
         steps.forEach(s => {
-            stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Step ${s.step}: ${s.title}</strong><br><span style="font-size:0.8rem; color:#94a3b8;">${s.detail}</span></div>`;
+            stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Step ${s.step}: ${s.title}</strong><br><span class="step-detail">${s.detail}</span></div>`;
         });
         stepperHtml += '</div>';
 
@@ -1119,7 +1103,7 @@ function formatLocalTime(tsStr) {
             if (!tbody) return;
 
             if (data.logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #64748b; padding: 1rem;">Chưa có nhật ký hoạt động nào.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="table-empty">Chưa có nhật ký hoạt động nào.</td></tr>';
                 return;
             }
 

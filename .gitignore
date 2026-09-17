@@ -26,7 +26,9 @@ node_modules/
 
 # Virtual Environment
 venv/
+.venv/
 ENV/
+.pytest_cache/
 
 # Antigravity & OS Scratch
 .DS_Store
@@ -40,5 +42,10 @@ config/system_settings.json
 config/admin_auth.json
 config/ai_config.json
 config/known_devices.json
+config/device_vault.enc
+config/sessions.json
+config/vault_master.key
+config/pending_rules/*.xml
+data/chat_sessions/
 logs/
 data/solpi_wazuh/

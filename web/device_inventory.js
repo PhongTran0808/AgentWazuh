@@ -3,8 +3,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const inventoryTbody = document.getElementById("inventory-tbody");
     const unverifiedChipsContainer = document.getElementById("unverified-chips-container");
     const confirmForm = document.getElementById("confirm-device-form");
+    const confirmStatus = document.getElementById("confirm-status");
     const btnBackDash = document.getElementById("btn-back-dash");
-    const btnOpenNetmap = document.getElementById("btn-open-netmap");
     const btnRefresh = document.getElementById("btn-refresh-inv");
 
     const inputIp = document.getElementById("form-ip");
@@ -12,12 +12,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectType = document.getElementById("form-type");
     const inputRole = document.getElementById("form-role");
 
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    function setStatus(message, kind) {
+        if (!confirmStatus) return;
+        confirmStatus.textContent = message || "";
+        confirmStatus.classList.toggle("is-ok", kind === "ok");
+        confirmStatus.classList.toggle("is-error", kind === "error");
+        confirmStatus.hidden = !message;
+    }
+
     btnBackDash?.addEventListener("click", () => {
         window.location.href = "/dashboard";
-    });
-
-    btnOpenNetmap?.addEventListener("click", () => {
-        window.location.href = "/network-map";
     });
 
     btnRefresh?.addEventListener("click", () => {
@@ -29,16 +41,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (unverifiedChipsContainer) unverifiedChipsContainer.innerHTML = '<span class="loading-state">Đang tìm IP chưa xác minh...</span>';
 
         try {
-            const res = await fetch("/api/wazuh/inventory");
+            const res = await fetch("/api/wazuh/inventory", { credentials: "same-origin" });
             const data = await res.json();
             renderTable(data.known_devices || []);
             renderUnverifiedChips(data.unverified_candidates || []);
         } catch (err) {
-            inventoryTbody.innerHTML = '<tr><td colspan="5" class="loading-state">Không thể tải dữ liệu kiểm kê.</td></tr>';
+            console.error("Failed to load inventory:", err);
+            if (inventoryTbody) inventoryTbody.innerHTML = '<tr><td colspan="5" class="loading-state">Không thể tải dữ liệu kiểm kê.</td></tr>';
+            if (unverifiedChipsContainer) unverifiedChipsContainer.innerHTML = '<span class="loading-state">Không thể tải danh sách IP chưa xác minh.</span>';
         }
     }
 
     function renderTable(devices) {
+        if (!inventoryTbody) return;
         if (!devices || devices.length === 0) {
             inventoryTbody.innerHTML = '<tr><td colspan="5" class="loading-state">Chưa có thiết bị nào trong known_devices.json.</td></tr>';
             return;
@@ -46,45 +61,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
         inventoryTbody.innerHTML = "";
         devices.forEach(d => {
-            const tr = document.createElement("tr");
-            let typeBadge = `<span class="badge-level level-low">${d.type.toUpperCase()}</span>`;
-            if (d.type === "firewall" || d.type === "router") {
-                typeBadge = `<span class="badge-level level-high">${d.type.toUpperCase()}</span>`;
-            }
+            const type = String(d.type || "unknown");
+            const toneClass = (type === "firewall" || type === "router") ? "level-high" : "level-low";
 
+            const tr = document.createElement("tr");
             tr.innerHTML = `
-                <td><code>${d.ip}</code></td>
-                <td><strong>${d.name}</strong></td>
-                <td>${typeBadge}</td>
-                <td><code>${d.role || "-"}</code></td>
-                <td><span style="color: #10b981;"><i class="fa-solid fa-user-check"></i> ${d.verified_by || "manual"}</span></td>
+                <td><code class="mono">${escapeHtml(d.ip)}</code></td>
+                <td><strong>${escapeHtml(d.name)}</strong></td>
+                <td><span class="badge-level ${toneClass}">${escapeHtml(type.toUpperCase())}</span></td>
+                <td><code class="mono">${escapeHtml(d.role || "-")}</code></td>
+                <td><span class="tone-ok"><i class="fa-solid fa-user-check"></i> ${escapeHtml(d.verified_by || "manual")}</span></td>
             `;
             inventoryTbody.appendChild(tr);
         });
     }
 
     function renderUnverifiedChips(candidates) {
+        if (!unverifiedChipsContainer) return;
         if (!candidates || candidates.length === 0) {
-            unverifiedChipsContainer.innerHTML = '<span style="font-size: 0.8rem; color: #10b981;"><i class="fa-solid fa-circle-check"></i> Không có IP nghi vấn chưa xác minh nào!</span>';
+            unverifiedChipsContainer.innerHTML = '<span class="section-note tone-ok"><i class="fa-solid fa-circle-check"></i> Không có IP nghi vấn chưa xác minh nào!</span>';
             return;
         }
 
         unverifiedChipsContainer.innerHTML = "";
         candidates.forEach(c => {
             const btn = document.createElement("button");
+            btn.type = "button";
             btn.className = "interactive-chip chip-medium";
-            btn.style.margin = "0.2rem";
-            btn.innerHTML = `<i class="fa-solid fa-circle-question"></i> ${c.ip} (${c.count} alerts)`;
+            btn.innerHTML = `<i class="fa-solid fa-circle-question"></i> ${escapeHtml(c.ip)} (${escapeHtml(c.count)} alerts)`;
             btn.addEventListener("click", () => {
                 inputIp.value = c.ip;
                 inputName.value = `Thiết bị ${c.ip}`;
                 inputRole.value = "infrastructure_device";
+                setStatus("");
+                inputName.focus();
             });
             unverifiedChipsContainer.appendChild(btn);
         });
     }
 
-    confirmForm.addEventListener("submit", async (e) => {
+    confirmForm?.addEventListener("submit", async (e) => {
         e.preventDefault();
         const payload = {
             ip: inputIp.value.trim(),
@@ -94,25 +110,32 @@ document.addEventListener("DOMContentLoaded", () => {
             verified_by: "manual"
         };
 
-        if (!payload.ip || !payload.name) return;
+        if (!payload.ip || !payload.name) {
+            setStatus("Vui lòng nhập đầy đủ IP và tên thiết bị.", "error");
+            return;
+        }
 
         try {
             const res = await fetch("/api/wazuh/inventory/confirm", {
                 method: "POST",
+                credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
             });
 
             const data = await res.json();
             if (data.status === "success") {
-                alert(`🟢 Đã xác nhận thiết bị ${payload.name} (${payload.ip}) thành công!`);
+                setStatus(`Đã xác nhận thiết bị ${payload.name} (${payload.ip}).`, "ok");
                 inputIp.value = "";
                 inputName.value = "";
                 inputRole.value = "";
                 loadInventoryData();
+            } else {
+                setStatus(data.message || "Không thể lưu thiết bị.", "error");
             }
         } catch (err) {
-            alert("❌ Không thể lưu thiết bị.");
+            console.error("Failed to confirm device:", err);
+            setStatus("Không thể lưu thiết bị (lỗi kết nối).", "error");
         }
     });
 

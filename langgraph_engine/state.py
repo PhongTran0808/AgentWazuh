@@ -15,3 +15,4 @@ class ConfigFormState(TypedDict):
     sandbox_result: Optional[Dict[str, Any]]
     awaiting_approval: bool
     status: str  # "collecting", "clarifying", "sandbox_tested", "awaiting_approval", "applied", "dismissed"
+    sample_alerts: Optional[List[Dict[str, Any]]]

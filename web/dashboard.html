@@ -3,354 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — SOC AI Incident Assistant Dashboard</title>
-    <link rel="stylesheet" href="/static/design-tokens.css">
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body class="dashboard-body">
+    <title>AgentWazuh — SOC Assistant</title>
 
-    <header class="soc-header">
-        <div class="header-brand">
-            <i class="fa-solid fa-shield-halved logo-icon"></i>
-            <div>
-                <h1 class="header-title">AgentWazuh SOC Assistant</h1>
-                <p class="header-subtitle">Enterprise Security Operations & Settings Portal (Version 14.0)</p>
-            </div>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/shell.css">
+    <link rel="stylesheet" href="/static/components.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/static/shell.js" defer></script>
+</head>
+<body class="app" data-page="dashboard" data-audit="on">
+
+    <header class="appbar">
+        <button type="button" class="btn btn--icon" data-rail-toggle id="btn-rail-toggle"
+                aria-label="Thu gọn thanh điều hướng" aria-expanded="true" title="Thu gọn điều hướng">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <a class="brandmark" href="/dashboard" aria-label="AgentWazuh — trang chủ">
+            <span class="brandmark__mark"><i class="fa-solid fa-shield-halved"></i></span>
+            <span class="brandmark__text">
+                <strong>AgentWazuh</strong>
+                <small>SOC Incident Assistant</small>
+            </span>
+        </a>
+        <span class="appbar__divider" aria-hidden="true"></span>
+        <span class="appbar__page">Bảng điều khiển</span>
+
+        <span class="spacer"></span>
+
+        <div class="header-status" id="vmware-status">
+            <span class="status-indicator online"></span>
+            <span class="status-text" id="status-wazuh-ip">Wazuh Server: N/A</span>
         </div>
-        <div class="header-actions">
-            <button id="btn-toggle-sidebar" class="btn-chip-action" title="Bật/Tắt Sidebar History"><i class="fa-solid fa-bars"></i> Lịch Sử</button>
-            <button id="btn-open-settings" class="btn-chip-action" title="Cài đặt hệ thống"><i class="fa-solid fa-sliders"></i> ⚙️ Settings</button>
-            <button id="btn-open-netmap" class="btn-chip-action" title="Mở sơ đồ mạng"><i class="fa-solid fa-network-wired"></i> 🗺️ Sơ Đồ Mạng</button>
-            <button id="btn-back-login" class="btn-chip-action" title="Quay lại đăng nhập"><i class="fa-solid fa-right-from-bracket"></i> Đăng Xuất</button>
-            <div class="header-status" id="vmware-status">
-                <span class="status-indicator online"></span>
-                <span class="status-text" id="status-wazuh-ip">Wazuh Server: N/A</span>
-            </div>
-        </div>
+
+        <button type="button" class="btn btn--icon" data-palette-open aria-label="Bảng lệnh (Ctrl+K)" title="Bảng lệnh · Ctrl+K">
+            <i class="fa-solid fa-magnifying-glass"></i>
+        </button>
+        <a class="btn btn--ghost" href="/api-inspector" title="Xem nhật ký gói tin REST API thời gian thực giữa AgentWazuh & Wazuh Server">
+            <i class="fa-solid fa-satellite-dish"></i><span>Gói tin API</span>
+        </a>
+        <button type="button" class="btn btn--ghost" id="btn-open-settings" title="Cài đặt hệ thống">
+            <i class="fa-solid fa-sliders"></i><span>Cài đặt</span>
+        </button>
+        <button type="button" class="btn btn--icon" data-dock-toggle id="btn-dock-toggle"
+                aria-label="Bật/tắt bảng trợ lý" aria-expanded="true" title="Bảng trợ lý AI">
+            <i class="fa-solid fa-table-columns"></i>
+        </button>
+        <button type="button" class="btn btn--ghost" id="btn-back-login" title="Đăng xuất">
+            <i class="fa-solid fa-right-from-bracket"></i><span>Đăng xuất</span>
+        </button>
     </header>
 
-    <div class="app-body-container">
-        <aside id="history-sidebar" class="history-sidebar">
-            <div class="sidebar-header" style="padding: 1rem;">
-                <button id="btn-new-chat" class="btn-primary" style="width: 100%; font-size: 0.85rem;"><i class="fa-solid fa-plus"></i> New Conversation</button>
+    <div class="shell">
+
+        <nav class="rail" id="app-rail" aria-label="Điều hướng chính">
+            <div class="rail__group eyebrow">Điều hướng</div>
+            <a class="rail__link is-active" href="/dashboard" aria-current="page">
+                <i class="fa-solid fa-gauge-high"></i><span>Bảng điều khiển</span>
+            </a>
+            <button type="button" class="rail__link" id="btn-open-netmap">
+                <i class="fa-solid fa-network-wired"></i><span>Sơ đồ mạng</span>
+            </button>
+            <a class="rail__link" href="/device-inventory">
+                <i class="fa-solid fa-server"></i><span>Thiết bị</span>
+            </a>
+            <a class="rail__link" href="/api-inspector">
+                <i class="fa-solid fa-satellite-dish"></i><span>Gói tin API</span>
+            </a>
+
+            <div class="rail__group eyebrow">Công cụ</div>
+            <button type="button" class="rail__link" id="btn-toggle-sidebar">
+                <i class="fa-solid fa-clock-rotate-left"></i><span>Lịch sử hội thoại</span>
+            </button>
+
+            <div class="rail__foot">
+                <button type="button" class="rail__link" id="btn-new-chat">
+                    <i class="fa-solid fa-plus"></i><span>Hội thoại mới</span>
+                </button>
             </div>
-            <div class="sidebar-body">
-                <div class="sidebar-section">
-                    <div class="sidebar-section-title"><i class="fa-solid fa-clock-rotate-left"></i> Conversation History</div>
-                    <div id="history-list" class="history-tree">
-                        <div class="loading-state" style="padding: 1rem; font-size: 0.8rem;">Đang tải...</div>
-                    </div>
+        </nav>
+
+        <aside class="dock" id="agent-dock" aria-label="Bảng trợ lý">
+            <div class="dock__head">
+                <div class="dock__tabs" role="tablist" aria-label="Bảng trợ lý">
+                    <button type="button" class="dock__tab is-active" data-dock-tab="advisor"
+                            role="tab" aria-selected="true">
+                        <i class="fa-solid fa-brain"></i> Trợ lý AI
+                    </button>
+                    <button type="button" class="dock__tab" data-dock-tab="evidence"
+                            role="tab" aria-selected="false">
+                        <i class="fa-solid fa-magnifying-glass-chart"></i> Bằng chứng
+                        <span class="dot hidden" id="evidence-dot" aria-hidden="true"></span>
+                    </button>
                 </div>
+                <button type="button" class="btn btn--icon" data-dock-toggle aria-label="Đóng bảng trợ lý" title="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="dock__panes">
+                <section class="dock__pane is-active" data-dock-pane="advisor">
+                    <div id="chat-stream" class="chat-messages">
+                        <div class="chat-bubble system">
+                            <i class="fa-solid fa-robot avatar"></i>
+                            <div class="bubble-content">
+                                <strong>AgentWazuh · Trợ lý SOC</strong>
+                                <p>Chào Analyst! Hệ thống đang dùng <strong>PI.dev Agent Engine</strong> để phân tích sự cố an ninh từ Wazuh SIEM. Mở <strong>Cài đặt → AI Engine</strong> để đổi model hoặc API key.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="preset-chips">
+                        <button type="button" class="chip-btn" data-query="Báo cáo 24h qua">Báo cáo 24h</button>
+                        <button type="button" class="chip-btn" onclick="openXmlRuleBuilderModal()">Tạo Rule XML</button>
+                        <button type="button" class="chip-btn" data-query="Danh sách các cảnh báo mức độ Low (thấp) hiện tại là gì, trích xuất 1 log mẫu">Trích xuất Log Low</button>
+                        <button type="button" class="chip-btn" data-query="Danh sách thiết bị đang giám sát">Kiểm tra Agents</button>
+                        <button type="button" class="chip-btn" data-query="Thống kê cảnh báo Medium và High">Thống kê Severity</button>
+                        <button type="button" class="chip-btn" data-query="Vẽ sơ đồ luồng xử lý sự cố an ninh">Sơ đồ luồng</button>
+                        <button type="button" class="chip-btn" data-query="Vẽ biểu đồ trực quan thống kê cảnh báo theo mức độ">Biểu đồ Chart.js</button>
+                    </div>
+
+                    <form id="chat-form" class="composer">
+                        <div class="composer__row">
+                            <div class="chat-model-selector-container">
+                                <i class="fa-solid fa-microchip"></i>
+                                <select id="chat-model-select" aria-label="Chọn model AI">
+                                    <option value="auto" selected>Auto (CLI model)</option>
+                                    <option value="openrouter/free">OpenRouter Free</option>
+                                    <option value="gemini/gemini-2.0-flash">Gemini FREE (API Key)</option>
+                                    <option value="github-copilot/gpt-4.1">Copilot · gpt-4.1</option>
+                                    <option value="github-copilot/claude-haiku-4.5">Copilot · claude-haiku-4.5</option>
+                                    <option value="github-copilot/gpt-5-mini">Copilot · gpt-5-mini</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="composer__row">
+                            <input type="text" id="chat-input" class="composer__input"
+                                   placeholder="Hỏi trợ lý SOC…" autocomplete="off">
+                            <button type="submit" class="btn btn--primary" aria-label="Gửi">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <section class="dock__pane" data-dock-pane="evidence">
+                    <div id="evidence-detail" class="evidence-body">
+                        <div class="empty-state">
+                            <i class="fa-solid fa-file-shield empty-icon"></i>
+                            <p>Chọn một alert card hoặc gửi câu hỏi để xem chi tiết bằng chứng và tiến trình suy luận của AI.</p>
+                        </div>
+                    </div>
+                </section>
             </div>
         </aside>
 
-        <main class="soc-layout">
-            <!-- Pane 1: Live Wazuh Alert Feed -->
-        <section class="soc-pane pane-alerts">
-            <div class="pane-header" style="justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="fa-solid fa-bell-concierge" style="color: var(--accent-cyan);"></i>
-                    <h2 style="font-size: 0.92rem; font-weight: 700; margin: 0;">Wazuh Live Alerts (24h)</h2>
-                </div>
-                <button id="btn-refresh" class="btn-icon" title="Tải lại Alert"><i class="fa-solid fa-rotate-right"></i></button>
-            </div>
-            <div class="feed-controls-bar" style="padding: 0.4rem 0.6rem; background: #0b0f19; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.4rem;">
-                <div class="mode-toggle" style="margin: 0; padding: 2px; flex: 1;">
-                    <button id="view-mode-single" class="mode-btn active" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-list"></i> Riêng lẻ</button>
-                    <button id="view-mode-group" class="mode-btn" style="font-size: 0.72rem; padding: 0.25rem 0.4rem; width: 50%; text-align: center;"><i class="fa-solid fa-layer-group"></i> Gộp Incident</button>
-                </div>
-                <button id="btn-open-import" class="btn-chip-action" style="font-size: 0.72rem; padding: 0.25rem 0.5rem; background: #1e293b; border: 1px solid #38bdf8; color: #38bdf8; white-space: nowrap;" title="Nhập dữ liệu Alert (JSON thô)">
-                    <i class="fa-solid fa-file-import"></i> Nhập JSON
-                </button>
-            </div>
-            <div id="alerts-list" class="alerts-feed">
-                <div class="loading-state">Đang tải danh sách cảnh báo từ Wazuh...</div>
-            </div>
-        </section>
-
-        <!-- Pane 2: AI Incident Triage Chat & Master SOC Advisor -->
-        <section class="soc-pane pane-chat">
-            <div class="pane-header" style="justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="fa-solid fa-brain" style="color: #38bdf8;"></i>
-                    <h2 style="font-size: 0.95rem; font-weight: 700; margin: 0;">SOC AI Master Advisor</h2>
-                </div>
-
-            </div>
-            
-            <div id="chat-stream" class="chat-messages">
-                <div class="chat-bubble system">
-                    <i class="fa-solid fa-robot avatar"></i>
-                    <div class="bubble-content">
-                        <strong>AgentWazuh AI Master Advisor:</strong>
-                        <p>Chào Analyst! Hệ thống đang sử dụng <strong>PI.dev Agent Engine (Mặc Định)</strong> để phân tích & diễn giải sự cố an ninh mạng từ Wazuh SIEM. Nhấp nút <strong>[⚙️ Settings]</strong> để xem cấu hình AI Engine và Audit Log.</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="preset-chips">
-                <button class="chip-btn" data-query="Báo cáo 24h qua"><i class="fa-solid fa-chart-pie"></i> Báo cáo 24h qua</button>
-                <button class="chip-btn" onclick="openXmlRuleBuilderModal()" style="background: rgba(56, 189, 248, 0.18); border-color: #38bdf8; color: #38bdf8;"><i class="fa-solid fa-code"></i> ⚡ Tạo Rule Mẫu XML</button>
-                <button class="chip-btn" data-query="Danh sách các cảnh báo mức độ Low (thấp) hiện tại là gì, trích xuất 1 log mẫu"><i class="fa-solid fa-file-code"></i> Trích xuất Log Low</button>
-                <button class="chip-btn" data-query="Danh sách thiết bị đang giám sát"><i class="fa-solid fa-server"></i> Kiểm tra Agents</button>
-                <button class="chip-btn" data-query="Thống kê cảnh báo Medium và High"><i class="fa-solid fa-triangle-exclamation"></i> Thống kê Severity</button>
-                <button class="chip-btn" data-query="Vẽ sơ đồ luồng xử lý sự cố an ninh"><i class="fa-solid fa-diagram-project"></i> Sơ Đồ Mermaid</button>
-                <button class="chip-btn" data-query="Vẽ biểu đồ trực quan thống kê cảnh báo theo mức độ"><i class="fa-solid fa-chart-column"></i> Trực Quan Biểu Đồ Chart.js</button>
-            </div>
-
-            <form id="chat-form" class="chat-input-area" style="display: flex; gap: 0.5rem; align-items: center;">
-                <div class="chat-model-selector-container" style="display: flex; align-items: center; gap: 6px; background: #020617; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.6rem; min-width: 210px;">
-                    <i class="fa-solid fa-microchip" style="font-size: 0.85rem; color: #38bdf8;"></i>
-                    <select id="chat-model-select" style="background: transparent; border: none; color: #38bdf8; font-size: 0.82rem; font-weight: 600; outline: none; cursor: pointer; width: 100%;">
-                        <option value="auto" selected>⚡ Auto (Default CLI Model)</option>
-                        <option value="openrouter/free">🎁 OpenRouter Free Models</option>
-                        <option value="gemini/gemini-2.0-flash">💎 Gemini FREE (API Key)</option>
-                        <option value="github-copilot/gpt-4.1">🐙 Copilot: gpt-4.1</option>
-                        <option value="github-copilot/claude-haiku-4.5">🐙 Copilot: claude-haiku-4.5</option>
-                        <option value="github-copilot/gpt-5-mini">🐙 Copilot: gpt-5-mini</option>
-                    </select>
-                </div>
-                <input type="text" id="chat-input" placeholder="Hỏi Con Chat Tổng SOC Master: 'Báo cáo tổng quan', 'Vẽ sơ đồ mạng'..." autocomplete="off">
-                <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Gửi</button>
-            </form>
-        </section>
-
-        <!-- Pane 3: Evidence Detail & Ground-Truth Summary -->
-        <section class="soc-pane pane-evidence">
-            <div class="pane-header">
-                <i class="fa-solid fa-magnifying-glass-chart"></i>
-                <h2>Investigation Summary</h2>
-            </div>
-            <div id="evidence-detail" class="evidence-body">
-                <div class="empty-state">
-                    <i class="fa-solid fa-file-shield empty-icon"></i>
-                    <p>Bấm chọn một alert card hoặc gửi câu hỏi để xem chi tiết bằng chứng và tiến trình suy luận AI.</p>
-                </div>
-            </div>
-        </section>
-    </main>
-    </div> <!-- end app-body-container -->
-
-    <!-- ENTERPRISE MULTI-CATEGORY SETTINGS DRAWER (ANTIGRAVITY / CURSOR IDE STYLE) -->
-    <div id="settings-modal" class="modal-overlay hidden">
-        <div class="modal-card drawer-card-large">
-            
-            <div class="modal-header">
-                <div style="display: flex; align-items: center; gap: 0.6rem;">
-                    <i class="fa-solid fa-sliders" style="font-size: 1.2rem; color: var(--accent-cyan);"></i>
-                    <h3 style="margin: 0; font-size: 1.1rem; color: #f8fafc;">AgentWazuh Settings & Preferences</h3>
-                </div>
-                <button class="btn-close" onclick="window.closeSettingsModal()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <div class="drawer-split-body">
-                
-                <nav class="settings-sidebar">
-                    <div class="sidebar-section-label">GENERAL</div>
-                    <button class="nav-item active" data-tab="tab-general"><i class="fa-solid fa-gear"></i> General & Session</button>
-                    <button class="nav-item" data-tab="tab-wazuh"><i class="fa-solid fa-server"></i> Wazuh Manager Core</button>
-                    
-                    <div class="sidebar-section-label">MONITORING</div>
-                    <button class="nav-item" data-tab="tab-heartbeat"><i class="fa-solid fa-heart-pulse"></i> Heartbeat & ICMP Ping</button>
-
-                    <div class="sidebar-section-label">INTELLIGENCE</div>
-                    <button class="nav-item" data-tab="tab-ai"><i class="fa-solid fa-robot"></i> AI Engine & Cloud Providers</button>
-
-                    <div class="sidebar-section-label">SECURITY</div>
-                    <button class="nav-item" data-tab="tab-vault"><i class="fa-solid fa-shield-halved"></i> AES-256 Vault</button>
-                    <button class="nav-item" data-tab="tab-audit"><i class="fa-solid fa-list-check"></i> Read-Only Sync Audit</button>
-                </nav>
-
-                <div class="settings-content-panel">
-                    
-                    <div id="tab-general" class="settings-tab-content active">
-                        <div class="setting-card-title">
-                            <h2>General & Session Inactivity</h2>
-                            <p>Cấu hình thời gian duy trì phiên làm việc Admin và giao diện hệ thống.</p>
+        <main class="workspace">
+            <section class="panel panel--grow">
+                <header class="panel__head">
+                    <h2 class="panel__title"><i class="fa-solid fa-bell-concierge"></i> Wazuh Live Alerts · 24h</h2>
+                    <div class="panel__tools">
+                        <div class="mode-toggle" role="group" aria-label="Chế độ hiển thị cảnh báo">
+                            <button type="button" id="view-mode-single" class="mode-btn active" aria-pressed="true">
+                                <i class="fa-solid fa-list"></i> Riêng lẻ
+                            </button>
+                            <button type="button" id="view-mode-group" class="mode-btn" aria-pressed="false">
+                                <i class="fa-solid fa-layer-group"></i> Gộp Incident
+                            </button>
                         </div>
-
-                        <div class="setting-box-card">
-                            <div class="setting-row-label">
-                                <strong>Session Inactivity Timeout (Phút)</strong>
-                                <span>Tự động đăng xuất sau khoảng thời gian không thao tác.</span>
-                            </div>
-                            <input type="number" id="setting-timeout-min" value="30" min="5" max="480" class="input-setting-control">
-                        </div>
-                    </div>
-
-                    <div id="tab-wazuh" class="settings-tab-content hidden">
-                        <div class="setting-card-title">
-                            <h2>Wazuh Manager REST API</h2>
-                            <p>Thông số kết nối tới Wazuh Manager Server (HTTPS 55000 REST API).</p>
-                        </div>
-
-                        <div class="setting-box-card">
-                            <div class="setting-row-label">
-                                <strong>Wazuh Server IP Address</strong>
-                                <span>Địa chỉ IP máy chủ Wazuh Manager thật.</span>
-                            </div>
-                            <input type="text" id="setting-wazuh-host" value="" placeholder="Ví dụ: 192.168.1.10" class="input-setting-control">
-                        </div>
-
-                        <div class="setting-box-card">
-                            <div class="setting-row-label">
-                                <strong>Wazuh REST API Port</strong>
-                                <span>Cổng kết nối SSL REST API (mặc định 55000).</span>
-                            </div>
-                            <input type="number" id="setting-wazuh-port" value="55000" class="input-setting-control">
-                        </div>
-                    </div>
-
-                    <div id="tab-heartbeat" class="settings-tab-content hidden">
-                        <div class="setting-card-title">
-                            <h2>Real-Time Heartbeat & Ping Monitoring</h2>
-                            <p>Cơ chế giảm độ nhạy ICMP Ping và tích hợp Uptime Kuma Push API.</p>
-                        </div>
-
-                        <div class="setting-box-card">
-                            <div class="setting-row-label">
-                                <strong>Chu Kỳ ICMP Ping (Giây)</strong>
-                                <span>Khoảng thời gian phát gói ping kiểm tra thiết bị.</span>
-                            </div>
-                            <input type="number" id="setting-ping-interval" value="15" min="5" max="120" class="input-setting-control">
-                        </div>
-
-                        <div class="setting-box-card">
-                            <div class="setting-row-label">
-                                <strong>Ngưỡng Thử Lại Trước Khi Báo Đứt (Lần)</strong>
-                                <span>Số chu kỳ ping thất bại liên tiếp mới chuyển màu ĐỎ.</span>
-                            </div>
-                            <input type="number" id="setting-ping-retry" value="3" min="1" max="10" class="input-setting-control">
-                        </div>
-                    </div>
-
-                    <!-- AI Engine Tab: PI.dev Agent Framework & OpenRouter Models -->
-                    <div id="tab-ai" class="settings-tab-content hidden">
-                        <div class="setting-card-title">
-                            <h2>AI Engine Management (PI.dev Powered)</h2>
-                            <p>Mặc định sử dụng <strong>PI.dev Agent CLI Framework</strong> để diễn giải sự cố. Tích hợp Audit Logging ghi nhận mọi truy vấn.</p>
-                        </div>
-
-                        <!-- Step 1: Choose Engine Mode -->
-                        <div style="margin-bottom: 1.2rem;">
-                            <label style="font-size: 0.85rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.5rem;">
-                                CHẾ ĐỘ ENGINE HIỆN TẠI
-                            </label>
-                            <div class="mode-toggle" style="display: flex; gap: 0.5rem;">
-                                <button id="engine-mode-pi" class="mode-btn active" style="flex: 1;"><i class="fa-solid fa-terminal"></i> ⚡ PI.dev Agent CLI (Mặc Định - Official Framework)</button>
-                            </div>
-                        </div>
-
-                        <!-- Step 2: PI.dev Details -->
-                        <div id="panel-pi-dev" class="engine-panel">
-                            <div class="setting-box-card" style="flex-direction: column; align-items: flex-start; gap: 0.8rem;">
-                                <div id="pi-status-badge" class="interactive-chip chip-low" style="width: 100%; text-align: center; padding: 0.6rem;">
-                                    <i class="fa-solid fa-circle-check"></i> 🟢 PI.dev Agent Framework Đã Sẵn Sàng (pi CLI v0.84.2 Active)
-                                </div>
-                            </div>
-
-                            <!-- Standardized Setup Guide Card -->
-                            <div class="setting-box-card" style="flex-direction: column; align-items: flex-start; background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(56, 189, 248, 0.3); padding: 1rem; border-radius: 8px; margin-bottom: 1rem; gap: 0.6rem;">
-                                <h4 style="margin: 0; color: #38bdf8; font-size: 0.92rem;"><i class="fa-solid fa-wand-magic-sparkles"></i> Quy trình Chuẩn hóa Kết nối AI khi đổi máy:</h4>
-                                <ol style="margin: 0; padding-left: 1.2rem; font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
-                                    <li><strong>Kết nối GitHub Copilot:</strong> Mở Terminal chạy <code>pi auth github-copilot</code> (hoặc chọn <code>openrouter/free</code>).</li>
-                                    <li><strong>Chọn Model mặc định:</strong> Chọn <code>Auto (Default CLI Model)</code> để tự nhận dạng model tương thích trên máy.</li>
-                                    <li><strong>Hoặc Dùng Gemini FREE API Key:</strong> Điền API Key bên dưới nếu muốn gọi Gemini trực tiếp.</li>
-                                </ol>
-                            </div>
-
-                            <div class="setting-box-card">
-                                <div class="setting-row-label">
-                                    <strong>PI.dev Default Model Selection</strong>
-                                    <span>Mô hình mặc định chạy qua PI.dev Framework.</span>
-                                </div>
-                                <select id="select-pi-model" class="input-setting-control" style="width: 320px;">
-                                    <option value="auto" selected>⚡ Auto (Tự Động Chọn Model Tương Thích)</option>
-                                    <option value="openrouter/free">openrouter/free (Miễn phí - OpenRouter)</option>
-                                    <option value="gemini/gemini-2.0-flash">gemini/gemini-2.0-flash (Gemini FREE)</option>
-                                    <option value="github-copilot/gpt-4.1">github-copilot / gpt-4.1</option>
-                                    <option value="github-copilot/claude-haiku-4.5">github-copilot / claude-haiku-4.5</option>
-                                    <option value="github-copilot/gpt-5-mini">github-copilot / gpt-5-mini</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-box-card" style="margin-top: 0.8rem;">
-                                <div class="setting-row-label">
-                                    <strong>Google Gemini FREE API Key</strong>
-                                    <span>API Key dự phòng khi chạy trên máy chưa login GitHub Copilot.</span>
-                                </div>
-                                <input type="password" id="input-gemini-key" class="input-setting-control" placeholder="AIzaSy..." style="width: 320px;">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="tab-vault" class="settings-tab-content hidden">
-                        <div class="setting-card-title">
-                            <h2>AES-256 Fernet Vault Manager</h2>
-                            <p>Bảo mật SSH Credentials thiết bị mạng nội bộ bằng mã hóa đối xứng AES-256-GCM.</p>
-                        </div>
-                        <code>./config/device_vault.enc (ENCRYPTED)</code>
-                    </div>
-
-                    <div id="tab-audit" class="settings-tab-content hidden">
-                        <div class="setting-card-title">
-                            <h2>CLI Read-Only Synchronization Audit</h2>
-                            <p>Whitelist 4 lệnh Read-only cứng cho script sync_topology.py độc lập.</p>
-                        </div>
-                    </div>
-
-                    <div class="drawer-footer-bar">
-                        <button id="btn-save-all-settings" class="btn-primary" style="padding: 0.75rem 1.8rem; font-size: 0.95rem;">
-                            <i class="fa-solid fa-floppy-disk"></i> Lưu Tất Cả Cài Đặt (Save Preferences)
+                        <button type="button" id="btn-open-import" class="btn btn--ghost btn--sm" title="Nhập dữ liệu Alert thô (JSON)">
+                            <i class="fa-solid fa-file-import"></i> Nhập JSON
                         </button>
                     </div>
-
+                </header>
+                <div id="alerts-list" class="alerts-feed">
+                    <div class="loading-state">Đang tải danh sách cảnh báo từ Wazuh…</div>
                 </div>
-            </div>
-
-        </div>
+            </section>
+        </main>
     </div>
 
-    <!-- OLLAMA ON-DEMAND CONFIRMATION MODAL -->
-    <div id="ollama-confirm-modal" class="modal-overlay hidden">
-        <div class="modal-card" style="max-width: 480px; text-align: center; padding: 1.8rem;">
-            <div style="font-size: 2.8rem; color: #f59e0b; margin-bottom: 0.8rem;">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-            </div>
-            <h3 style="margin: 0 0 0.6rem 0; font-size: 1.15rem; color: #f8fafc;">Xác Nhận Kích Hoạt Tiến Trình Ollama</h3>
-            <p style="font-size: 0.88rem; color: #94a3b8; line-height: 1.5; margin-bottom: 1.5rem;">
-                Bạn có chắc chắn muốn kích hoạt dịch vụ Ollama cục bộ (`ollama serve`) không?<br>
-                <span style="color: #cbd5e1; font-size: 0.82rem;">(Lưu ý: Tiến trình Ollama sẽ chiếm dụng khoảng 2GB - 5GB RAM của máy tính).</span>
-            </p>
-
-            <div style="display: flex; gap: 0.8rem;">
-                <button id="btn-cancel-ollama" class="btn-chip-action" style="flex: 1; padding: 0.7rem;" onclick="document.getElementById('ollama-confirm-modal').classList.add('hidden')">
-                    Hủy Bỏ
-                </button>
-                <button id="btn-confirm-start-ollama" class="btn-primary" style="flex: 1; padding: 0.7rem;">
-                    <i class="fa-solid fa-check"></i> Đồng Ý Kích Hoạt
-                </button>
+    <aside id="history-sidebar" class="history-sidebar collapsed" aria-label="Lịch sử hội thoại">
+        <div class="sidebar-body">
+            <div class="sidebar-section-title"><i class="fa-solid fa-clock-rotate-left"></i> Hội thoại</div>
+            <div id="history-list" class="history-tree">
+                <div class="loading-state">Đang tải…</div>
             </div>
         </div>
-    </div>
+    </aside>
 
-    <!-- IMPORT RAW ALERT JSON MODAL -->
+    <!-- ============ Settings drawer: injected by /static/settings_drawer.js ============ -->
+
+    <!-- ============================ Import raw alert JSON ============================ -->
     <div id="import-modal" class="modal-overlay hidden">
-        <div class="modal-card" style="max-width: 620px; padding: 1.8rem;">
-            <div style="display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;">
-                <i class="fa-solid fa-file-import" style="font-size: 1.5rem; color: #38bdf8;"></i>
-                <div>
-                    <h3 style="margin: 0; font-size: 1.15rem; color: #f8fafc;">Nhập Dữ Liệu Cảnh Báo (Import Raw Alert JSON)</h3>
-                    <span style="font-size: 0.8rem; color: #94a3b8;">Dán chuỗi JSON Alert (Object, Mảng, hoặc từng dòng alerts.json từ Wazuh)</span>
-                </div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-import"></i> Nhập dữ liệu cảnh báo (JSON)</h3>
+                <button type="button" class="btn-close" aria-label="Đóng"
+                        onclick="document.getElementById('import-modal').classList.add('hidden')">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
-            
-            <textarea id="import-json-text" placeholder='Dán dữ liệu JSON vào đây. Ví dụ:
-[
+            <div class="modal-body">
+                <p class="section-note">Dán chuỗi JSON Alert (object, mảng, hoặc từng dòng <code>alerts.json</code> từ Wazuh).</p>
+                <textarea id="import-json-text" class="input code-input code-input--tall" placeholder='[
   {
     "id": "1698765432.1001",
     "timestamp": "2026-08-20T08:00:00.000+0000",
@@ -358,116 +222,121 @@
     "agent": {"id": "001", "name": "wazuh-agent-test", "ip": "10.0.0.50"},
     "data": {"srcip": "1.1.1.1", "dstuser": "root"}
   }
-]' style="width: 100%; height: 200px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #38bdf8; font-family: monospace; font-size: 0.82rem; padding: 0.8rem; margin-bottom: 1rem; resize: vertical; box-sizing: border-box;"></textarea>
-
-            <div id="import-status-msg" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
-
-            <div style="display: flex; gap: 0.8rem; justify-content: flex-end;">
-                <button id="btn-cancel-import" class="btn-chip-action" style="padding: 0.6rem 1.2rem;" onclick="document.getElementById('import-modal').classList.add('hidden')">
-                    Hủy Bỏ
-                </button>
-                <button id="btn-submit-import" class="btn-primary" style="padding: 0.6rem 1.4rem;">
-                    <i class="fa-solid fa-file-arrow-up"></i> Nạp Dữ Liệu Vào System
-                </button>
+]'></textarea>
+                <div id="import-status-msg" class="section-note hidden"></div>
+                <div class="builder-actions">
+                    <button type="button" class="btn btn--ghost"
+                            onclick="document.getElementById('import-modal').classList.add('hidden')">Huỷ</button>
+                    <button type="button" id="btn-submit-import" class="btn btn--primary">
+                        <i class="fa-solid fa-file-arrow-up"></i> Nạp vào hệ thống
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- INTERACTIVE WAZUH XML RULE & CORRELATION BUILDER MODAL -->
-    <div id="xml-rule-builder-modal" class="modal-overlay hidden" style="z-index: 99999;">
-        <div class="modal-card" style="max-width: 920px; width: 95vw; background: #090d16; border: 1px solid #38bdf8; border-radius: 12px; padding: 1.5rem; color: #f8fafc; box-shadow: 0 0 35px rgba(56, 189, 248, 0.25);">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 0.8rem; margin-bottom: 1.2rem;">
-                <div style="display: flex; align-items: center; gap: 0.6rem;">
-                    <i class="fa-solid fa-code" style="font-size: 1.3rem; color: #38bdf8;"></i>
-                    <h3 style="margin: 0; font-size: 1.15rem; color: #f8fafc;">Bảng Cấu Hình & Tương Quan Rule XML Wazuh (Interactive XML Builder)</h3>
-                </div>
-                <button class="btn-close" onclick="closeXmlRuleBuilderModal()"><i class="fa-solid fa-xmark"></i></button>
+    <!-- ============================ XML rule builder ============================ -->
+    <div id="xml-rule-builder-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card--wide">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code"></i> Wazuh XML Rule Builder</h3>
+                <button type="button" class="btn-close" onclick="closeXmlRuleBuilderModal()" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
-
-            <div style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.2rem; margin-bottom: 1rem;">
-                <!-- Left Column: Form Controls (Editable Inputs) -->
-                <div style="display: flex; flex-direction: column; gap: 0.8rem; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #1e293b;">
-                    <h4 style="margin: 0 0 0.5rem 0; color: #38bdf8; font-size: 0.9rem;"><i class="fa-solid fa-pen-to-square"></i> Thông Số Đầu Vào Rule</h4>
-                    
-                    <div style="display: flex; gap: 0.6rem;">
-                        <div style="flex: 1;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Rule ID (Mã ID):</label>
-                            <input type="number" id="builder-rule-id" value="100201" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+            <div class="modal-body">
+                <div class="builder-grid">
+                    <div class="builder-pane">
+                        <h4><i class="fa-solid fa-pen-to-square"></i> Thông số đầu vào</h4>
+                        <div class="builder-row">
+                            <div class="builder-field">
+                                <label for="builder-rule-id">Rule ID</label>
+                                <input type="number" id="builder-rule-id" value="100201" class="input-setting-control" oninput="syncXmlFromForm()">
+                            </div>
+                            <div class="builder-field">
+                                <label for="builder-rule-level">Rule Level</label>
+                                <select id="builder-rule-level" class="input-setting-control" onchange="syncXmlFromForm()">
+                                    <option value="3">3 · Informational</option>
+                                    <option value="5">5 · Low</option>
+                                    <option value="7">7 · Medium</option>
+                                    <option value="10" selected>10 · High</option>
+                                    <option value="12">12 · Critical</option>
+                                    <option value="15">15 · Emergency</option>
+                                </select>
+                            </div>
                         </div>
-                        <div style="flex: 1;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Rule Level (Severity):</label>
-                            <select id="builder-rule-level" class="input-setting-control" style="width: 100%;" onchange="syncXmlFromForm()">
-                                <option value="3">Level 3 - Informational</option>
-                                <option value="5">Level 5 - Low</option>
-                                <option value="7">Level 7 - Medium</option>
-                                <option value="10" selected>Level 10 - High (Cảnh báo)</option>
-                                <option value="12">Level 12 - Critical (Nghiêm trọng)</option>
-                                <option value="15">Level 15 - Emergency</option>
-                            </select>
+                        <div class="builder-field">
+                            <label for="builder-group-name">Group Name</label>
+                            <input type="text" id="builder-group-name" value="custom_rules,docker,syslog" class="input-setting-control" oninput="syncXmlFromForm()">
+                        </div>
+                        <div class="builder-field">
+                            <label for="builder-rule-desc">Description</label>
+                            <input type="text" id="builder-rule-desc" value="Phát hiện hành vi tấn công Malware / Command Injection từ Docker Container" class="input-setting-control" oninput="syncXmlFromForm()">
+                        </div>
+                        <div class="builder-field">
+                            <label for="builder-rule-match">Match / Regex</label>
+                            <input type="text" id="builder-rule-match" value="malware_executed|unauthorized_cmd|reverse_shell" class="input-setting-control" oninput="syncXmlFromForm()">
+                        </div>
+                        <div class="builder-row">
+                            <div class="builder-field">
+                                <label for="builder-rule-ifsid">Parent Rule ID (if_sid)</label>
+                                <input type="text" id="builder-rule-ifsid" value="5710" class="input-setting-control" oninput="syncXmlFromForm()">
+                            </div>
+                            <div class="builder-field">
+                                <label for="builder-rule-freq">Freq</label>
+                                <input type="number" id="builder-rule-freq" value="5" class="input-setting-control" oninput="syncXmlFromForm()">
+                            </div>
+                            <div class="builder-field">
+                                <label for="builder-rule-time">Time (s)</label>
+                                <input type="number" id="builder-rule-time" value="60" class="input-setting-control" oninput="syncXmlFromForm()">
+                            </div>
                         </div>
                     </div>
 
-                    <div>
-                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Nhóm Quy Tắc (Group Name):</label>
-                        <input type="text" id="builder-group-name" value="custom_rules,docker,syslog" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
-                    </div>
-
-                    <div>
-                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Mô Tả Quy Tắc (Description):</label>
-                        <input type="text" id="builder-rule-desc" value="Phát hiện hành vi tấn công Malware / Command Injection từ Docker Container" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
-                    </div>
-
-                    <div>
-                        <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Chuỗi Khớp Log (Match / Regex):</label>
-                        <input type="text" id="builder-rule-match" value="malware_executed|unauthorized_cmd|reverse_shell" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
-                    </div>
-
-                    <div style="display: flex; gap: 0.6rem;">
-                        <div style="flex: 1.2;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Parent Rule ID (if_sid):</label>
-                            <input type="text" id="builder-rule-ifsid" value="5710" placeholder="Ví dụ: 5710 (Kế thừa rule)" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                    <div class="builder-col">
+                        <div class="builder-pane">
+                            <h4><i class="fa-solid fa-code-compare"></i> Wazuh XML</h4>
+                            <textarea id="builder-rule-xml" class="code-editor" oninput="syncFormFromXml()"></textarea>
                         </div>
-                        <div style="flex: 1;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Tần Suất (Freq):</label>
-                            <input type="number" id="builder-rule-freq" value="5" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
-                        </div>
-                        <div style="flex: 1;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.2rem;">Cửa Sổ (Time s):</label>
-                            <input type="number" id="builder-rule-time" value="60" class="input-setting-control" style="width: 100%;" oninput="syncXmlFromForm()">
+                        <div id="builder-test-badge" class="field-note">
+                            <i class="fa-solid fa-vial-circle-check"></i>
+                            <span>Chưa chạy thử. Nhấn <strong>Dry-Run Test</strong> để giả lập quy tắc trên tập log thực tế.</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Column: Live Interactive XML Editor & Test Results -->
-                <div style="display: flex; flex-direction: column; gap: 0.8rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h4 style="margin: 0; color: #4ade80; font-size: 0.9rem;"><i class="fa-solid fa-code-compare"></i> Mã Nguồn Wazuh XML Rule</h4>
-                        <button class="btn-action" onclick="copyXmlRuleCode()" style="font-size: 0.72rem; padding: 2px 8px;"><i class="fa-solid fa-copy"></i> Copy XML</button>
-                    </div>
-
-                    <textarea id="builder-rule-xml" style="width: 100%; height: 230px; background: #020617; border: 1px solid #22c55e; border-radius: 8px; color: #4ade80; font-family: 'Fira Code', monospace; font-size: 0.82rem; padding: 0.8rem; resize: vertical; box-sizing: border-box;" oninput="syncFormFromXml()"></textarea>
-
-                    <div id="builder-test-badge" style="padding: 0.6rem 0.8rem; background: #0f172a; border: 1px dashed #334155; border-radius: 6px; font-size: 0.8rem; color: #94a3b8;">
-                        <i class="fa-solid fa-vial-circle-check"></i> Chưa chạy thử nghiệm. Nhấn nút <strong>[🧪 Dry-Run Test]</strong> bên dưới để giả lập quy tắc trên tập logs thực tế.
-                    </div>
+                <div class="builder-actions">
+                    <button type="button" class="btn btn--ghost" onclick="copyXmlRuleCode()">
+                        <i class="fa-solid fa-copy"></i> Copy XML
+                    </button>
+                    <button type="button" class="btn btn--ghost" onclick="closeXmlRuleBuilderModal()">Đóng</button>
+                    <button type="button" class="btn btn--ghost" onclick="runRuleDryRun()">
+                        <i class="fa-solid fa-flask"></i> Dry-Run Test
+                    </button>
+                    <button type="button" id="btn-builder-apply" class="btn btn--primary" onclick="applyXmlRule()">
+                        <i class="fa-solid fa-bolt"></i> Phê duyệt & Áp dụng
+                    </button>
                 </div>
-            </div>
-
-            <!-- Action Buttons Footer -->
-            <div style="display: flex; gap: 0.8rem; justify-content: flex-end; border-top: 1px solid #1e293b; padding-top: 0.8rem;">
-                <button class="btn-chip-action" onclick="closeXmlRuleBuilderModal()" style="padding: 0.6rem 1.2rem;">
-                    Đóng
-                </button>
-                <button class="btn-action" onclick="runRuleDryRun()" style="padding: 0.6rem 1.4rem; background: #1e293b; border: 1px solid #f59e0b; color: #f59e0b;">
-                    <i class="fa-solid fa-flask"></i> 🧪 Dry-Run Test Rule
-                </button>
-                <button class="btn-primary" id="btn-builder-apply" onclick="applyXmlRule()" style="padding: 0.6rem 1.6rem; background: #10b981; border-color: #059669;">
-                    <i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager
-                </button>
             </div>
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.0"></script>
+    <!-- ============================ Audit log JSON detail ============================ -->
+    <div id="log-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-code"></i> Chi tiết JSON</h3>
+                <button type="button" class="btn-close" onclick="window.closeLogModal()" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <pre><code id="modal-log-json">Đang tải…</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/settings_drawer.js"></script>
+    <script src="/static/app.js?v=3.1"></script>
 </body>
 </html>

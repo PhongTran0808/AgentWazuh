@@ -15,5 +15,5 @@ fi
 echo "🚀 [AgentWazuh] Using $PY_BIN ($($PY_BIN --version 2>&1)). Installing requirements..."
 $PY_BIN -m pip install -r requirements.txt --break-system-packages --quiet 2>/dev/null || $PY_BIN -m pip install -r requirements.txt --quiet
 
-echo "⚡ [AgentWazuh] Starting AgentWazuh AI SOC Assistant on http://0.0.0.0:8000..."
+echo "⚡ [AgentWazuh] Starting AgentWazuh AI SOC Assistant on http://0.0.0.0:8080..."
 exec $PY_BIN server.py

@@ -3,103 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — Dynamic Log Drill-down Inspector</title>
-    <link rel="stylesheet" href="/static/design-tokens.css">
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Marked.js & Mermaid.js -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-</head>
-<body class="dashboard-body">
+    <title>AgentWazuh — Log Drill-down Inspector</title>
+    <meta name="description" content="Điều tra log Wazuh theo phân vùng (severity, rule, thiết bị) kèm trợ lý AI scoped context.">
 
-    <!-- Top Header Navigation -->
-    <header class="soc-header">
-        <div class="header-brand">
-            <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
-                <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard Tổng
-            </button>
-            <div style="margin-left: 0.5rem;">
-                <h1 class="header-title" id="drilldown-title"><i class="fa-solid fa-filter"></i> Log Drill-down Inspector</h1>
-                <p class="header-subtitle" id="drilldown-subtitle">Phân vùng theo dõi danh sách log chi tiết và hỏi đáp AI Scoped Context</p>
-            </div>
-        </div>
-        <div class="header-status" id="vmware-status">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/shell.css">
+    <link rel="stylesheet" href="/static/components.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/shell.js" defer></script>
+</head>
+<body class="app" data-page="drilldown">
+
+    <header class="appbar">
+        <button type="button" class="btn btn--icon" data-rail-toggle id="btn-rail-toggle"
+                aria-label="Thu gọn thanh điều hướng" aria-expanded="true" title="Thu gọn điều hướng">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <a class="brandmark" href="/dashboard" aria-label="AgentWazuh — trang chủ">
+            <span class="brandmark__mark"><i class="fa-solid fa-shield-halved"></i></span>
+            <span class="brandmark__text">
+                <strong>AgentWazuh</strong>
+                <small>SOC Incident Assistant</small>
+            </span>
+        </a>
+        <span class="appbar__divider" aria-hidden="true"></span>
+        <span class="appbar__page" id="drilldown-title">
+            <i class="fa-solid fa-filter"></i> Log Drill-down Inspector
+        </span>
+
+        <span class="spacer"></span>
+
+        <div class="header-status">
             <span class="status-indicator online"></span>
             <span class="status-text" id="status-host">Wazuh Server: Auto</span>
         </div>
+
+        <button type="button" class="btn btn--icon" data-palette-open aria-label="Bảng lệnh (Ctrl+K)" title="Bảng lệnh · Ctrl+K">
+            <i class="fa-solid fa-magnifying-glass"></i>
+        </button>
+        <a class="btn btn--ghost" href="/network-map" title="Sơ đồ mạng" aria-label="Sơ đồ mạng">
+            <i class="fa-solid fa-network-wired"></i><span>Sơ đồ mạng</span>
+        </a>
+        <button type="button" class="btn btn--icon" data-dock-toggle id="btn-dock-toggle"
+                aria-label="Bật/tắt trợ lý scoped" aria-expanded="true" title="Trợ lý scoped">
+            <i class="fa-solid fa-robot"></i>
+        </button>
+        <button type="button" class="btn btn--ghost" id="btn-back-dash" title="Về bảng điều khiển">
+            <i class="fa-solid fa-arrow-left"></i><span>Bảng điều khiển</span>
+        </button>
     </header>
 
-    <!-- 2-Column Drill-down Layout -->
-    <main class="soc-layout" style="grid-template-columns: 1fr 420px;">
-        
-        <!-- Left Column: Detailed Filtered Logs Table -->
-        <section class="soc-pane">
-            <div class="pane-header">
-                <i class="fa-solid fa-list-check"></i>
-                <h2 id="table-header-title">Danh Sách Log Chi Tiết Trong Phân Vùng</h2>
-                <button id="btn-refresh-logs" class="btn-icon" title="Tải lại Log"><i class="fa-solid fa-rotate-right"></i></button>
-            </div>
+    <div class="shell">
 
-            <div class="evidence-body" style="padding: 0.5rem; overflow-y: auto;">
-                <table class="drilldown-table" id="logs-table">
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Rule ID</th>
-                            <th>Severity</th>
-                            <th>Mô Tả Cảnh Báo</th>
-                            <th>Source IP / Agent</th>
-                            <th>Thao Tác</th>
-                        </tr>
-                    </thead>
-                    <tbody id="logs-tbody">
-                        <tr><td colspan="6" class="loading-state">Đang tải dữ liệu log chi tiết...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        <nav class="rail" id="app-rail" aria-label="Điều hướng chính">
+            <div class="rail__group eyebrow">Điều tra</div>
+            <a class="rail__link" href="/dashboard">
+                <i class="fa-solid fa-gauge-high"></i><span>Bảng điều khiển</span>
+            </a>
+            <a class="rail__link" href="/network-map">
+                <i class="fa-solid fa-network-wired"></i><span>Sơ đồ mạng</span>
+            </a>
+            <a class="rail__link" href="/device-inventory">
+                <i class="fa-solid fa-server"></i><span>Thiết bị</span>
+            </a>
+            <a class="rail__link" href="/api-inspector">
+                <i class="fa-solid fa-satellite-dish"></i><span>Gói tin API</span>
+            </a>
+            <a class="rail__link is-active" href="#" aria-current="page">
+                <i class="fa-solid fa-list-ul"></i><span>Log Drill-down</span>
+            </a>
 
-        <!-- Right Column: Scoped AI Chat Inspector -->
-        <section class="soc-pane pane-chat">
-            <div class="pane-header">
-                <i class="fa-solid fa-robot"></i>
-                <h2>AI Scoped Chat (Chỉ Trong Phạm Vi Log)</h2>
+            <div class="rail__foot">
+                <button type="button" class="rail__link" data-dock-toggle>
+                    <i class="fa-solid fa-comments"></i><span>Trợ lý scoped</span>
+                </button>
             </div>
+        </nav>
 
-            <div id="chat-stream" class="chat-messages">
-                <div class="chat-bubble system">
-                    <i class="fa-solid fa-robot avatar"></i>
-                    <div class="bubble-content">
-                        <strong>AgentWazuh Scoped Inspector:</strong>
-                        <p>Chào Analyst! Tôi đang chạy ở chế độ **Scoped Context**. Mọi câu hỏi của bạn tại đây CHỈ được giới hạn và trả lời dựa trên tập log bạn vừa lọc.</p>
+        <main class="workspace">
+            <section class="panel panel--grow">
+                <header class="panel__head">
+                    <div>
+                        <h2 class="panel__title"><i class="fa-solid fa-list-ul"></i> Log trong phân vùng</h2>
+                        <p class="panel__subtitle muted" id="drilldown-subtitle">Đang xác định phân vùng…</p>
                     </div>
+                    <div class="panel__tools">
+                        <button type="button" class="btn btn--ghost btn--sm" id="btn-refresh-logs">
+                            <i class="fa-solid fa-rotate-right"></i> Tải lại
+                        </button>
+                    </div>
+                </header>
+                <div class="panel__body">
+                    <table class="drilldown-table" id="logs-table">
+                        <thead>
+                            <tr>
+                                <th>Thời gian</th>
+                                <th>Rule</th>
+                                <th>Mức độ</th>
+                                <th>Mô tả</th>
+                                <th>Thiết bị (Agent / IP)</th>
+                                <th>Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-tbody">
+                            <tr><td colspan="6" class="loading-state">Đang tải dữ liệu log chi tiết...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
+            </section>
+        </main>
+
+        <aside class="dock" aria-label="Trợ lý phân tích scoped">
+            <div class="dock__head">
+                <div class="dock__tabs">
+                    <span class="dock__tab is-active"><i class="fa-solid fa-robot"></i> Scoped Inspector</span>
+                </div>
+                <button type="button" class="btn btn--icon" data-dock-toggle aria-label="Đóng trợ lý" title="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
 
-            <!-- Scoped Preset Chips -->
-            <div class="preset-chips">
-                <button class="chip-btn" data-query="Tóm tắt các log này có pattern tấn công chung không?"><i class="fa-solid fa-wand-magic-sparkles"></i> Tóm tắt Pattern Log</button>
-                <button class="chip-btn" data-query="Có log nào trong nhóm này cần nâng mức độ severity không?"><i class="fa-solid fa-triangle-exclamation"></i> Kiểm tra Nâng Level</button>
+            <div class="dock__panes">
+                <section class="dock__pane is-active" data-dock-pane="scoped">
+                    <div id="chat-stream" class="chat-messages">
+                        <div class="chat-bubble system">
+                            <i class="fa-solid fa-robot avatar"></i>
+                            <div class="bubble-content">
+                                <strong>AgentWazuh · Scoped Inspector</strong>
+                                <p>Câu hỏi tại đây chỉ được trả lời trong phạm vi phân vùng log đang mở. Chọn một dòng log rồi bấm <strong>Hỏi AI</strong> để phân tích sâu.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="preset-chips">
+                        <button type="button" class="chip-btn" data-query="Tóm tắt nhanh các log trong phân vùng này và chỉ ra rủi ro chính">Tóm tắt phân vùng</button>
+                        <button type="button" class="chip-btn" data-query="Có dấu hiệu tấn công hay quét cổng nào trong phân vùng này không?">Tìm dấu hiệu tấn công</button>
+                        <button type="button" class="chip-btn" data-query="Đề xuất 3 bước xử lý ưu tiên cho phân vùng log này">Đề xuất xử lý</button>
+                        <button type="button" class="chip-btn" data-query="Vẽ sơ đồ luồng tấn công (nếu có) trong phân vùng này">Sơ đồ luồng</button>
+                    </div>
+
+                    <form id="chat-form" class="composer">
+                        <div class="composer__row">
+                            <input type="text" id="chat-input" class="composer__input"
+                                   placeholder="Hỏi trong phạm vi phân vùng…" autocomplete="off">
+                            <button type="submit" class="btn btn--primary" aria-label="Gửi">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </form>
+                </section>
             </div>
+        </aside>
+    </div>
 
-            <form id="chat-form" class="chat-input-area">
-                <input type="text" id="chat-input" placeholder="Hỏi AI về tập log này..." autocomplete="off">
-                <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Gửi</button>
-            </form>
-        </section>
-
-    </main>
-
-    <!-- Modals -->
     <div id="log-modal" class="modal-overlay hidden">
-        <div class="modal-card">
+        <div class="modal-card modal-card--wide">
             <div class="modal-header">
-                <h3><i class="fa-solid fa-code"></i> Full Alert JSON Inspector</h3>
-                <button class="btn-close" onclick="window.closeLogModal()"><i class="fa-solid fa-xmark"></i></button>
+                <h3><i class="fa-solid fa-code"></i> Raw Log JSON</h3>
+                <button type="button" class="btn-close" onclick="window.closeLogModal()" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
             <div class="modal-body">
-                <pre><code id="modal-log-json">Loading...</code></pre>
+                <pre><code id="modal-log-json">Đang tải…</code></pre>
             </div>
         </div>
     </div>

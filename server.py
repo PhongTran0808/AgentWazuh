@@ -9,5 +9,5 @@ if str(BASE_DIR) not in sys.path:
 from core.server import app
 
 if __name__ == "__main__":
-    print("⚡ [AgentWazuh] Starting SOC Incident Assistant & AI Agent Server on http://0.0.0.0:8000...")
-    uvicorn.run("core.server:app", host="0.0.0.0", port=8000, reload=False)
+    print("⚡ [AgentWazuh] Starting SOC Incident Assistant & AI Agent Server on http://0.0.0.0:8080...")
+    uvicorn.run("core.server:app", host="0.0.0.0", port=8080, reload=True, reload_dirs=["core", "services", "web"])

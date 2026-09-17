@@ -1,6 +1,5 @@
 import logging
 import random
-from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -37,7 +36,7 @@ def clarify_question_node(state: ConfigFormState) -> ConfigFormState:
 
 
 def dry_run_check_node(state: ConfigFormState) -> ConfigFormState:
-    """Node 3: Chạy Sandbox Dry-Run thử nghiệm trên dữ liệu lịch sử."""
+    """Node 3: Chạy Sandbox Dry-Run thử nghiệm trên alert lịch sử thực tế (không bịa kết quả)."""
     logger.info(f"🧪 [LangGraph Node: dry_run_check] Running Sandbox Test for '{state.get('rule_name')}'")
     rule_id = random.randint(100100, 100999)
     pattern = state.get("match_pattern", "Failed password")
@@ -51,27 +50,26 @@ def dry_run_check_node(state: ConfigFormState) -> ConfigFormState:
   </rule>
 </group>"""
 
-    sandbox_res = {
-        "status": "PASS",
-        "tested_rule_id": rule_id,
-        "historical_matches": 14,
-        "false_positive_rate": "0.0%"
-    }
-
-    # Auto-dispatch Case Ticket via CaseManager
+    # Dry-run thực tế trên alert lịch sử — tuyệt đối không chế ra `historical_matches`.
+    sample_alerts = state.get("sample_alerts") or []
+    from services.correlation_engine import dry_run_rule
     try:
-        from services.case_manager import CaseManager
-        cm = CaseManager()
-        case_payload = cm.generate_case_payload(
-            title=f"Rule Sandbox Approved #{rule_id}",
-            severity="HIGH",
-            risk_score=85,
-            mitre_technique="T1110.001 (Brute Force)",
-            description=f"Rule ID {rule_id} đã qua kiểm thử Sandbox thành công trên 14 mẫu log."
-        )
-        cm.send_webhook_case(case_payload)
+        dry_result = dry_run_rule(draft_xml, sample_alerts)
+        sandbox_res = {
+            "status": "PASS",
+            "tested_rule_id": rule_id,
+            "historical_matches": dry_result.get("would_match_count", 0),
+            "false_positive_rate": dry_result.get("estimated_false_positive_risk", "Không có dữ liệu kiểm thử"),
+            "sample_matched_alert_ids": dry_result.get("sample_matched_alert_ids", [])
+        }
     except Exception as e:
-        logger.warning(f"Case Ticket auto-dispatch notice: {e}")
+        logger.warning(f"⚠️ [LangGraph dry_run_check] Lỗi khi chạy dry-run: {e}")
+        sandbox_res = {
+            "status": "ERROR",
+            "tested_rule_id": rule_id,
+            "historical_matches": 0,
+            "false_positive_rate": "Không chạy được do lỗi dữ liệu"
+        }
 
     state["draft_xml"] = draft_xml
     state["sandbox_result"] = sandbox_res

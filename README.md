@@ -32,7 +32,8 @@ python3 server.py
 
 ### 3.2 Lệnh khởi động đồng thời cả 2 hệ thống AgentWazuh (8080) & SoDoMang (9090)
 ```bash
-python3 /tmp/start_agentwazuh_and_sodomang.py
+cd "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh"
+python3 run_both_agentwazuh_services.py
 ```
 
 ### 3.3 SoL-Pi evidence pipeline cho Wazuh investigations

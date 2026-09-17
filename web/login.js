@@ -49,8 +49,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const wazuh_host = wazuhHostInput ? wazuhHostInput.value.trim() : "";
         const wazuh_port = wazuhPortInput ? parseInt(wazuhPortInput.value.trim()) || 55000 : 55000;
-        const username = usernameInput ? usernameInput.value.trim() : "admin";
-        const password = passwordInput ? passwordInput.value.trim() : "admin123";
+        const username = usernameInput ? usernameInput.value.trim() : "";
+        const password = passwordInput ? passwordInput.value : "";
 
         try {
             const res = await fetch("/api/auth/login", {

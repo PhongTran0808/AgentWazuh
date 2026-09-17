@@ -54,6 +54,53 @@ let savedPositions = JSON.parse(localStorage.getItem("secmap_positions") || "{}"
 //  INIT
 // ─────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+    // Live API Log Bar Height Resizer
+    const logBar = document.getElementById("live-api-log-bar");
+    if (logBar && !document.querySelector(".live-log-resizer-h")) {
+        const resizer = document.createElement("div");
+        resizer.className = "live-log-resizer-h";
+        resizer.title = "Kéo lên/xuống để điều chỉnh chiều cao bảng nhật ký log REST API";
+        logBar.parentNode.insertBefore(resizer, logBar);
+
+        let isDragging = false;
+        let startY = 0;
+        let startHeight = 0;
+
+        const savedHeight = localStorage.getItem("agentwazuh_live_log_height");
+        if (savedHeight) {
+            logBar.style.height = `${savedHeight}px`;
+        }
+
+        resizer.addEventListener("mousedown", (e) => {
+            isDragging = true;
+            startY = e.clientY;
+            startHeight = logBar.getBoundingClientRect().height;
+            resizer.classList.add("is-dragging");
+            document.body.style.userSelect = "none";
+            document.body.style.cursor = "row-resize";
+        });
+
+        document.addEventListener("mousemove", (e) => {
+            if (!isDragging) return;
+            const dy = startY - e.clientY;
+            const newHeight = Math.max(70, Math.min(600, startHeight + dy));
+            logBar.style.height = `${newHeight}px`;
+        });
+
+        document.addEventListener("mouseup", () => {
+            if (isDragging) {
+                isDragging = false;
+                resizer.classList.remove("is-dragging");
+                document.body.style.userSelect = "";
+                document.body.style.cursor = "";
+                const currentHeight = logBar.getBoundingClientRect().height;
+                if (currentHeight) {
+                    localStorage.setItem("agentwazuh_live_log_height", currentHeight);
+                }
+            }
+        });
+    }
+
     // Back button
     document.getElementById("btn-back-dash")?.addEventListener("click", () => {
         window.location.href = "/dashboard";
@@ -160,15 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("settings-modal")?.classList.add("hidden");
     };
 
-    // Settings tabs (preserved from original)
-    document.querySelectorAll(".nav-item[data-tab]").forEach(btn => {
-        btn.addEventListener("click", () => {
-            document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
-            document.querySelectorAll(".settings-tab-content").forEach(t => t.classList.add("hidden"));
-            btn.classList.add("active");
-            document.getElementById(btn.dataset.tab)?.classList.remove("hidden");
-        });
-    });
+    // Settings drawer markup + tab switching are owned by the shared settings_drawer.js.
 
     // Initial data fetch + polling
     pollConnState();
@@ -217,66 +256,34 @@ async function pollFullMap() {
 //  CONNECTION BUS: SVG + BADGE
 // ─────────────────────────────────────────────
 function applyConnStateToBus(state, host) {
-    const badge     = document.getElementById("bus-conn-badge");
-    const activeLine = document.getElementById("bus-line-active");
-    const packet    = document.getElementById("bus-packet");
-    const connDot   = document.getElementById("hdr-conn-dot");
+    const bus         = document.getElementById("secmap-bus-wrapper");
+    const badge       = document.getElementById("bus-conn-badge");
     const serverLabel = document.getElementById("bus-server-label");
+    const connDot     = document.getElementById("hdr-conn-dot");
 
-    if (serverLabel) serverLabel.innerHTML = `${host}<br><span style="color:#38bdf8;font-size:0.6rem;">SIEM</span>`;
+    if (serverLabel) {
+        serverLabel.innerHTML = `${escHtml(host)}<br><span class="bus-node-role server">SIEM</span>`;
+    }
 
     const statusHost = document.getElementById("status-host");
     if (statusHost) statusHost.textContent = `Wazuh Server: ${host}`;
 
-    const configs = {
-        "chua_ket_noi": {
-            badgeText: "⛔ Chưa kết nối",
-            badgeBg: "#1e293b", badgeColor: "#64748b", badgeBorder: "#475569",
-            lineColor: "#475569", lineDash: "6 8", lineAnim: "none",
-            packetOpacity: "0", dotClass: "offline"
-        },
-        "da_ket_noi": {
-            badgeText: "✅ Đã kết nối",
-            badgeBg: "rgba(124,58,237,0.15)", badgeColor: "#a78bfa", badgeBorder: "#7c3aed",
-            lineColor: "url(#line-grad)", lineDash: "180 0", lineAnim: "none",
-            packetOpacity: "1", dotClass: "online"
-        },
-        "chap_chon": {
-            badgeText: "⚠️ Chập chờn",
-            badgeBg: "rgba(249,115,22,0.15)", badgeColor: "#fb923c", badgeBorder: "#f97316",
-            lineColor: "#f97316", lineDash: "8 6", lineAnim: "dash-anim 0.6s linear infinite",
-            packetOpacity: "0.5", dotClass: "warning"
-        }
+    // Visual state (badge + SVG line + travelling packet) is driven by
+    // #secmap-bus-wrapper[data-conn="…"] in topology.css.
+    const connState = ["da_ket_noi", "chap_chon", "chua_ket_noi"].includes(state)
+        ? state
+        : "chua_ket_noi";
+    if (bus) bus.dataset.conn = connState;
+
+    const labels = {
+        "chua_ket_noi": "⛔ Chưa kết nối",
+        "da_ket_noi":   "✅ Đã kết nối",
+        "chap_chon":    "⚠️ Chập chờn"
     };
+    const dotClass = { "chua_ket_noi": "offline", "da_ket_noi": "online", "chap_chon": "warning" }[connState];
 
-    const cfg = configs[state] || configs["chua_ket_noi"];
-
-    if (badge) {
-        badge.textContent         = cfg.badgeText;
-        badge.style.background    = cfg.badgeBg;
-        badge.style.color         = cfg.badgeColor;
-        badge.style.border        = `1px solid ${cfg.badgeBorder}`;
-    }
-
-    if (activeLine) {
-        activeLine.style.stroke          = cfg.lineColor;
-        activeLine.setAttribute("stroke-dasharray", cfg.lineDash);
-        activeLine.style.animation       = cfg.lineAnim;
-    }
-
-    if (packet) {
-        packet.style.opacity = cfg.packetOpacity;
-        if (cfg.packetOpacity !== "0") {
-            // Animate packet travelling left-to-right
-            packet.style.animation = "travel-anim 1.8s linear infinite";
-        } else {
-            packet.style.animation = "none";
-        }
-    }
-
-    if (connDot) {
-        connDot.className = `status-indicator ${cfg.dotClass}`;
-    }
+    if (badge) badge.textContent = labels[connState];
+    if (connDot) connDot.className = `status-indicator ${dotClass}`;
 }
 
 // ─────────────────────────────────────────────
@@ -304,8 +311,8 @@ function renderVisNetwork(devices, wazuhHost) {
     if (!devices || devices.length === 0) {
         container.innerHTML = `
             <div class="secmap-empty">
-                <i class="fa-solid fa-shield-halved" style="font-size:3rem; color:#1e293b;"></i>
-                <p style="color:#334155; font-size:0.88rem; max-width:380px;">
+                <i class="fa-solid fa-shield-halved"></i>
+                <p>
                     Không phát hiện thiết bị nào đang được giám sát.<br>
                     Sơ đồ sẽ xuất hiện ngay khi có Wazuh Agent kết nối hoặc thiết bị được xác minh trong known_devices.json.
                 </p>
@@ -334,6 +341,12 @@ function renderVisNetwork(devices, wazuhHost) {
     const edges = [];
 
     devices.forEach(dev => {
+        // Skip duplicate central Wazuh Server node if returned in devices list
+        if (dev.id === "wazuh_manager_node" || dev.type === "wazuh" || dev.ip === wazuhHost) {
+            nodes[0]._device = dev;
+            return;
+        }
+
         const iconType = (dev.type || "unknown").toLowerCase();
         const iconSrc  = ICON_MAP[iconType] || ICON_MAP["unknown"];
         const border   = BADGE_BORDER[dev.badge] || BADGE_BORDER["OFFLINE"];
@@ -437,8 +450,11 @@ function renderVisNetwork(devices, wazuhHost) {
         network.on("afterDrawing", () => updateNodeCalloutBubbles(rawDevices));
         network.on("zoom", () => updateNodeCalloutBubbles(rawDevices));
 
-        // Disable physics after stabilisation
+        // Disable physics after stabilisation & freeze position coordinates
         network.on("stabilizationIterationsDone", () => {
+            const currentPositions = network.getPositions();
+            Object.keys(currentPositions).forEach(id => { savedPositions[id] = currentPositions[id]; });
+            localStorage.setItem("secmap_positions", JSON.stringify(savedPositions));
             network.setOptions({ physics: { enabled: false } });
             updateNodeCalloutBubbles(rawDevices);
         });
@@ -473,7 +489,12 @@ function renderVisNetwork(devices, wazuhHost) {
         });
 
     } else {
-        // Incremental update to avoid full re-render flicker
+        // Incremental update preserving current node coordinates
+        const curPos = network.getPositions();
+        nodes.forEach(n => {
+            const p = curPos[n.id] || savedPositions[n.id];
+            if (p) { n.x = p.x; n.y = p.y; }
+        });
         nodesDS.update(nodes);
         edgesDS.update(edges);
         // Remove stale nodes
@@ -497,7 +518,7 @@ function updateNodeCalloutBubbles(devices) {
         if (!visContainer) return;
         overlayContainer = document.createElement("div");
         overlayContainer.id = "secmap-bubbles-overlay";
-        overlayContainer.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:90;overflow:hidden;";
+        overlayContainer.className = "secmap-bubbles-overlay";
         visContainer.appendChild(overlayContainer);
     }
 
@@ -545,9 +566,9 @@ function updateNodeCalloutBubbles(devices) {
             <div class="callout-detail">${escHtml(detailLine)}</div>
         `;
 
+        // Position is data-driven (canvas → DOM coords); visuals come from CSS classes.
         bubbleEl.style.left = `${domPos.x}px`;
         bubbleEl.style.top = `${domPos.y - 28}px`;
-        bubbleEl.style.display = "flex";
     });
 
     Array.from(overlayContainer.children).forEach(child => {
@@ -573,10 +594,9 @@ function renderDeviceDetail(dev) {
 
     const iconSrc = ICON_MAP[(dev.type || "unknown").toLowerCase()] || ICON_MAP["unknown"];
 
-    // Health bar colour
-    const healthColor = healthPct >= 80 ? "#22c55e"
-                      : healthPct >= 40 ? "#f59e0b"
-                      : "#ef4444";
+    // Tone classes mirror the severity tokens (see topology.css)
+    const healthTone = healthPct >= 80 ? "tone-ok" : healthPct >= 40 ? "tone-warn" : "tone-bad";
+    const riskTone   = riskVal   >= 70 ? "tone-bad" : riskVal   >= 40 ? "tone-warn" : "tone-ok";
 
     // Last seen display
     const lastSeenSec = health.last_seen_seconds;
@@ -586,90 +606,79 @@ function renderDeviceDetail(dev) {
                       : `${Math.round(lastSeenSec / 3600)}h trước`;
 
     panel.innerHTML = `
-        <div style="padding: 0.1rem 0.2rem;">
-            <div class="device-detail-header">
-                <img src="${iconSrc}" class="device-type-icon-lg" alt="${dev.type}" onerror="this.src='/static/assets/icons/unknown.svg'">
-                <div style="flex:1; min-width:0;">
-                    <div style="font-size:0.95rem; font-weight:700; color:#f8fafc; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                        ${escHtml(dev.name)}
-                    </div>
-                    <code style="font-size:0.8rem; color:#38bdf8;">${escHtml(dev.ip)}</code>
-                    <div style="margin-top:4px;">
-                        <span class="badge-pill badge-${badge}">${badgeLabel(badge)}</span>
-                    </div>
+        <div class="device-detail-header">
+            <img src="${iconSrc}" class="device-type-icon-lg" alt="${escHtml(dev.type)}" onerror="this.src='/static/assets/icons/unknown.svg'">
+            <div class="device-detail-heading">
+                <div class="device-detail-name">${escHtml(dev.name)}</div>
+                <code class="device-detail-ip">${escHtml(dev.ip)}</code>
+                <div>
+                    <span class="badge-pill ${badge}">${badgeLabel(badge)}</span>
                 </div>
             </div>
+        </div>
 
-            <div class="evidence-section">
-                <h3><i class="fa-solid fa-heart-pulse"></i> Health Score</h3>
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                    <div class="health-bar-outer" style="flex:1;">
-                        <div class="health-bar-inner" style="width:${healthPct}%; background:${healthColor};"></div>
-                    </div>
-                    <span style="font-size:0.8rem; font-weight:700; color:${healthColor}; width:36px; text-align:right;">${healthPct}%</span>
+        <section class="evidence-section">
+            <h3><i class="fa-solid fa-heart-pulse"></i> Health Score</h3>
+            <div class="metric-row">
+                <div class="health-bar-outer">
+                    <div class="health-bar-inner ${healthTone}" style="width:${healthPct}%"></div>
                 </div>
-                <p style="font-size:0.75rem; color:#64748b; margin:0;">
-                    Trạng thái: <span style="color:${healthColor}; font-weight:600;">${healthStatusLabel(health.status)}</span>
-                    &nbsp;·&nbsp; Lần cuối thấy: <span style="color:#94a3b8;">${lastSeenStr}</span>
-                </p>
+                <span class="metric-value ${healthTone}">${healthPct}%</span>
             </div>
+            <p class="metric-note">
+                Trạng thái: <span class="kv ${healthTone}">${healthStatusLabel(health.status)}</span>
+                &nbsp;·&nbsp; Lần cuối thấy: <span class="kv">${lastSeenStr}</span>
+            </p>
+        </section>
 
-            <div class="evidence-section" style="margin-top:0.8rem;">
-                <h3><i class="fa-solid fa-skull-crossbones"></i> Risk Score</h3>
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                    <div class="health-bar-outer" style="flex:1;">
-                        <div class="health-bar-inner" style="width:${riskVal}%; background:${riskColor(riskVal)};"></div>
-                    </div>
-                    <span style="font-size:0.8rem; font-weight:700; color:${riskColor(riskVal)}; width:36px; text-align:right;">${riskVal}</span>
+        <section class="evidence-section">
+            <h3><i class="fa-solid fa-skull-crossbones"></i> Risk Score</h3>
+            <div class="metric-row">
+                <div class="health-bar-outer">
+                    <div class="health-bar-inner ${riskTone}" style="width:${riskVal}%"></div>
                 </div>
-                <p style="font-size:0.75rem; color:#64748b; margin:0;">
-                    Alerts liên quan: <span style="color:#94a3b8;">${risk.alert_count ?? 0}</span>
-                    &nbsp;·&nbsp; Nguồn: <span style="color:#7c3aed;">score_priority()</span>
-                </p>
+                <span class="metric-value ${riskTone}">${riskVal}</span>
             </div>
+            <p class="metric-note">
+                Alerts liên quan: <span class="kv">${risk.alert_count ?? 0}</span>
+                &nbsp;·&nbsp; Nguồn: <span class="ref">score_priority()</span>
+            </p>
+        </section>
 
-            <div class="evidence-section" style="margin-top:0.8rem;">
-                <h3><i class="fa-solid fa-info-circle"></i> Chi Tiết</h3>
-                <table style="width:100%; font-size:0.78rem; border-collapse:collapse;">
-                    <tr><td style="color:#64748b; padding:2px 0;">Loại thiết bị</td>
-                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.type || "—")}</td></tr>
-                    <tr><td style="color:#64748b; padding:2px 0;">Hệ điều hành</td>
-                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.os || "—")}</td></tr>
-                    <tr><td style="color:#64748b; padding:2px 0;">Wazuh Agent ID</td>
-                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.agent_id || "Không có agent")}</td></tr>
-                    <tr><td style="color:#64748b; padding:2px 0;">Agent Status</td>
-                        <td style="color:#94a3b8; text-align:right;">${escHtml(dev.agent_status || "—")}</td></tr>
-                    <tr><td style="color:#64748b; padding:2px 0;">Nguồn dữ liệu</td>
-                        <td style="color:#7c3aed; text-align:right;">${escHtml(dev.source || "—")}</td></tr>
-                </table>
-            </div>
+        <section class="evidence-section">
+            <h3><i class="fa-solid fa-info-circle"></i> Chi tiết</h3>
+            <table class="kv-table">
+                <tr><td>Loại thiết bị</td><td>${escHtml(dev.type || "—")}</td></tr>
+                <tr><td>Hệ điều hành</td><td>${escHtml(dev.os || "—")}</td></tr>
+                <tr><td>Wazuh Agent ID</td><td>${escHtml(dev.agent_id || "Không có agent")}</td></tr>
+                <tr><td>Agent Status</td><td>${escHtml(dev.agent_status || "—")}</td></tr>
+                <tr><td>Nguồn dữ liệu</td><td class="ref">${escHtml(dev.source || "—")}</td></tr>
+            </table>
+        </section>
 
-            <button class="btn-investigate" onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
-                <i class="fa-solid fa-magnifying-glass-chart"></i>
-                🔍 Mở AI Investigation (Double-click)
-            </button>
-        </div>`;
+        <button type="button" class="btn btn--primary btn--block device-detail-cta"
+                onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
+            <i class="fa-solid fa-magnifying-glass-chart"></i> Mở AI Investigation
+        </button>`;
 }
 
 function renderServerDetail() {
     const panel = document.getElementById("device-detail-panel");
     if (!panel) return;
     panel.innerHTML = `
-        <div style="padding:0.2rem;">
-            <div class="device-detail-header">
-                <img src="${ICON_MAP["siem"]}" class="device-type-icon-lg" alt="SIEM">
-                <div>
-                    <div style="font-size:0.95rem; font-weight:700; color:#f8fafc;">Wazuh Manager</div>
-                    <code style="font-size:0.8rem; color:#818cf8;">SIEM — Nút trung tâm</code>
-                </div>
+        <div class="device-detail-header">
+            <img src="${ICON_MAP["siem"]}" class="device-type-icon-lg" alt="SIEM">
+            <div class="device-detail-heading">
+                <div class="device-detail-name">Wazuh Manager</div>
+                <code class="device-detail-ip">SIEM — Nút trung tâm</code>
             </div>
-            <div class="evidence-section">
-                <p style="font-size:0.82rem; color:#64748b; line-height:1.6;">
-                    Đây là nút trung tâm Wazuh Manager — tất cả Agent gửi log về đây.<br>
-                    Double-click vào thiết bị ngoài để mở AI Investigation scoped theo thiết bị đó.
-                </p>
-            </div>
-        </div>`;
+        </div>
+        <section class="evidence-section">
+            <p class="metric-note">
+                Đây là nút trung tâm Wazuh Manager — tất cả Agent gửi log về đây.<br>
+                Double-click vào thiết bị ngoài để mở AI Investigation scoped theo thiết bị đó.
+            </p>
+        </section>`;
 }
 
 function openInvestigation(id, name, ip, risk) {
@@ -709,11 +718,6 @@ function healthStatusLabel(status) {
     }[status] || status || "Không rõ";
 }
 
-function riskColor(risk) {
-    if (risk >= 70) return "#ef4444";
-    if (risk >= 40) return "#f59e0b";
-    return "#22c55e";
-}
     async function pollWazuhStatus() {
         try {
             const res = await fetch('/api/wazuh/status', { credentials: 'same-origin' });
@@ -742,21 +746,20 @@ function riskColor(risk) {
 window.openWazuhApiInspectorModal = function() {
     const modal = document.getElementById("wazuh-api-inspector-modal");
     if (modal) {
-        modal.style.display = "flex";
+        modal.classList.remove("hidden");
         window.refreshWazuhApiInspector();
     }
 };
 
 window.closeWazuhApiInspectorModal = function() {
-    const modal = document.getElementById("wazuh-api-inspector-modal");
-    if (modal) modal.style.display = "none";
+    document.getElementById("wazuh-api-inspector-modal")?.classList.add("hidden");
 };
 
 window.copyTextToClipboard = function(text, btnElement) {
-    if (!text) return;
+    if (!text || !btnElement) return;
     navigator.clipboard.writeText(text).then(() => {
         const origText = btnElement.innerHTML;
-        btnElement.innerHTML = `<i class="fa-solid fa-check" style="color:#22c55e;"></i> Đã Sao Chép!`;
+        btnElement.innerHTML = `<i class="fa-solid fa-check"></i> Đã sao chép!`;
         setTimeout(() => { btnElement.innerHTML = origText; }, 1800);
     }).catch(err => {
         alert("Không thể sao chép: " + err);
@@ -768,53 +771,91 @@ window.refreshWazuhApiInspector = async function() {
     if (!listBox) return;
     
     try {
-        const res = await fetch("/api/wazuh/live-logs");
+        const res = await fetch("/api/wazuh/live-logs", { credentials: "same-origin" });
         const data = await res.json();
         const logs = data.logs || [];
         
         if (logs.length === 0) {
-            listBox.innerHTML = `<div style="color:#64748b; text-align:center; padding:2rem;">Chưa có dữ liệu gói tin REST API nào được ghi nhận.</div>`;
+            listBox.innerHTML = `<div class="inspector-empty">Chưa có dữ liệu gói tin REST API nào được ghi nhận.</div>`;
             return;
         }
-        
+
+        const methodClass = { "GET": "is-get", "POST": "is-post", "PUT": "is-put" };
+
         let html = "";
         logs.forEach(log => {
-            const methodColor = log.method === "GET" ? "#38bdf8" : log.method === "POST" ? "#22c55e" : log.method === "PUT" ? "#f59e0b" : "#ef4444";
-            const statusColor = log.status_code === 200 ? "#22c55e" : "#ef4444";
+            const mClass = methodClass[log.method] || "is-del";
+            const sClass = log.status_code === 200 ? "is-ok" : "is-err";
             const rawUrl = log.url || "";
             const rawCurl = log.curl_command || "";
-            
+
             html += `
-            <div style="background:#0b1329; border:1px solid #1e293b; border-radius:8px; padding:0.9rem; font-size:0.82rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="background:${methodColor}; color:#000; font-weight:700; font-size:0.72rem; padding:2px 6px; border-radius:4px;">${log.method}</span>
-                        <span style="color:${statusColor}; font-weight:700; font-size:0.75rem; border:1px solid ${statusColor}; padding:1px 5px; border-radius:4px;">${log.status_code}</span>
-                        <span style="color:#e2e8f0; font-weight:600; word-break:break-all;">${rawUrl}</span>
+            <article class="inspector-log">
+                <div class="inspector-log__head">
+                    <div class="inspector-log__id">
+                        <span class="inspector-method ${mClass}">${escHtml(log.method)}</span>
+                        <span class="inspector-status ${sClass}">${escHtml(String(log.status_code))}</span>
+                        <span class="inspector-url">${escHtml(rawUrl)}</span>
                     </div>
-                    <span style="color:#64748b; font-size:0.75rem;">${log.timestamp}</span>
-                </div>
-                
-                <div style="color:#94a3b8; font-size:0.78rem; margin-bottom:0.5rem; word-break:break-all;">
-                    ${log.detail || ''}
+                    <span class="inspector-ts">${escHtml(log.timestamp)}</span>
                 </div>
 
-                <div style="background:#020617; border:1px solid #1e293b; border-radius:4px; padding:0.4rem; font-size:0.72rem; color:#a78bfa; margin-bottom:0.6rem; word-break:break-all; white-space:pre-wrap;">
-                    ${rawCurl}
-                </div>
-                
-                <div style="display:flex; gap:0.5rem;">
-                    <button class="btn-chip-action" onclick="window.copyTextToClipboard('${rawUrl.replace(/'/g, "\\'")}', this)" style="font-size:0.72rem; padding:3px 8px; background:#1e293b; border:1px solid #3b82f6; color:#60a5fa;">
-                        <i class="fa-solid fa-copy"></i> 📋 Copy API Endpoint
+                <p class="inspector-detail">${escHtml(log.detail || '')}</p>
+                <pre class="inspector-curl">${escHtml(rawCurl)}</pre>
+
+                <div class="inspector-actions">
+                    <button type="button" class="btn btn--ghost btn--sm"
+                            onclick="window.copyTextToClipboard(this.dataset.copy, this)" data-copy="${escHtml(rawUrl)}">
+                        <i class="fa-solid fa-copy"></i> Copy API Endpoint
                     </button>
-                    <button class="btn-chip-action" onclick="window.copyTextToClipboard('${rawCurl.replace(/'/g, "\\'")}', this)" style="font-size:0.72rem; padding:3px 8px; background:#1e293b; border:1px solid #22c55e; color:#4ade80;">
-                        <i class="fa-solid fa-terminal"></i> 📋 Copy Lệnh Curl
+                    <button type="button" class="btn btn--ghost btn--sm"
+                            onclick="window.copyTextToClipboard(this.dataset.copy, this)" data-copy="${escHtml(rawCurl)}">
+                        <i class="fa-solid fa-terminal"></i> Copy lệnh Curl
                     </button>
                 </div>
-            </div>`;
+            </article>`;
         });
         listBox.innerHTML = html;
     } catch(e) {
-        listBox.innerHTML = `<div style="color:#ef4444; padding:1rem;">❌ Lỗi tải dữ liệu gói API Inspector: ${e.message}</div>`;
+        listBox.innerHTML = `<div class="inspector-error">❌ Lỗi tải dữ liệu gói API Inspector: ${escHtml(e.message)}</div>`;
     }
 };
+
+// ─────────────────────────────────────────────
+//  LIVE REST API EXCHANGE LOG (moved from inline <script>)
+// ─────────────────────────────────────────────
+async function pollLiveApiLogs() {
+    try {
+        const res = await fetch("/api/wazuh/live-logs", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const container = document.getElementById("live-api-log-container");
+        const statusText = document.getElementById("live-log-status-text");
+        if (container && data.logs) {
+            if (data.logs.length === 0) {
+                container.innerHTML = `<span class="live-log-idle">[IDLE] Chưa có giao dịch REST API mới.</span>`;
+            } else {
+                container.innerHTML = data.logs.slice(0, 20).map(l => {
+                    const outgoing = l.direction === "OUTGOING_REQUEST";
+                    const dirClass = outgoing ? "is-out" : "is-in";
+                    const httpClass = l.status_code === 200 ? "is-ok" : "is-fail";
+                    const icon = outgoing ? "📤 [AGENT ➔ WAZUH SERVER]" : "📥 [WAZUH SERVER ➔ AGENT]";
+                    return `<div class="live-log-line ${dirClass} ${httpClass}">`
+                         + `<span class="live-log-ts">[${escHtml(l.timestamp)}]</span> `
+                         + `<span class="live-log-dir">${icon}</span> `
+                         + `<span class="live-log-http">${escHtml(l.method)} ${escHtml(l.url)} (HTTP ${escHtml(String(l.status_code))})</span>`
+                         + ` — <span class="live-log-detail">${escHtml(l.detail || '')}</span>`
+                         + `</div>`;
+                }).join("");
+            }
+            if (statusText) statusText.textContent = `Đã cập nhật ${data.logs.length} giao dịch REST API thời gian thực`;
+        }
+    } catch (e) {
+        console.error("Error polling live logs:", e);
+    }
+}
+
+// Route both inspector entry points through a single action.
+document.getElementById("btn-wazuh-api-inspector")?.addEventListener("click", () => window.openWazuhApiInspectorModal());
+setInterval(pollLiveApiLogs, 2000);
+document.addEventListener("DOMContentLoaded", pollLiveApiLogs);

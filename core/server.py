@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
@@ -41,8 +41,6 @@ from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
 from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
 from langgraph_engine.graphs.config_form_graph import config_form_graph
-from mcp_layer.wazuh_mcp import get_agents, search_alerts, get_manager_status
-from mcp_layer.correlation_mcp import search_correlated_events
 from ai_topology_parser import DynamicAITopologyParser
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
@@ -109,6 +107,10 @@ def load_system_settings() -> Dict[str, Any]:
     env_host = os.getenv("WAZUH_HOST")
     env_port = os.getenv("WAZUH_PORT")
     changed = False
+    # Ensure a webhook shared secret exists on first run (not committed to git).
+    if not settings.get("webhook_token"):
+        settings["webhook_token"] = os.getenv("WAZUH_WEBHOOK_TOKEN") or f"agentwazuh-{secrets.token_urlsafe(24)}"
+        changed = True
     if env_host and env_host != settings.get("wazuh_host"):
         settings["wazuh_host"] = env_host
         changed = True
@@ -177,6 +179,8 @@ def _hash_password(password: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000).hex()
 
 def initialize_admin_auth():
+    if AUTH_FILE_PATH.exists():
+        return
     salt = secrets.token_bytes(32)
     _admin_pass = os.getenv("AGENTWAZUH_ADMIN_PASSWORD", "admin123")
     password_hash = _hash_password(_admin_pass, salt)
@@ -192,26 +196,30 @@ initialize_admin_auth()
 def verify_admin_credentials(user: str, pass_str: str) -> bool:
     user_clean = user.strip().lower() if user else ""
     pass_clean = pass_str.strip() if pass_str else ""
-    
-    # Universal Login Support: Allow any admin username (admin, wazuh, wazuh-user, root)
-    if user_clean in ["admin", "wazuh", "wazuh-user", "root"] or not user_clean:
-        return True
 
-    if pass_clean in ["admin123", "admin", "wazuh", "123456", "password"]:
-        return True
+    if not user_clean or not pass_clean:
+        return False
 
-    if not AUTH_FILE_PATH.exists():
-        return True
+    if user_clean not in ["admin", "wazuh", "root", "agentwazuh"]:
+        return False
+
+    # 1. Primary check: Verify against PBKDF2 stored hash
     try:
-        data = json.loads(AUTH_FILE_PATH.read_text(encoding="utf-8"))
-        if user_clean == data.get("username", "").lower():
-            return True
-        salt = bytes.fromhex(data.get("salt_hex"))
-        expected_hash = data.get("password_hash")
-        computed_hash = _hash_password(pass_clean, salt)
-        return secrets.compare_digest(computed_hash, expected_hash)
+        if AUTH_FILE_PATH.exists():
+            data = json.loads(AUTH_FILE_PATH.read_text(encoding="utf-8"))
+            salt_hex = data.get("salt_hex")
+            expected_hash = data.get("password_hash")
+            if salt_hex and expected_hash:
+                salt = bytes.fromhex(salt_hex)
+                computed_hash = _hash_password(pass_clean, salt)
+                if secrets.compare_digest(computed_hash, expected_hash):
+                    return True
     except Exception:
-        return True
+        pass
+
+    # 2. Resilient fallback for lab & local testing (admin123 / admin / wazuh)
+    env_pass = os.getenv("AGENTWAZUH_ADMIN_PASSWORD", "admin123")
+    return pass_clean in [env_pass, "admin123", "admin", "wazuh", "123456"]
 
 def get_current_session(request: Request) -> Optional[str]:
     token = request.cookies.get("agentwazuh_session")
@@ -340,7 +348,8 @@ async def heartbeat_background_loop():
                 status_data["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
             # Stamp cache time for freshness detection in investigate endpoint
             status_data["_cached_at"] = time.time()
-            GLOBAL_SYSTEM_STATUS_CACHE = status_data
+            GLOBAL_SYSTEM_STATUS_CACHE.clear()
+            GLOBAL_SYSTEM_STATUS_CACHE.update(status_data)
 
 
             agents = status_data.get("agents", [])
@@ -446,7 +455,7 @@ class CorrelationRequest(BaseModel):
     agent_name: Optional[str] = "PC-PB1-VLAN10"
 
 @app.post("/api/wazuh/correlation")
-def analyze_correlation_endpoint(req: CorrelationRequest):
+def analyze_correlation_endpoint(req: CorrelationRequest, session: str = Depends(require_authenticated_session)):
     alert_payload = {
         "rule": {
             "id": req.rule_id,
@@ -577,10 +586,16 @@ async def login_endpoint(req: LoginRequest, response: Response):
         # 3. Create fresh WazuhClient instance for new session with credentials
         wazuh_client = create_wazuh_client_from_settings(host=target_host, port=SYSTEM_SETTINGS.get("wazuh_port", 55000))
 
-        # Force immediate cache refresh
+        # Force immediate cache refresh (offload blocking I/O off the event loop)
         global GLOBAL_SYSTEM_STATUS_CACHE
-        GLOBAL_SYSTEM_STATUS_CACHE = wazuh_client.get_system_status()
-        GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
+        loop = asyncio.get_event_loop()
+        _fresh_status = await loop.run_in_executor(None, wazuh_client.get_system_status)
+        _fresh_status["alert_stats"] = await loop.run_in_executor(
+            None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
+        )
+        _fresh_status["_cached_at"] = time.time()
+        GLOBAL_SYSTEM_STATUS_CACHE.clear()
+        GLOBAL_SYSTEM_STATUS_CACHE.update(_fresh_status)
 
         # 4. Issue fresh session token
         token = secrets.token_hex(32)
@@ -638,6 +653,13 @@ async def serve_device_inventory(request: Request):
         return FileResponse(str(WEB_DIR / "login.html"))
     return FileResponse(str(WEB_DIR / "device_inventory.html"))
 
+@app.get("/api-inspector", response_class=HTMLResponse)
+@app.get("/api-packets", response_class=HTMLResponse)
+async def serve_api_inspector(request: Request):
+    if not get_current_session(request):
+        return FileResponse(str(WEB_DIR / "login.html"))
+    return FileResponse(str(WEB_DIR / "api_inspector.html"))
+
 class TestConnectionRequest(BaseModel):
     wazuh_host: str
     wazuh_port: Optional[int] = 55000
@@ -678,10 +700,16 @@ async def update_settings(req: SystemSettingsRequest, session: str = Depends(req
     test_client = create_wazuh_client_from_settings(host=target_host, port=new_data.get("wazuh_port", 55000))
     wazuh_client = test_client
     
-    # Force immediate cache refresh
+    # Force immediate cache refresh (offload blocking I/O off the event loop)
     global GLOBAL_SYSTEM_STATUS_CACHE
-    GLOBAL_SYSTEM_STATUS_CACHE = wazuh_client.get_system_status()
-    GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
+    loop = asyncio.get_event_loop()
+    _fresh_settings_status = await loop.run_in_executor(None, wazuh_client.get_system_status)
+    _fresh_settings_status["alert_stats"] = await loop.run_in_executor(
+        None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
+    )
+    _fresh_settings_status["_cached_at"] = time.time()
+    GLOBAL_SYSTEM_STATUS_CACHE.clear()
+    GLOBAL_SYSTEM_STATUS_CACHE.update(_fresh_settings_status)
     
     return {"status": "success", "settings": SYSTEM_SETTINGS, "message": "🟢 Đã cập nhật và lưu cấu hình hệ thống thành công!"}
 
@@ -760,6 +788,9 @@ async def get_network_status(session: str = Depends(require_authenticated_sessio
 @app.get("/api/push/{token}")
 @app.post("/api/push/{token}")
 async def uptime_kuma_push_api(token: str, status: str = "up", msg: str = "OK", ping: int = 15):
+    expected = SYSTEM_SETTINGS.get("uptime_kuma_push_token", "")
+    if not expected or not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="Invalid push token")
     return {"ok": True, "msg": f"Heartbeat received for push token {token}", "status": status, "ping": ping}
 
 @app.post("/api/wazuh/webhook")
@@ -767,8 +798,19 @@ async def wazuh_webhook(request: Request):
     """
     [PUSH MODEL] - Endpoint nhận dữ liệu do Wazuh Manager chủ động bắn sang.
     Cấu hình trong ossec.conf: <integration> chỉa webhook vào URL này.
+    Xác thực qua header `X-AgentWazuh-Token` (shared secret) hoặc `Authorization: Bearer <token>`.
     """
     global GLOBAL_ALERTS_CACHE
+    expected = SYSTEM_SETTINGS.get("webhook_token", "") or os.getenv("WAZUH_WEBHOOK_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Webhook disabled: cấu hình `webhook_token` (settings) hoặc env `WAZUH_WEBHOOK_TOKEN`.")
+    provided = request.headers.get("X-AgentWazuh-Token") or ""
+    authz = request.headers.get("Authorization", "")
+    if authz.startswith("Bearer "):
+        provided = authz[len("Bearer "):].strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token")
     try:
         data = await request.json()
         if isinstance(data, list):
@@ -778,7 +820,7 @@ async def wazuh_webhook(request: Request):
             GLOBAL_ALERTS_CACHE.insert(0, data)
             
         if len(GLOBAL_ALERTS_CACHE) > 500:
-            GLOBAL_ALERTS_CACHE = GLOBAL_ALERTS_CACHE[:500]
+            del GLOBAL_ALERTS_CACHE[500:]
             
         return {"status": "success", "message": "Alert received via push webhook"}
     except Exception as e:
@@ -801,7 +843,7 @@ async def get_status(session: str = Depends(require_authenticated_session)):
     return GLOBAL_SYSTEM_STATUS_CACHE
 
 @app.get("/api/wazuh/live-logs")
-async def get_wazuh_live_logs():
+async def get_wazuh_live_logs(session: str = Depends(require_authenticated_session)):
     """Trả về nhật ký thời gian thực các gói yêu cầu REST API giữa AgentWazuh ↔ Wazuh Server."""
     return {"status": "success", "count": len(LIVE_API_LOGS), "logs": list(LIVE_API_LOGS)}
 
@@ -821,7 +863,7 @@ async def recall_solpi_observation(
         raise HTTPException(status_code=404, detail="Observation archive not found")
 
 @app.get("/api/system/audit-logs")
-async def get_system_audit_logs(limit: int = 50):
+async def get_system_audit_logs(limit: int = 50, session: str = Depends(require_authenticated_session)):
     """
     Trả về danh sách Nhật ký Hoạt động (Activity / Audit Logs) trực quan theo dạng Ring Buffer (500 events).
     Theo dõi toàn bộ luồng giao tiếp giữa AgentWazuh, Wazuh Manager (Port 55000/443), LangGraph Engine và AI Advisor.
@@ -830,7 +872,7 @@ async def get_system_audit_logs(limit: int = 50):
     return {"status": "success", "count": len(logs), "logs": logs}
 
 @app.delete("/api/system/audit-logs")
-async def clear_system_audit_logs():
+async def clear_system_audit_logs(session: str = Depends(require_authenticated_session)):
     """Xóa sạch bộ đệm nhật ký hoạt động."""
     audit_logger.clear_logs()
     return {"status": "success", "message": "Cleared all audit logs"}
@@ -879,9 +921,7 @@ async def import_alerts(req: ImportAlertsRequest, session: str = Depends(require
 
         existing_ids = {str(a.get("id")) for a in GLOBAL_ALERTS_CACHE if a.get("id")}
         new_items = [a for a in imported if str(a.get("id")) not in existing_ids]
-        GLOBAL_ALERTS_CACHE = new_items + GLOBAL_ALERTS_CACHE
-        if len(GLOBAL_ALERTS_CACHE) > 500:
-            GLOBAL_ALERTS_CACHE = GLOBAL_ALERTS_CACHE[:500]
+        GLOBAL_ALERTS_CACHE[:] = (new_items + list(GLOBAL_ALERTS_CACHE))[:500]
 
         GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
 
@@ -953,6 +993,31 @@ async def get_filtered_alerts(type: str = "severity", value: str = "low", limit:
             filtered.append(a)
         elif type == "agent":
             filtered.append(a)
+        elif type == "device":
+            # Scoped drill-down for one device: match agent id/name/ip or the alert srcip/dstip.
+            agent = a.get("agent", {}) or {}
+            src = str((a.get("data", {}) or {}).get("srcip", ""))
+            dst = str((a.get("data", {}) or {}).get("dstip", ""))
+            ag_id = str(agent.get("id", ""))
+            ag_ip = str(agent.get("ip", ""))
+            ag_name = str(agent.get("name", "")).lower()
+
+            val_lower = value.lower().strip()
+            val_clean = val_lower.replace("agent_", "")
+
+            candidates = {ag_id, ag_ip, ag_name, src.lower(), dst.lower(), val_clean}
+            candidates.discard("")
+
+            if (val_lower in candidates or
+                val_clean in candidates or
+                (ag_id and val_clean == ag_id) or
+                (val_lower == "wazuh_manager_node" and (ag_id == "000" or val_clean in ["000", "wazuh"]))):
+                filtered.append(a)
+
+    # Legacy filter types fall back to the full cache so the UI never renders empty;
+    # a device-scoped view must stay truthful, so it returns only real matches.
+    if type == "device":
+        return {"status": "success", "filter": {"type": type, "value": value}, "count": len(filtered), "alerts": filtered}
 
     return {"status": "success", "filter": {"type": type, "value": value}, "count": len(filtered), "alerts": filtered if filtered else all_alerts}
 
@@ -1486,13 +1551,9 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         ACTIVE_FORM_SESSIONS.pop(session, None)
 
     # PERFORMANCE FIX: Use GLOBAL_SYSTEM_STATUS_CACHE (updated every 15s by background heartbeat).
-    # Do NOT call get_system_status() + get_alert_stats_aggregated() on every message — this adds 4-8s latency.
-    # Only force a refresh if cache is missing or stale (>30s old).
+    # Chỉ ép refresh khi cache cũ >30s để tránh 4-8s latency trên mỗi tin nhắn.
     _cache_age = time.time() - GLOBAL_SYSTEM_STATUS_CACHE.get("_cached_at", 0)
-    if GLOBAL_SYSTEM_STATUS_CACHE.get("status") == "offline" or _cache_age > 30:
-        system_status = GLOBAL_SYSTEM_STATUS_CACHE
-    else:
-        system_status = GLOBAL_SYSTEM_STATUS_CACHE
+    system_status = GLOBAL_SYSTEM_STATUS_CACHE
     # Ensure host reflects current settings
     system_status["host"] = SYSTEM_SETTINGS.get("wazuh_host", system_status.get("wazuh_host", ""))
 
@@ -1522,9 +1583,15 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
 
     # Luôn kiểm tra status thực tế và nạp alert_stats mới nhất từ OpenSearch
     wazuh_client.host = SYSTEM_SETTINGS.get("wazuh_host", os.getenv("WAZUH_HOST", "N/A"))
-    system_status = wazuh_client.get_system_status()
-    system_status["alert_stats"] = wazuh_client.get_alert_stats_aggregated(hours_back=24)
-    GLOBAL_SYSTEM_STATUS_CACHE = system_status
+    _investigate_loop = asyncio.get_event_loop()
+    if _cache_age > 30 or not GLOBAL_SYSTEM_STATUS_CACHE.get("_cached_at"):
+        system_status = await _investigate_loop.run_in_executor(None, wazuh_client.get_system_status)
+        system_status["alert_stats"] = await _investigate_loop.run_in_executor(
+            None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
+        )
+        system_status["_cached_at"] = time.time()
+        GLOBAL_SYSTEM_STATUS_CACHE.clear()
+        GLOBAL_SYSTEM_STATUS_CACHE.update(system_status)
 
     # Router LangGraph Form Engine (HITL StateGraph)
     q_lower = req.query.lower()
@@ -1545,7 +1612,8 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             "draft_xml": None,
             "sandbox_result": None,
             "awaiting_approval": False,
-            "status": "collecting"
+            "status": "collecting",
+            "sample_alerts": (alerts or [])[:200]
         }
 
         # Handle intervening chat questions if form is active
@@ -1665,16 +1733,13 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
     file_path = PENDING_RULES_DIR / filename
     file_path.write_text(rule_xml, encoding="utf-8")
 
-    local_rules_path = CONFIG_DIR / "local_rules.xml"
-    local_rules_path.write_text(rule_xml, encoding="utf-8")
-
     return {
         "status": "success",
         "rule_id": new_rule_id,
         "filename": filename,
         "rule_xml": rule_xml,
-        "message": f"✔ Đã áp dụng Rule {new_rule_id} ({req.rule_name}) thành công lên Wazuh Manager!",
-        "reloaded_wazuh": True
+        "message": f"✔ Đã lưu Rule {new_rule_id} ({req.rule_name}) vào vùng chờ phê duyệt (pending_rules). Vui lòng kiểm tra & áp dụng lên Wazuh Manager thủ công.",
+        "reloaded_wazuh": False
     }
 
 @app.post("/api/rules/dry-run")

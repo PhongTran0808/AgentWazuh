@@ -16,6 +16,7 @@ WAZUH_USER = os.getenv("WAZUH_API_USER", "wazuh")
 WAZUH_PASS = os.getenv("WAZUH_API_PASSWORD", "wazuh")
 DASHBOARD_USER = os.getenv("INDEXER_USER", "admin")
 DASHBOARD_PASS = os.getenv("INDEXER_PASSWORD", "admin")
+WEBSITE_VERIFY_SSL = os.getenv("WAZUH_VERIFY_SSL", "false").strip().lower() not in ("false", "0", "no")
 
 if not WAZUH_PASS:
     logger.warning("⚠️  [SECURITY] WAZUH_API_PASSWORD env variable is empty.")
@@ -26,7 +27,7 @@ if not DASHBOARD_PASS:
 def get_wazuh_jwt_token() -> str:
     """Authenticate with the local Wazuh REST API using wazuh credentials."""
     url = f"https://{WAZUH_HOST}:{WAZUH_PORT}/security/user/authenticate"
-    res = requests.post(url, auth=(WAZUH_USER, WAZUH_PASS), verify=False, timeout=5.0)
+    res = requests.post(url, auth=(WAZUH_USER, WAZUH_PASS), verify=WEBSITE_VERIFY_SSL, timeout=5.0)
     if res.status_code == 200:
         return res.json().get("data", {}).get("token")
     raise PermissionError(f"Wazuh Auth Failed: {res.text}")
@@ -34,25 +35,22 @@ def get_wazuh_jwt_token() -> str:
 
 @mcp.tool()
 def get_agents(status_filter: str = None) -> str:
-    """MCP Tool: Fetch list of agents registered in Wazuh Manager via official REST API 55000 with Port 443 Fallback."""
+    """MCP Tool: Fetch list of agents registered in Wazuh Manager via official REST API 55000."""
     try:
         token = get_wazuh_jwt_token()
         headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get(f"https://{WAZUH_HOST}:{WAZUH_PORT}/agents?limit=500", headers=headers, verify=False, timeout=3.0)
+        res = requests.get(f"https://{WAZUH_HOST}:{WAZUH_PORT}/agents?limit=500", headers=headers, verify=WEBSITE_VERIFY_SSL, timeout=3.0)
         if res.status_code == 200:
             agents = res.json().get("data", {}).get("affected_items", [])
             if status_filter:
                 agents = [a for a in agents if str(a.get("status", "")).lower() == status_filter.lower()]
             return json.dumps(agents, indent=2, ensure_ascii=False)
+        logger.warning(f"⚠️ get_agents HTTP {res.status_code}: {res.text}")
     except Exception as e:
-        logger.warning(f"⚠️ Port 55000 API offline/restarting: {e}. Falling back to cached agent discovery...")
+        logger.warning(f"⚠️ Port 55000 API offline/restarting: {e}")
 
-    # Static/Cache Fallback when Port 55000 is restarting
-    fallback_agents = [
-        {"id": "000", "name": "wazuh-server", "ip": "127.0.0.1", "status": "active"},
-        {"id": "001", "name": "Ubuntu-Agent", "ip": "10.10.10.2", "status": "active"}
-    ]
-    return json.dumps(fallback_agents, indent=2, ensure_ascii=False)
+    # ZERO MOCK DATA: Return honest empty state when API is unreachable.
+    return json.dumps([], indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -60,7 +58,7 @@ def get_manager_status() -> str:
     """MCP Tool: Fetch Wazuh Manager status summary via REST API 55000."""
     token = get_wazuh_jwt_token()
     headers = {"Authorization": f"Bearer {token}"}
-    res = requests.get(f"https://{WAZUH_HOST}:{WAZUH_PORT}/manager/status", headers=headers, verify=False, timeout=5.0)
+    res = requests.get(f"https://{WAZUH_HOST}:{WAZUH_PORT}/manager/status", headers=headers, verify=WEBSITE_VERIFY_SSL, timeout=5.0)
     if res.status_code == 200:
         return json.dumps(res.json().get("data", {}), indent=2, ensure_ascii=False)
     return f"Error HTTP {res.status_code}: {res.text}"
@@ -70,7 +68,7 @@ def get_manager_status() -> str:
 def search_alerts(limit: int = 50, hours_back: int = 24) -> str:
     """MCP Tool: Query live alerts from OpenSearch Indexer wazuh-alerts-4.x-* index."""
     s = requests.Session()
-    s.verify = False
+    s.verify = WEBSITE_VERIFY_SSL
     login_res = s.post(
         f"https://{WAZUH_HOST}/auth/login",
         json={"username": DASHBOARD_USER, "password": DASHBOARD_PASS},
@@ -118,7 +116,7 @@ if __name__ == "__main__":
 
 
 
-from mcp_layer.correlation_mcp import search_correlated_events, OpenSearchCorrelationTool
+from mcp_layer.correlation_mcp import search_correlated_events
 
 @mcp.tool()
 def search_correlated_events_tool(target_ip: str, base_timestamp: str, time_window_minutes: int = 15) -> str:

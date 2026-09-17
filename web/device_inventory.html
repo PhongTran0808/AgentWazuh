@@ -3,112 +3,180 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AgentWazuh — Device Inventory & Topology Verification (Tầng 0)</title>
-    <link rel="stylesheet" href="/static/design-tokens.css">
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-</head>
-<body class="dashboard-body">
+    <title>AgentWazuh — Kiểm kê thiết bị (Tầng 0)</title>
+    <meta name="description" content="Ground Truth: quản lý danh sách IP thiết bị mạng thật và xác nhận IP chưa biết.">
 
-    <!-- Top Header Navigation -->
-    <header class="soc-header">
-        <div class="header-brand">
-            <button id="btn-back-dash" class="btn-chip-action" title="Quay lại Dashboard chính">
-                <i class="fa-solid fa-arrow-left"></i> Quay Lại Dashboard
-            </button>
-            <button id="btn-open-netmap" class="btn-chip-action" title="Xem sơ đồ mạng">
-                <i class="fa-solid fa-network-wired"></i> Xem Sơ Đồ Mạng
-            </button>
-            <div style="margin-left: 0.5rem;">
-                <h1 class="header-title"><i class="fa-solid fa-clipboard-check"></i> Kiểm Kê Thiết Bị Thủ Công (Device Inventory - Tầng 0)</h1>
-                <p class="header-subtitle">Nguồn sự thật cao nhất (Ground Truth): Quản lý danh sách IP thiết bị mạng thật & xác nhận IP chưa biết</p>
-            </div>
-        </div>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/shell.css">
+    <link rel="stylesheet" href="/static/components.css">
+    <script src="/static/shell.js" defer></script>
+</head>
+<body class="app" data-page="inventory">
+
+    <header class="appbar">
+        <button type="button" class="btn btn--icon" data-rail-toggle id="btn-rail-toggle"
+                aria-label="Thu gọn thanh điều hướng" aria-expanded="true" title="Thu gọn điều hướng">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <a class="brandmark" href="/dashboard" aria-label="AgentWazuh — trang chủ">
+            <span class="brandmark__mark"><i class="fa-solid fa-shield-halved"></i></span>
+            <span class="brandmark__text">
+                <strong>AgentWazuh</strong>
+                <small>SOC Incident Assistant</small>
+            </span>
+        </a>
+        <span class="appbar__divider" aria-hidden="true"></span>
+        <span class="appbar__page">Kiểm kê thiết bị</span>
+
+        <span class="spacer"></span>
+
         <div class="header-status">
             <span class="status-indicator online"></span>
             <span class="status-text" id="status-host">Wazuh Server: Auto</span>
         </div>
+
+        <button type="button" class="btn btn--icon" data-palette-open aria-label="Bảng lệnh (Ctrl+K)" title="Bảng lệnh · Ctrl+K">
+            <i class="fa-solid fa-magnifying-glass"></i>
+        </button>
+        <a class="btn btn--ghost" href="/network-map" title="Sơ đồ mạng" aria-label="Sơ đồ mạng">
+            <i class="fa-solid fa-network-wired"></i><span>Sơ đồ mạng</span>
+        </a>
+        <a class="btn btn--ghost" href="/api-inspector" title="Gói tin API">
+            <i class="fa-solid fa-satellite-dish"></i><span>Gói tin API</span>
+        </a>
+        <button type="button" class="btn btn--icon" data-dock-toggle id="btn-dock-toggle"
+                aria-label="Bật/tắt bảng xác nhận thiết bị" aria-expanded="true" title="Bảng xác nhận thiết bị">
+            <i class="fa-solid fa-table-columns"></i>
+        </button>
+        <button type="button" class="btn btn--ghost" id="btn-back-dash" title="Về bảng điều khiển">
+            <i class="fa-solid fa-arrow-left"></i><span>Bảng điều khiển</span>
+        </button>
     </header>
 
-    <main class="soc-layout" style="grid-template-columns: 1fr 450px;">
-        
-        <!-- Left Pane: Known Devices Inventory List -->
-        <section class="soc-pane">
-            <div class="pane-header">
-                <i class="fa-solid fa-server"></i>
-                <h2>Danh Sách Thiết Bị Đã Xác Nhận (Ground Truth)</h2>
-                <button id="btn-refresh-inv" class="btn-icon" title="Tải lại"><i class="fa-solid fa-rotate-right"></i></button>
-            </div>
+    <div class="shell">
 
-            <div class="evidence-body" style="padding: 0.8rem; overflow-y: auto;">
-                <table class="drilldown-table" id="inventory-table">
-                    <thead>
-                        <tr>
-                            <th>Địa Chỉ IP</th>
-                            <th>Tên Thiết Bị</th>
-                            <th>Loại (Type)</th>
-                            <th>Vai Trò (Role)</th>
-                            <th>Xác Minh Bởi</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-tbody">
-                        <tr><td colspan="5" class="loading-state">Đang tải danh sách kiểm kê...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        <nav class="rail" id="app-rail" aria-label="Điều hướng chính">
+            <div class="rail__group eyebrow">Điều hướng</div>
+            <a class="rail__link" href="/dashboard">
+                <i class="fa-solid fa-gauge-high"></i><span>Bảng điều khiển</span>
+            </a>
+            <a class="rail__link" href="/network-map">
+                <i class="fa-solid fa-network-wired"></i><span>Sơ đồ mạng</span>
+            </a>
+            <a class="rail__link is-active" href="/device-inventory" aria-current="page">
+                <i class="fa-solid fa-server"></i><span>Thiết bị</span>
+            </a>
+            <a class="rail__link" href="/api-inspector">
+                <i class="fa-solid fa-satellite-dish"></i><span>Gói tin API</span>
+            </a>
 
-        <!-- Right Pane: Unverified Candidates & Confirmation Form -->
-        <section class="soc-pane pane-evidence">
-            <div class="pane-header">
-                <i class="fa-solid fa-circle-question"></i>
-                <h2>Xác Nhận Thiết Bị Chưa Biết (Tầng 2)</h2>
+            <div class="rail__foot">
+                <button type="button" class="rail__link" data-dock-toggle>
+                    <i class="fa-solid fa-pen-to-square"></i><span>Xác nhận thiết bị</span>
+                </button>
             </div>
-            
-            <div class="evidence-body" style="padding: 1.2rem; overflow-y: auto;">
-                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                    Các IP bên dưới xuất hiện trong log Wazuh nhưng chưa có trong danh sách kiểm kê. Chọn một IP để xác nhận vai trò:
-                </p>
+        </nav>
 
-                <div id="unverified-chips-container" class="preset-chips" style="margin-bottom: 1.5rem; border: none;">
-                    <span class="loading-state">Đang tìm IP chưa xác minh...</span>
+        <main class="workspace">
+            <section class="panel panel--grow">
+                <header class="panel__head">
+                    <h2 class="panel__title"><i class="fa-solid fa-clipboard-check"></i> Danh sách thiết bị đã xác nhận (Ground Truth)</h2>
+                    <div class="panel__tools">
+                        <button type="button" class="btn btn--ghost btn--sm" id="btn-refresh-inv">
+                            <i class="fa-solid fa-rotate-right"></i> Tải lại
+                        </button>
+                    </div>
+                </header>
+                <div class="panel__body">
+                    <table class="drilldown-table" id="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>Địa chỉ IP</th>
+                                <th>Tên thiết bị</th>
+                                <th>Loại (Type)</th>
+                                <th>Vai trò (Role)</th>
+                                <th>Xác minh bởi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventory-tbody">
+                            <tr><td colspan="5" class="loading-state">Đang tải danh sách kiểm kê...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
+            </section>
+        </main>
 
-                <form id="confirm-device-form" class="modal-body" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px; border: 1px solid var(--border-color);">
-                    <h3 style="font-size: 0.95rem; margin-bottom: 1rem; color: var(--accent-cyan);"><i class="fa-solid fa-pen-to-square"></i> Xác Nhận Thiết Bị</h3>
-                    
-                    <div style="margin-bottom: 0.8rem;">
-                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Địa chỉ IP:</label>
-                        <input type="text" id="form-ip" placeholder="VD: 172.16.10.99" required style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
-                    </div>
-
-                    <div style="margin-bottom: 0.8rem;">
-                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Tên Thiết Bị (Name):</label>
-                        <input type="text" id="form-name" placeholder="VD: Firewall 1 (LAN side)" required style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
-                    </div>
-
-                    <div style="margin-bottom: 0.8rem;">
-                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Loại Thiết Bị (Type):</label>
-                        <select id="form-type" style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
-                            <option value="firewall">🔥 Firewall (Tường Lửa)</option>
-                            <option value="router">📡 Router / Gateway</option>
-                            <option value="switch">🔌 Switch (Bộ Chuyển Mạch)</option>
-                            <option value="server">🖥️ Server (Máy Chủ)</option>
-                            <option value="endpoint">💻 Endpoint PC (Máy Trạm)</option>
-                        </select>
-                    </div>
-
-                    <div style="margin-bottom: 1.2rem;">
-                        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Vai Trò Kỹ Thuật (Role):</label>
-                        <input type="text" id="form-role" placeholder="VD: fortinet, gateway, user_workstation" style="width: 100%; padding: 0.5rem; background: #020617; border: 1px solid var(--border-color); color: #fff; border-radius: 4px;">
-                    </div>
-
-                    <button type="submit" class="btn-primary" style="width: 100%;"><i class="fa-solid fa-check"></i> Xác Nhận & Đẩy Vào Known Devices</button>
-                </form>
+        <aside class="dock" id="confirm-dock" aria-label="Xác nhận thiết bị chưa biết">
+            <div class="dock__head">
+                <div class="dock__tabs">
+                    <span class="dock__tab is-active"><i class="fa-solid fa-circle-question"></i> Xác nhận thiết bị (Tầng 2)</span>
+                </div>
+                <button type="button" class="btn btn--icon" data-dock-toggle aria-label="Đóng bảng xác nhận" title="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
-        </section>
 
-    </main>
+            <div class="dock__panes">
+                <section class="dock__pane is-active" data-dock-pane="confirm">
+                    <div class="dock-body">
+                        <p class="section-note">
+                            Các IP dưới đây xuất hiện trong log Wazuh nhưng chưa có trong danh sách kiểm kê.
+                            Chọn một IP để điền sẵn biểu mẫu, sau đó xác nhận vai trò.
+                        </p>
+
+                        <div id="unverified-chips-container" class="preset-chips">
+                            <span class="loading-state">Đang tìm IP chưa xác minh...</span>
+                        </div>
+
+                        <form id="confirm-device-form" class="confirm-form">
+                            <div class="setting-card-title">
+                                <h2><i class="fa-solid fa-pen-to-square"></i> Xác nhận thiết bị</h2>
+                                <p>Thông tin nhập tay sẽ được ghi vào <span class="mono">config/known_devices.json</span>.</p>
+                            </div>
+
+                            <div class="field">
+                                <label for="form-ip">Địa chỉ IP</label>
+                                <input type="text" id="form-ip" class="input-setting-control" placeholder="VD: 172.16.10.99" required>
+                            </div>
+
+                            <div class="field">
+                                <label for="form-name">Tên thiết bị (Name)</label>
+                                <input type="text" id="form-name" class="input-setting-control" placeholder="VD: Firewall 1 (LAN side)" required>
+                            </div>
+
+                            <div class="field">
+                                <label for="form-type">Loại thiết bị (Type)</label>
+                                <select id="form-type" class="input-setting-control">
+                                    <option value="firewall">Firewall (Tường lửa)</option>
+                                    <option value="router">Router / Gateway</option>
+                                    <option value="switch">Switch (Bộ chuyển mạch)</option>
+                                    <option value="server">Server (Máy chủ)</option>
+                                    <option value="endpoint">Endpoint PC (Máy trạm)</option>
+                                </select>
+                            </div>
+
+                            <div class="field">
+                                <label for="form-role">Vai trò kỹ thuật (Role)</label>
+                                <input type="text" id="form-role" class="input-setting-control" placeholder="VD: fortinet, gateway, user_workstation">
+                            </div>
+
+                            <p class="form-status" id="confirm-status" role="status" hidden></p>
+
+                            <button type="submit" class="btn btn--primary btn--block">
+                                <i class="fa-solid fa-check"></i> Xác nhận &amp; đẩy vào Known Devices
+                            </button>
+                        </form>
+                    </div>
+                </section>
+            </div>
+        </aside>
+    </div>
 
     <script src="/static/device_inventory.js"></script>
 </body>

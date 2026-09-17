@@ -463,6 +463,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function loadAIConfig() {
         try {
+            await loadPiModels();
             const res = await fetch("/api/ai/config", { credentials: "same-origin" });
             const config = await res.json();
             currentAIMode = config.mode || "cloud_api";
@@ -495,6 +496,32 @@ document.addEventListener("DOMContentLoaded", () => {
             if (config.ollama_model && selectOllamaModelDrawer) selectOllamaModelDrawer.value = config.ollama_model;
         } catch (err) {
             console.error("Failed to load AI config:", err);
+        }
+    }
+
+    async function loadPiModels() {
+        try {
+            const res = await fetch("/api/ai/pi-models", { credentials: "same-origin" });
+            const data = await res.json();
+            if (data.status !== "success" || !Array.isArray(data.models)) return;
+            const selects = [selectPiModel, document.getElementById("chat-model-select")].filter(Boolean);
+            selects.forEach((select) => {
+                const current = select.value;
+                select.innerHTML = "";
+                const auto = document.createElement("option");
+                auto.value = "auto";
+                auto.textContent = select.id === "chat-model-select" ? "Auto (CLI model)" : "Auto (tự chọn model tương thích)";
+                select.appendChild(auto);
+                data.models.forEach((model) => {
+                    const option = document.createElement("option");
+                    option.value = model.id;
+                    option.textContent = `${model.provider} · ${model.name}`;
+                    select.appendChild(option);
+                });
+                if ([...select.options].some((option) => option.value === current)) select.value = current;
+            });
+        } catch (err) {
+            console.warn("Không tải được danh sách model Pi:", err);
         }
     }
 
@@ -1068,6 +1095,9 @@ function formatLocalTime(tsStr) {
 
     fetchLiveAlerts();
     loadSystemSettings();
+    // Populate the chat model selector independently of the Settings drawer.
+    // Settings may never be opened during a normal dashboard session.
+    loadPiModels();
 
     // AUTO-SYNC THỜI GIAN THỰC TỪ BACKEND CACHE MỖI 5 GIÂY (POLLING PUSH-FALLBACK)
     setInterval(fetchLiveAlerts, 5000);

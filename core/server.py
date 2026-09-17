@@ -736,6 +736,32 @@ async def get_ai_config(session: str = Depends(require_authenticated_session)):
         "multi_api_enabled": False
     }
 
+@app.get("/api/ai/pi-models")
+async def get_pi_models(session: str = Depends(require_authenticated_session)):
+    """Return the models currently visible to the locally installed Pi CLI."""
+    pi_bin = shutil.which("pi")
+    if not pi_bin:
+        return {"status": "unavailable", "models": [], "message": "Không tìm thấy lệnh pi trên máy chủ."}
+    try:
+        proc = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [pi_bin, "--list-models"], capture_output=True, text=True,
+                timeout=20, check=False,
+            ),
+        )
+        lines = proc.stdout.splitlines()
+        models = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] not in {"provider", "-"} and parts[0] != "=" and parts[0].lower() != "only":
+                provider, model = parts[0], parts[1]
+                if provider and model and provider != "Pi":
+                    models.append({"id": f"{provider}/{model}", "provider": provider, "name": model})
+        return {"status": "success", "models": models, "source": pi_bin}
+    except Exception as exc:
+        return {"status": "unavailable", "models": [], "message": f"Không đọc được danh sách model Pi: {exc}"}
+
 @app.post("/api/ai/config")
 async def update_ai_config(req: AIConfigRequest, session: str = Depends(require_authenticated_session)):
     data = req.dict()

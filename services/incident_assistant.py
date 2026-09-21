@@ -120,9 +120,8 @@ class IncidentAssistant:
 
             ai_cfg_file = self.base_dir / "config" / "ai_config.json"
             target_model = None
-            if model_override and model_override.strip() and model_override.lower() != "auto":
-                target_model = model_override.strip()
-            elif ai_cfg_file.exists():
+            cfg = {}
+            if ai_cfg_file.exists():
                 try:
                     cfg = json.loads(ai_cfg_file.read_text(encoding="utf-8"))
                     cfg_model = cfg.get("pi_model", "auto")
@@ -139,6 +138,9 @@ class IncidentAssistant:
                         env["OPENROUTER_API_KEY"] = str(or_key).strip().strip("\"'")
                 except Exception:
                     pass
+
+            if model_override and model_override.strip() and model_override.lower() != "auto":
+                target_model = model_override.strip()
 
             model_flag = ["--model", target_model] if target_model else []
 
@@ -193,9 +195,15 @@ class IncidentAssistant:
                         logger.warning(f"OpenRouter attempt with {mod} failed: {mod_err}")
 
             if g_key:
+                chosen_gemini_model = "gemini-2.5-flash"
+                if target_model and "gemini" in target_model.lower():
+                    chosen_gemini_model = target_model.split("/")[-1].strip()
+                elif cfg.get("gemini_model"):
+                    chosen_gemini_model = str(cfg.get("gemini_model")).strip()
+
                 try:
                     gemini_clean_key = g_key.strip().strip("\"'")
-                    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_clean_key}"
+                    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen_gemini_model}:generateContent?key={gemini_clean_key}"
                     resp = requests.post(
                         gemini_url,
                         json={"contents": [{"parts": [{"text": full_prompt}]}]},
@@ -205,7 +213,7 @@ class IncidentAssistant:
                     if resp.status_code == 200:
                         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                 except Exception as gem_err:
-                    logger.warning(f"Gemini API attempt failed: {gem_err}")
+                    logger.warning(f"Gemini API attempt with {chosen_gemini_model} failed: {gem_err}")
 
             # 2. Thử gọi PI CLI nếu không có Key hoặc API lỗi
             pi_bin = shutil.which("pi")
@@ -216,7 +224,15 @@ class IncidentAssistant:
             pi_bin = pi_bin or "pi"
 
             try:
-                cmd = [pi_bin, "-nt"] + model_flag + ["-p", f"@{temp_prompt_path}"]
+                # Keep Pi built-ins disabled, but load the reviewed AgentWazuh
+                # extension so the model can use the authenticated Wazuh MCP
+                # tools. Write tools show an operator confirmation dialog in the
+                # extension and the upstream server also enforces confirm=true.
+                mcp_extension = self.base_dir / ".pi" / "extensions" / "wazuh-mcp.ts"
+                tool_flags = ["--no-builtin-tools"]
+                if mcp_extension.exists():
+                    tool_flags += ["--extension", str(mcp_extension)]
+                cmd = [pi_bin] + tool_flags + model_flag + ["-p", f"@{temp_prompt_path}"]
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=8, env=env)
                 stdout_str = result.stdout.strip()
                 if result.returncode == 0 and stdout_str and "unsupported_api_for_model" not in stdout_str:

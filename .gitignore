@@ -49,3 +49,6 @@ config/pending_rules/*.xml
 data/chat_sessions/
 logs/
 data/solpi_wazuh/
+
+# Local upstream MCP checkout and its virtualenv/config
+reference/Wazuh-MCP-Server/

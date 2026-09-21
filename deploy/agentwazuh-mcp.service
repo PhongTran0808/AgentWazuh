@@ -1,0 +1,18 @@
+[Unit]
+Description=AgentWazuh local Wazuh MCP Server
+After=network-online.target wazuh-manager.service wazuh-indexer.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xinloihuy
+Group=xinloihuy
+WorkingDirectory=/home/xinloihuy/AgentWazuh
+ExecStart=/home/xinloihuy/AgentWazuh/start_wazuh_mcp.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

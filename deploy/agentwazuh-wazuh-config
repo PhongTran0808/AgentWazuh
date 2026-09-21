@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Privileged, allow-listed Wazuh config helper for AgentWazuh.
+
+Input and output are JSON. The caller cannot select an arbitrary path or
+command; only the three local Wazuh configuration targets are accepted.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from xml.etree import ElementTree
+
+TARGETS = {
+    "rules": Path("/var/ossec/etc/rules/local_rules.xml"),
+    "decoders": Path("/var/ossec/etc/decoders/local_decoder.xml"),
+    "ossec": Path("/var/ossec/etc/ossec.conf"),
+}
+BACKUPS = Path("/var/backups/agentwazuh-wazuh-config")
+AUDIT = Path("/var/log/agentwazuh-wazuh-config.jsonl")
+
+
+def fail(message: str, code: int = 1) -> None:
+    print(json.dumps({"ok": False, "message": message}, ensure_ascii=False))
+    raise SystemExit(code)
+
+
+def target_path(kind: str) -> Path:
+    if kind not in TARGETS:
+        fail(f"Unsupported target: {kind}")
+    path = TARGETS[kind]
+    if not path.is_file():
+        fail(f"Target does not exist: {path}")
+    return path
+
+
+def validate(kind: str, content: str) -> None:
+    if not content.strip():
+        fail("Refusing to write empty content")
+    try:
+        ElementTree.fromstring(content)
+    except ElementTree.ParseError as exc:
+        fail(f"Invalid XML: {exc}")
+    required = {
+        "rules": "<group",
+        "decoders": "<decoder",
+        "ossec": "<ossec_config",
+    }[kind]
+    if required not in content:
+        fail(f"Expected {required} in {kind} configuration")
+
+
+def read_config(kind: str) -> None:
+    path = target_path(kind)
+    content = path.read_text(encoding="utf-8")
+    print(json.dumps({"ok": True, "target": kind, "path": str(path), "content": content}))
+
+
+def write_config(kind: str, content: str, approval_id: str) -> None:
+    path = target_path(kind)
+    validate(kind, content)
+    BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    backup = BACKUPS / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{path.name}"
+    shutil.copy2(path, backup)
+    stat = path.stat()
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent), text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chown(tmp_name, stat.st_uid, stat.st_gid)
+        os.chmod(tmp_name, stat.st_mode & 0o777)
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+    AUDIT.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+    with AUDIT.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "actor": os.getenv("SUDO_USER", "unknown"),
+            "action": "write",
+            "target": kind,
+            "path": str(path),
+            "backup": str(backup),
+            "approval_id": approval_id,
+        }) + "\n")
+    print(json.dumps({"ok": True, "target": kind, "path": str(path), "backup": str(backup), "approval_id": approval_id}))
+
+
+def _backup_path(value: str) -> Path:
+    """Resolve a backup path without allowing the caller to escape BACKUPS."""
+    if not value:
+        fail("A backup path is required")
+    candidate = Path(value).resolve()
+    root = BACKUPS.resolve()
+    if candidate.parent != root or not candidate.is_file():
+        fail("The requested backup is not an allowed AgentWazuh backup")
+    return candidate
+
+
+def restore_config(kind: str, backup_value: str, approval_id: str) -> None:
+    path = target_path(kind)
+    backup = _backup_path(backup_value)
+    stat = path.stat()
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.restore.", dir=str(path.parent), text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(backup.read_text(encoding="utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chown(tmp_name, stat.st_uid, stat.st_gid)
+        os.chmod(tmp_name, stat.st_mode & 0o777)
+        os.replace(tmp_name, path)
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+    with AUDIT.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "actor": os.getenv("SUDO_USER", "unknown"),
+            "action": "restore",
+            "target": kind,
+            "path": str(path),
+            "backup": str(backup),
+            "approval_id": approval_id,
+        }) + "\n")
+    print(json.dumps({"ok": True, "target": kind, "path": str(path), "restored_from": str(backup)}))
+
+
+def validate_runtime() -> None:
+    proc = subprocess.run(["/var/ossec/bin/wazuh-analysisd", "-t"], capture_output=True, text=True, timeout=30, check=False)
+    print(json.dumps({"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-4000:]}))
+    raise SystemExit(0 if proc.returncode == 0 else 1)
+
+
+def restart_manager() -> None:
+    proc = subprocess.run(["systemctl", "restart", "wazuh-manager"], capture_output=True, text=True, timeout=90, check=False)
+    if proc.returncode != 0:
+        print(json.dumps({"ok": False, "message": "wazuh-manager restart failed", "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-4000:]}))
+        raise SystemExit(1)
+    active = subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"], timeout=20, check=False)
+    print(json.dumps({"ok": active.returncode == 0, "service": "wazuh-manager", "active": active.returncode == 0}))
+    raise SystemExit(0 if active.returncode == 0 else 1)
+
+
+try:
+    request = json.load(sys.stdin)
+except Exception as exc:
+    fail(f"Invalid JSON request: {exc}")
+
+action = request.get("action")
+kind = request.get("target")
+if action == "read":
+    read_config(kind)
+elif action == "validate":
+    validate_runtime()
+elif action == "write":
+    if request.get("approved") is not True or not request.get("approval_id"):
+        fail("Explicit approval_id and approved=true are required")
+    write_config(kind, request.get("content", ""), request["approval_id"])
+elif action == "restore":
+    if request.get("approved") is not True or not request.get("approval_id"):
+        fail("Explicit approval_id and approved=true are required")
+    restore_config(kind, request.get("backup", ""), request["approval_id"])
+elif action == "restart":
+    restart_manager()
+else:
+    fail("Unsupported action")

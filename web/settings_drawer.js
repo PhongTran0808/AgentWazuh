@@ -204,6 +204,10 @@
                                 <select id="select-pi-model" class="input-setting-control">
                                     <option value="auto" selected>Auto (tự chọn model tương thích)</option>
                                     <option value="openrouter/free">openrouter/free</option>
+                                    <option value="gemini/gemini-3.8-flash">gemini/gemini-3.8-flash (Mới nhất · Khuyên dùng)</option>
+                                    <option value="gemini/gemini-3.7-flash">gemini/gemini-3.7-flash</option>
+                                    <option value="gemini/gemini-2.5-flash">gemini/gemini-2.5-flash</option>
+                                    <option value="gemini/gemini-2.5-pro">gemini/gemini-2.5-pro</option>
                                     <option value="gemini/gemini-2.0-flash">gemini/gemini-2.0-flash</option>
                                     <option value="github-copilot/gpt-4.1">github-copilot / gpt-4.1</option>
                                     <option value="github-copilot/claude-haiku-4.5">github-copilot / claude-haiku-4.5</option>
@@ -221,14 +225,37 @@
 
                             <div class="setting-box-card">
                                 <div class="setting-row-label">
-                                    <strong>Gemini Model</strong>
-                                    <span>Mô hình Gemini dùng cho các truy vấn Cloud API.</span>
+                                    <strong>Gemini Model (Google AI Studio / API)</strong>
+                                    <span>Chọn model Gemini chính thức trên ai.google.dev dùng cho phân tích cảnh báo và trợ lý SOC.</span>
                                 </div>
                                 <select id="select-gemini-model" class="input-setting-control">
-                                    <option value="gemini-1.5-flash">gemini-1.5-flash (Nhanh &amp; Tối Ưu)</option>
-                                    <option value="gemini-2.0-flash">gemini-2.0-flash (Mới Nhất)</option>
-                                    <option value="gemini-1.5-pro">gemini-1.5-pro (Suy Luận Sâu)</option>
-                                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                    <optgroup label="Thế hệ Gemini 3 (Mới nhất · Khuyên dùng)">
+                                        <option value="gemini-3.8-flash">gemini-3.8-flash (Flash thông minh nhất, Agentic &amp; SOC - Mới)</option>
+                                        <option value="gemini-3.7-flash">gemini-3.7-flash (Lập trình phức tạp, suy luận đa bước)</option>
+                                        <option value="gemini-3.6-flash">gemini-3.6-flash (Tốc độ cao &amp; Đa phương thức cân bằng)</option>
+                                        <option value="gemini-3.5-flash">gemini-3.5-flash (Chuẩn ổn định, tác vụ thông thường)</option>
+                                        <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Siêu nhanh, tối ưu chi phí)</option>
+                                        <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Hiệu năng frontier-class giá rẻ)</option>
+                                        <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Suy luận sâu &amp; Vibe Coding - Preview)</option>
+                                        <option value="gemini-3-flash-preview">gemini-3-flash-preview (Bản xem trước Flash 3)</option>
+                                    </optgroup>
+                                    <optgroup label="Thế hệ Gemini 2.5 (Ổn định &amp; Suy luận sâu)">
+                                        <option value="gemini-2.5-flash" selected>gemini-2.5-flash (Hiệu năng / Giá tối ưu có suy luận)</option>
+                                        <option value="gemini-2.5-pro">gemini-2.5-pro (Mô hình mạnh nhất 2.5, Deep Reasoning)</option>
+                                        <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Nhẹ &amp; Phù hợp tác vụ lặp lại)</option>
+                                    </optgroup>
+                                    <optgroup label="Thế hệ Gemini 2.0 &amp; 1.5 (Legacy)">
+                                        <option value="gemini-2.0-flash">gemini-2.0-flash (Thế hệ 2.0 Flash)</option>
+                                        <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (Thế hệ 2.0 Flash-Lite)</option>
+                                        <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy)</option>
+                                        <option value="gemini-1.5-pro">gemini-1.5-pro (Legacy)</option>
+                                    </optgroup>
+                                    <optgroup label="Chuyên dụng (Live / Voice / Research)">
+                                        <option value="gemini-3.8-live">gemini-3.8-live (Live API Voice độ trễ cực thấp)</option>
+                                        <option value="gemini-3.8-live-extended-thinking">gemini-3.8-live-extended-thinking (Voice + Suy luận ngầm)</option>
+                                        <option value="gemini-2.5-flash-native-audio-preview-12-2025">gemini-2.5-flash-native-audio (Âm thanh 2 chiều)</option>
+                                        <option value="deep-research-preview-04-2026">deep-research-preview-04-2026 (Nghiên cứu độc lập)</option>
+                                    </optgroup>
                                 </select>
                             </div>
                         </div>

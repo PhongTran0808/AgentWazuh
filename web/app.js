@@ -166,8 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.ok) {
                 if (current_session_id === sessionId) {
                     current_session_id = null;
-                    const chatStream = document.getElementById("chat-stream");
-                    if (chatStream) chatStream.innerHTML = "";
+                    renderWelcomeMessage();
                 }
                 await loadChatHistoryList();
             }
@@ -176,24 +175,60 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    async function createNewChat() {
-        try {
-            const res = await fetch("/api/chat/history", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ title: "New Conversation", project_name: "Default Project" }),
-                credentials: "same-origin"
-            });
-            const data = await res.json();
-            const chatStream = document.getElementById("chat-stream");
-            if (chatStream) chatStream.innerHTML = "";
-            if (data.session && data.session.id) {
-                current_session_id = data.session.id;
-            }
-            await loadChatHistoryList();
-        } catch (e) {
-            console.error("Error creating chat:", e);
+    function renderWelcomeMessage() {
+        const stream = chatStream || document.getElementById("chat-stream");
+        if (stream) {
+            stream.innerHTML = `
+                <div class="chat-bubble system">
+                    <i class="fa-solid fa-robot avatar"></i>
+                    <div class="bubble-content">
+                        <strong>AgentWazuh · Trợ lý SOC</strong>
+                        <p>Chào Analyst! Tôi nhận dữ liệu từ Wazuh, tương quan các alert liên quan và dùng Gemini để tạo báo cáo incident hoặc hướng dẫn xử lý. Mở <strong>Cài đặt → AI Engine</strong> để kiểm tra API key.</p>
+                    </div>
+                </div>
+            `;
         }
+    }
+
+    async function createNewChat() {
+        current_session_id = null;
+        renderWelcomeMessage();
+        document.querySelectorAll(".history-item.active").forEach(el => el.classList.remove("active"));
+    }
+
+    let sessionCreationPromise = null;
+
+    async function ensureChatSession(initialTitle = "New Conversation") {
+        if (current_session_id) return current_session_id;
+        if (sessionCreationPromise) {
+            return await sessionCreationPromise;
+        }
+
+        sessionCreationPromise = (async () => {
+            try {
+                let cleanTitle = (initialTitle || "New Conversation").trim().replace(/\s+/g, " ");
+                if (cleanTitle.length > 36) cleanTitle = cleanTitle.substring(0, 33) + "...";
+                const res = await fetch("/api/chat/history", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ title: cleanTitle || "New Conversation", project_name: "Default Project" }),
+                    credentials: "same-origin"
+                });
+                const data = await res.json();
+                if (data.session && data.session.id) {
+                    current_session_id = data.session.id;
+                }
+                await loadChatHistoryList();
+                return current_session_id;
+            } catch (e) {
+                console.error("Error creating chat session:", e);
+                return null;
+            } finally {
+                sessionCreationPromise = null;
+            }
+        })();
+
+        return await sessionCreationPromise;
     }
 
     async function loadChatSession(id) {
@@ -202,15 +237,15 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             if (data.session && data.session.id) {
                 current_session_id = data.session.id;
-                const chatStream = document.getElementById("chat-stream");
-                if (chatStream) {
-                    chatStream.innerHTML = "";
+                const stream = chatStream || document.getElementById("chat-stream");
+                if (stream) {
+                    stream.innerHTML = "";
                     (data.session.messages || []).forEach(msg => {
                         if (msg.role === "user") {
                             const div = document.createElement("div");
                             div.className = "chat-bubble user";
                             div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><div class="msg-text">${escapeHtml(msg.content)}</div></div>`;
-                            chatStream.appendChild(div);
+                            stream.appendChild(div);
                         } else {
                             const div = document.createElement("div");
                             div.className = "chat-bubble system";
@@ -220,10 +255,10 @@ document.addEventListener("DOMContentLoaded", () => {
                                 .trim();
                             let parsedHtml = window.marked ? marked.parse(cleanContent || msg.content) : (cleanContent || msg.content).replace(/\n/g, "<br>");
                             div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI Master Advisor:</strong><div class="msg-text">${parsedHtml}</div></div>`;
-                            chatStream.appendChild(div);
+                            stream.appendChild(div);
                         }
                     });
-                    chatStream.scrollTop = chatStream.scrollHeight;
+                    stream.scrollTop = stream.scrollHeight;
                 }
             }
             await loadChatHistoryList(); // to update active item
@@ -233,11 +268,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function appendMessageToSession(role, content) {
-        if (!current_session_id) {
-            await createNewChat();
-        }
         try {
-            await fetch(`/api/chat/history/${current_session_id}/message`, {
+            const sid = await ensureChatSession(role === "user" ? content : "New Conversation");
+            if (!sid) return;
+            await fetch(`/api/chat/history/${sid}/message`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ role, content, timestamp: new Date().toISOString() }),
@@ -487,7 +521,15 @@ document.addEventListener("DOMContentLoaded", () => {
             if (subBoxOpenAI) subBoxOpenAI.classList.toggle("hidden", !chkOpenAI.checked);
             if (subBoxAnthropic) subBoxAnthropic.classList.toggle("hidden", !chkAnthropic.checked);
 
-            if (config.gemini_model && selectGeminiModel) selectGeminiModel.value = config.gemini_model;
+            if (config.gemini_model && selectGeminiModel) {
+                if (![...selectGeminiModel.options].some(opt => opt.value === config.gemini_model)) {
+                    const customOpt = document.createElement("option");
+                    customOpt.value = config.gemini_model;
+                    customOpt.textContent = `${config.gemini_model} (Tùy chỉnh)`;
+                    selectGeminiModel.appendChild(customOpt);
+                }
+                selectGeminiModel.value = config.gemini_model;
+            }
             if (config.openai_model && selectOpenAIModel) selectOpenAIModel.value = config.openai_model;
             if (config.anthropic_model && selectAnthropicModel) selectAnthropicModel.value = config.anthropic_model;
             if (config.pi_model && selectPiModel) selectPiModel.value = config.pi_model;
@@ -848,11 +890,13 @@ function formatLocalTime(tsStr) {
     }
 
     function appendUserBubble(msg) {
+        const stream = chatStream || document.getElementById("chat-stream");
+        if (!stream) return;
         const div = document.createElement("div");
         div.className = "chat-bubble user";
         div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><div class="msg-text">${escapeHtml(msg)}</div></div>`;
-        chatStream.appendChild(div);
-        chatStream.scrollTop = chatStream.scrollHeight;
+        stream.appendChild(div);
+        stream.scrollTop = stream.scrollHeight;
         appendMessageToSession("user", msg);
     }
 
@@ -923,27 +967,30 @@ function formatLocalTime(tsStr) {
 
             setProcessingStep(loadingId, 2, "Phân tích AI");
             const data = await res.json();
-            const inv = data.investigation;
+            const inv = data && data.investigation;
 
             setProcessingStep(loadingId, 3, "Hiển thị kết quả");
-            const textToRender = inv.layer_2_llm_reasoning || inv.answer || inv.summary || "";
-            const formToRender = inv.config_form || inv.active_form_session || null;
-            updateChatBot(loadingId, textToRender, inv.reasoning_steps || [], formToRender, inv.chat_intent?.intent);
-            renderEvidenceDetail(inv, alertObj);
+            const textToRender = (inv && (inv.layer_2_llm_reasoning || inv.answer || inv.summary)) || (data && data.detail) || (data && data.message) || "Không nhận được phản hồi từ AI.";
+            const formToRender = (inv && (inv.config_form || inv.active_form_session)) || null;
+            updateChatBot(loadingId, textToRender, (inv && inv.reasoning_steps) || [], formToRender, (inv && inv.chat_intent?.intent) || "general");
+            if (inv) renderEvidenceDetail(inv, alertObj);
             
         } catch (err) {
-            updateChatBot(loadingId, "Lỗi kết nối tới máy chủ AI Investigation API.", [], null, "general");
+            console.error("Investigation error:", err);
+            updateChatBot(loadingId, `Lỗi kết nối tới máy chủ AI Investigation API: ${err.message || err}`, [], null, "general");
         }
     }
 
     function appendChatBot(msg, responseType = "answer") {
         const id = "bot_" + Date.now();
+        const stream = chatStream || document.getElementById("chat-stream");
+        if (!stream) return id;
         const div = document.createElement("div");
         div.className = "chat-bubble system";
         div.id = id;
         div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content" data-response-type="${responseType}"><strong>AgentWazuh AI Master Advisor</strong><span class="response-label" data-response-label>${responseLabelFor(responseType)}</span><div class="msg-text">${msg}</div></div>`;
-        chatStream.appendChild(div);
-        chatStream.scrollTop = chatStream.scrollHeight;
+        stream.appendChild(div);
+        stream.scrollTop = stream.scrollHeight;
         return id;
     }
 
@@ -977,8 +1024,13 @@ function formatLocalTime(tsStr) {
             .trim();
 
         appendMessageToSession("ai", cleanMarkdown || markdownText);
-        const div = document.getElementById(id);
-        if (!div) return;
+        let div = document.getElementById(id);
+        if (!div) {
+            console.warn(`Chat bubble ${id} not found in DOM, recreating fallback bubble.`);
+            const fallbackId = appendChatBot(cleanMarkdown || markdownText, responseTypeFor(intent, configForm));
+            div = document.getElementById(fallbackId);
+            if (!div) return;
+        }
 
         const responseType = responseTypeFor(intent, configForm);
         const bubble = div.querySelector(".bubble-content");
@@ -1110,7 +1162,7 @@ function formatLocalTime(tsStr) {
                             const res = await fetch("/api/wazuh/apply-rule", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ rule_name, match_pattern, frequency, timeframe, level }),
+                                body: JSON.stringify({ rule_name, match_pattern, frequency, timeframe, level, approved: true }),
                                 credentials: "same-origin"
                             });
 
@@ -1124,7 +1176,7 @@ function formatLocalTime(tsStr) {
                                 btnApply.style.padding = "0.7rem";
                                 btnApply.innerHTML = `<i class="fa-solid fa-circle-check"></i> ✔ Đã áp dụng thành công Rule [${data.rule_id}] vào Wazuh Manager (Level ${level})`;
                             } else {
-                                alert("Lỗi khi áp dụng rule.");
+                                alert("🔴 Lỗi áp dụng Rule: " + (data.detail || data.message || "Không rõ nguyên nhân."));
                                 btnApply.disabled = false;
                                 btnApply.innerHTML = '<i class="fa-solid fa-bolt"></i> Thử lại Áp Dụng Vào Wazuh';
                             }
@@ -1395,12 +1447,14 @@ window.syncXmlFromForm = function() {
     const freq = document.getElementById("builder-rule-freq").value || "5";
     const time = document.getElementById("builder-rule-time").value || "60";
 
-    let ifSidXml = ifSid ? `\n    <if_sid>${ifSid}</if_sid>` : "";
-    let corrXml = (freq && time) ? `\n    <frequency>${freq}</frequency>\n    <timeframe>${time}</timeframe>` : "";
+    // Wazuh requires if_matched_sid for frequency/timeframe correlations;
+    // frequency/timeframe themselves are rule attributes, not child tags.
+    let ifSidXml = ifSid ? `\n    <if_matched_sid>${ifSid}</if_matched_sid>` : "";
+    let correlationAttrs = (freq && time) ? ` frequency="${freq}" timeframe="${time}"` : "";
 
     const xml = `<group name="${groupName}">
-  <rule id="${ruleId}" level="${level}">` + ifSidXml + `
-    <match>${match}</match>` + corrXml + `
+  <rule id="${ruleId}" level="${level}"` + correlationAttrs + `>` + ifSidXml + `
+    <match>${match}</match>
     <description>${desc}</description>
     <mitre>
       <id>T1110</id>
@@ -1432,7 +1486,7 @@ window.syncFormFromXml = function() {
     const matchMatch = xml.match(/<match>(.*?)<\/match>/s);
     if (matchMatch) document.getElementById("builder-rule-match").value = matchMatch[1].trim();
 
-    const ifSidMatch = xml.match(/<if_sid>(.*?)<\/if_sid>/);
+    const ifSidMatch = xml.match(/<(?:if_matched_sid|if_sid)>(.*?)<\/(?:if_matched_sid|if_sid)>/);
     if (ifSidMatch) document.getElementById("builder-rule-ifsid").value = ifSidMatch[1].trim();
 
     const freqMatch = xml.match(/<frequency>(.*?)<\/frequency>/);
@@ -1519,7 +1573,8 @@ window.applyXmlRule = async function() {
                 rule_id,
                 if_sid,
                 group_name,
-                raw_xml: xmlEl.value
+                raw_xml: xmlEl.value,
+                approved: true
             }),
             credentials: "same-origin"
         });
@@ -1533,7 +1588,7 @@ window.applyXmlRule = async function() {
                 closeXmlRuleBuilderModal();
             }, 1800);
         } else {
-            alert("🔴 Lỗi áp dụng Rule: " + (data.detail || data.message));
+            alert("🔴 Lỗi áp dụng Rule: " + (data.detail || data.message || "Không rõ nguyên nhân."));
             btnApply.disabled = false;
             btnApply.innerHTML = `<i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager`;
         }

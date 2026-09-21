@@ -11,13 +11,13 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <link rel="stylesheet" href="/static/tokens.css">
-    <link rel="stylesheet" href="/static/shell.css">
+    <link rel="stylesheet" href="/static/shell.css?v=3.2">
     <link rel="stylesheet" href="/static/components.css">
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="/static/shell.js" defer></script>
+    <script src="/static/shell.js?v=3.2" defer></script>
 </head>
 <body class="app" data-page="dashboard" data-audit="on">
 
@@ -137,8 +137,12 @@
                                 <i class="fa-solid fa-microchip"></i>
                                 <select id="chat-model-select" aria-label="Chọn model AI">
                                     <option value="auto" selected>Auto (CLI model)</option>
+                                    <option value="gemini/gemini-3.8-flash">Gemini · 3.8 Flash (Mới nhất)</option>
+                                    <option value="gemini/gemini-3.7-flash">Gemini · 3.7 Flash</option>
+                                    <option value="gemini/gemini-2.5-flash">Gemini · 2.5 Flash</option>
+                                    <option value="gemini/gemini-2.5-pro">Gemini · 2.5 Pro</option>
+                                    <option value="gemini/gemini-2.0-flash">Gemini · 2.0 Flash</option>
                                     <option value="openrouter/free">OpenRouter Free</option>
-                                    <option value="gemini/gemini-2.0-flash">Gemini API · Flash</option>
                                     <option value="github-copilot/gpt-4.1">Copilot · gpt-4.1</option>
                                     <option value="github-copilot/claude-haiku-4.5">Copilot · claude-haiku-4.5</option>
                                     <option value="github-copilot/gpt-5-mini">Copilot · gpt-5-mini</option>
@@ -339,7 +343,7 @@
         </div>
     </div>
 
-    <script src="/static/settings_drawer.js"></script>
-    <script src="/static/app.js?v=3.1"></script>
+    <script src="/static/settings_drawer.js?v=3.2"></script>
+    <script src="/static/app.js?v=3.2"></script>
 </body>
 </html>

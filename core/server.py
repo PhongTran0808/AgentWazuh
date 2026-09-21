@@ -15,8 +15,15 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
+
+from integrations.wazuh_mcp_client import WazuhMCPClient, WazuhMCPError
+from integrations.wazuh_config_manager import WazuhConfigError, apply as apply_wazuh_config
+from integrations.wazuh_config_manager import merge_rule_group, restore as restore_wazuh_config, restart_manager as restart_wazuh_manager
+from integrations.wazuh_config_manager import _read_target as read_wazuh_config_target
+from integrations.wazuh_config_manager import preview as preview_wazuh_config_change
+from integrations.wazuh_config_manager import validate_runtime as validate_wazuh_config_runtime
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -537,6 +544,7 @@ class ApplyRuleRequest(BaseModel):
     if_sid: Optional[str] = None
     group_name: Optional[str] = "custom_rules,"
     raw_xml: Optional[str] = None
+    approved: bool = False
 
 class DryRunRuleCustomRequest(BaseModel):
     rule_xml: str
@@ -568,6 +576,21 @@ class AIConfigRequest(BaseModel):
     ollama_url: Optional[str] = "http://localhost:11434/api/generate"
     ollama_model: Optional[str] = "qwen2.5:3b"
     multi_api_enabled: Optional[bool] = False
+
+
+class WazuhMCPCallRequest(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WazuhConfigPreviewRequest(BaseModel):
+    target: str
+    content: str
+
+
+class WazuhConfigApplyRequest(WazuhConfigPreviewRequest):
+    approval_id: str
+    approved: bool = False
 
 class SystemSettingsRequest(BaseModel):
     session_timeout_minutes: Optional[int] = 30
@@ -814,6 +837,59 @@ async def update_ai_config(req: AIConfigRequest, session: str = Depends(require_
     data = req.dict()
     AI_CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return {"status": "success", "config": data}
+
+
+@app.get("/api/wazuh/mcp/health")
+async def get_wazuh_mcp_health(session: str = Depends(require_authenticated_session)):
+    try:
+        return {"status": "success", "health": await WazuhMCPClient().health()}
+    except WazuhMCPError as exc:
+        return {"status": "unavailable", "message": str(exc)}
+
+
+@app.get("/api/wazuh/mcp/tools")
+async def get_wazuh_mcp_tools(session: str = Depends(require_authenticated_session)):
+    try:
+        return {"status": "success", "tools": await WazuhMCPClient().list_tools()}
+    except WazuhMCPError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/wazuh/mcp/call")
+async def call_wazuh_mcp_tool(req: WazuhMCPCallRequest, session: str = Depends(require_authenticated_session)):
+    try:
+        result = await WazuhMCPClient().call_tool(req.name, req.arguments)
+        return {"status": "success", "tool": req.name, "result": result}
+    except WazuhMCPError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/wazuh/config/preview")
+async def preview_wazuh_config(req: WazuhConfigPreviewRequest, session: str = Depends(require_authenticated_session)):
+    try:
+        return {"status": "success", "preview": preview_wazuh_config_change(req.target, req.content)}
+    except WazuhConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/wazuh/config/apply")
+async def apply_wazuh_config_endpoint(req: WazuhConfigApplyRequest, session: str = Depends(require_authenticated_session)):
+    try:
+        result = apply_wazuh_config(
+            req.target,
+            req.content,
+            req.approval_id,
+            approved=req.approved,
+            actor=session,
+        )
+        return {"status": "success", "result": result}
+    except WazuhConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/wazuh/config/validate")
+async def validate_wazuh_config_endpoint(session: str = Depends(require_authenticated_session)):
+    return {"status": "success", "validation": validate_wazuh_config_runtime()}
 
 @app.get("/api/ai/ollama/status")
 async def get_ollama_status(session: str = Depends(require_authenticated_session)):
@@ -1865,12 +1941,13 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
         rule_xml = req.raw_xml.strip()
     else:
         grp = req.group_name or "custom_rules,"
-        if_sid_line = f"\n    <if_sid>{req.if_sid}</if_sid>" if req.if_sid else ""
+        # Correlation windows must be chained with if_matched_sid in Wazuh;
+        # if_sid is for single-event parent rules and is rejected with
+        # frequency/timeframe by wazuh-analysisd.
+        if_sid_line = f"\n    <if_matched_sid>{req.if_sid or 2501}</if_matched_sid>"
         rule_xml = f"""<group name="{grp}">
-  <rule id="{new_rule_id}" level="{req.level}">""" + if_sid_line + f"""
+  <rule id="{new_rule_id}" level="{req.level}" frequency="{req.frequency}" timeframe="{req.timeframe}">""" + if_sid_line + f"""
     <match>{req.match_pattern}</match>
-    <frequency>{req.frequency}</frequency>
-    <timeframe>{req.timeframe}</timeframe>
     <description>{req.rule_name}</description>
     <mitre>
       <id>T1110</id>
@@ -1878,17 +1955,43 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
   </rule>
 </group>"""
 
+    if req.approved is not True:
+        raise HTTPException(status_code=400, detail="Cần xác nhận rõ ràng trước khi ghi rule vào Wazuh Manager.")
+
     filename = f"rule_applied_{timestamp}.xml"
     file_path = PENDING_RULES_DIR / filename
     file_path.write_text(rule_xml, encoding="utf-8")
+
+    try:
+        _, current_rules = read_wazuh_config_target("rules")
+        merged_rules, rule_ids = merge_rule_group(current_rules, rule_xml)
+        new_rule_id = int(rule_ids[0]) if rule_ids[0].isdigit() else rule_ids[0]
+        approval_id = f"hitl-rule-{timestamp}-{secrets.token_hex(4)}"
+        applied = apply_wazuh_config(
+            "rules", merged_rules, approval_id, approved=True, actor=session,
+        )
+        validation = validate_wazuh_config_runtime()
+        if not validation.get("ok"):
+            restore_wazuh_config("rules", applied["backup"], approval_id, approved=True, actor=session)
+            raise WazuhConfigError(f"Wazuh từ chối cấu hình rule; đã rollback: {validation.get('message') or validation.get('stderr') or 'syntax check failed'}")
+        restarted = restart_wazuh_manager()
+        if not restarted.get("ok"):
+            restore_wazuh_config("rules", applied["backup"], approval_id, approved=True, actor=session)
+            restart_wazuh_manager()
+            raise WazuhConfigError(f"Không thể restart wazuh-manager; đã rollback: {restarted.get('message', 'restart failed')}")
+    except WazuhConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
         "status": "success",
         "rule_id": new_rule_id,
         "filename": filename,
         "rule_xml": rule_xml,
-        "message": f"✔ Đã lưu Rule {new_rule_id} ({req.rule_name}) vào vùng chờ phê duyệt (pending_rules). Vui lòng kiểm tra & áp dụng lên Wazuh Manager thủ công.",
-        "reloaded_wazuh": False
+        "message": f"✔ Đã ghi Rule {new_rule_id} vào /var/ossec/etc/rules/local_rules.xml và restart wazuh-manager thành công.",
+        "target": applied["path"],
+        "backup": applied.get("backup"),
+        "validation": validation,
+        "reloaded_wazuh": True,
     }
 
 @app.post("/api/rules/dry-run")

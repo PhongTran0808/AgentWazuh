@@ -246,6 +246,9 @@ body.rail-collapsed .rail__link { justify-content: center; padding-inline: var(-
   border-right: 1px solid var(--rule-soft);
   cursor: col-resize;
   flex: 0 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background var(--dur-short) var(--ease-out);
   user-select: none;
   z-index: 10;
@@ -257,7 +260,6 @@ body.rail-collapsed .rail__link { justify-content: center; padding-inline: var(-
 .dock-resizer-v::after {
   content: "⋮";
   display: block;
-  margin-top: 50vh;
   color: var(--ink-3);
   font-size: var(--text-md);
   line-height: 1;
@@ -265,6 +267,14 @@ body.rail-collapsed .rail__link { justify-content: center; padding-inline: var(-
 }
 .dock-resizer-v:hover::after,
 .dock-resizer-v.is-dragging::after { color: var(--accent-ink); }
+
+body.dock-collapsed .dock-resizer-v {
+  display: none;
+}
+
+.rail + .dock {
+  border-left: 0;
+}
 
 .dock {
   flex: 0 0 var(--dock-w);
@@ -460,6 +470,7 @@ body.scrim-open .scrim { opacity: 1; visibility: visible; }
   body.dock-collapsed .dock { transform: translateX(100%); width: min(440px, 100vw); flex-basis: auto; }
 
   .workspace { padding: var(--space-2xs); }
+  .dock-resizer-v { display: none !important; }
   .appbar__page { display: none; }
 }
 

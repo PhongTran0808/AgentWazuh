@@ -36,6 +36,43 @@ cd "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh"
 python3 run_both_agentwazuh_services.py
 ```
 
+### 3.4 Wazuh MCP Server local (Wazuh 4.14.7)
+
+AgentWazuh tích hợp upstream `gensecaihq/Wazuh-MCP-Server` tại
+`reference/Wazuh-MCP-Server`, chạy native bằng Python virtualenv, không dùng
+Docker. Service systemd được cài với tên `agentwazuh-mcp.service` và chỉ bind
+`127.0.0.1:3000`.
+
+```bash
+systemctl status agentwazuh-mcp.service
+systemctl restart agentwazuh-mcp.service
+curl http://127.0.0.1:3000/health
+```
+
+Credential MCP nằm trong file local được ignore khỏi Git:
+`reference/Wazuh-MCP-Server/config/wazuh.env`. File này cấp hai scope
+`wazuh:read wazuh:write`; không đưa API key hoặc Wazuh password vào source,
+README hay log.
+
+AgentWazuh dùng `.pi/extensions/wazuh-mcp.ts` để discover tool từ MCP server.
+Các tool read được gọi tự động; các tool active-response/write phải qua hộp
+thoại xác nhận của operator và upstream MCP cũng yêu cầu `confirm=true`.
+
+### 3.5 Wazuh Config Manager
+
+Upstream MCP không sửa trực tiếp `local_rules.xml`, decoder hoặc `ossec.conf`,
+nên AgentWazuh có lớp quản lý local riêng. Chỉ ba target allow-list được phép:
+
+- `/var/ossec/etc/rules/local_rules.xml`
+- `/var/ossec/etc/decoders/local_decoder.xml`
+- `/var/ossec/etc/ossec.conf`
+
+Mọi lần ghi đều cần `approval_id` và `approved=true`, tự backup vào
+`/var/backups/agentwazuh-wazuh-config`, ghi atomic, validate XML và chạy
+`wazuh-analysisd -t`. Privilege được giới hạn qua
+`/usr/local/sbin/agentwazuh-wazuh-config` và một rule sudoers riêng, không cấp
+quyền sudo shell tổng quát cho AgentWazuh.
+
 ### 3.3 SoL-Pi evidence pipeline cho Wazuh investigations
 
 Mỗi lượt gọi `POST /api/wazuh/investigate` tạo một **ObservationPack** cục bộ: snapshot alert/status được lưu dưới `data/solpi_wazuh/` (không commit Git) và AI chỉ nhận receipt gọn kèm SHA-256, handle, cùng các trường evidence được trích trực tiếp từ snapshot. Handle được trả tại `investigation.solpi.observation_handle`.

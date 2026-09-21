@@ -140,6 +140,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (timeoutEl && s.session_timeout_minutes) timeoutEl.value = s.session_timeout_minutes;
             if (intervalEl && s.icmp_ping_interval_seconds) intervalEl.value = s.icmp_ping_interval_seconds;
             if (retryEl && s.ping_retry_threshold) retryEl.value = s.ping_retry_threshold;
+
+            const resAi = await fetch("/api/settings/ai", { credentials: "same-origin" });
+            const aiJson = await resAi.json();
+            const geminiKeyEl = document.getElementById("input-gemini-key");
+            const geminiModelEl = document.getElementById("select-gemini-model");
+            if (geminiKeyEl && (aiJson.cloud_api_key || aiJson.gemini_api_key)) {
+                geminiKeyEl.value = aiJson.cloud_api_key || aiJson.gemini_api_key;
+            }
+            if (geminiModelEl && aiJson.gemini_model) {
+                geminiModelEl.value = aiJson.gemini_model;
+            }
         } catch (e) {
             console.error("Error loading settings in network map:", e);
         }

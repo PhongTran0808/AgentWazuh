@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import subprocess
 import asyncio
+import threading
 import requests
 import uvicorn
 import sys
@@ -176,6 +177,8 @@ def load_sessions() -> Dict[str, float]:
 def save_sessions(sessions: Dict[str, float]):
     try:
         SESSIONS_PATH.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(SESSIONS_PATH, 0o600)
     except Exception:
         pass
 
@@ -225,9 +228,11 @@ def verify_admin_credentials(user: str, pass_str: str) -> bool:
     except Exception:
         pass
 
-    # 2. Resilient fallback for lab & local testing (admin123 / admin / wazuh)
-    env_pass = os.getenv("AGENTWAZUH_ADMIN_PASSWORD", "admin123")
-    return pass_clean in [env_pass, "admin123", "admin", "wazuh", "123456"]
+    # 2. Resilient check against explicitly configured AGENTWAZUH_ADMIN_PASSWORD
+    env_pass = os.getenv("AGENTWAZUH_ADMIN_PASSWORD")
+    if env_pass and secrets.compare_digest(pass_clean, env_pass):
+        return True
+    return False
 
 def get_current_session(request: Request) -> Optional[str]:
     token = request.cookies.get("agentwazuh_session")
@@ -274,22 +279,26 @@ def _alert_identity(alert: Dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+_cache_lock = threading.Lock()
+
+
 def _merge_alerts(alerts: List[Dict[str, Any]], limit: int = 1000) -> List[Dict[str, Any]]:
     """Insert only unseen alerts and return the newly inserted records."""
     global GLOBAL_ALERTS_CACHE
-    existing = {_alert_identity(item) for item in GLOBAL_ALERTS_CACHE}
-    new_items = []
-    for alert in alerts:
-        if not isinstance(alert, dict):
-            continue
-        identity = _alert_identity(alert)
-        if identity in existing:
-            continue
-        existing.add(identity)
-        new_items.append(alert)
-    if new_items:
-        GLOBAL_ALERTS_CACHE = (new_items + GLOBAL_ALERTS_CACHE)[:limit]
-    return new_items
+    with _cache_lock:
+        existing = {_alert_identity(item) for item in GLOBAL_ALERTS_CACHE}
+        new_items = []
+        for alert in alerts:
+            if not isinstance(alert, dict):
+                continue
+            identity = _alert_identity(alert)
+            if identity in existing:
+                continue
+            existing.add(identity)
+            new_items.append(alert)
+        if new_items:
+            GLOBAL_ALERTS_CACHE = (new_items + GLOBAL_ALERTS_CACHE)[:limit]
+        return new_items
 
 
 def _broadcast_alerts(alerts: List[Dict[str, Any]]) -> None:
@@ -343,7 +352,7 @@ def check_icmp_health(ip: str) -> str:
                 return "down"
             return "degraded"
     except Exception:
-        return "up"
+        return "unknown"
 
 def compute_alert_stats(alerts: List[Dict[str, Any]]) -> Dict[str, int]:
     critical = 0

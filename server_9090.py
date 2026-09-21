@@ -23,11 +23,18 @@ def get_map():
         return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>WazuhSim Live Network Map & Streamer (Port 9090)</h1>")
 
-# Fallback for static files requested without /static/ prefix
-@app.get("/{filename}")
+ALLOWED_ASSET_EXTS = {".html", ".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2", ".ttf"}
+
+# Safe fallback for static files requested without /static/ prefix
+@app.get("/{filename:path}")
 def get_root_file(filename: str):
-    file_path = web_dir / filename
-    if file_path.exists() and file_path.is_file():
+    # Sanitize and prevent path traversal
+    safe_name = Path(filename).name
+    suffix = Path(safe_name).suffix.lower()
+    if not suffix or suffix not in ALLOWED_ASSET_EXTS:
+        return HTMLResponse("File not found", status_code=404)
+    file_path = (web_dir / safe_name).resolve()
+    if file_path.exists() and file_path.is_file() and file_path.is_relative_to(web_dir.resolve()):
         return FileResponse(file_path)
     return HTMLResponse("File not found", status_code=404)
 

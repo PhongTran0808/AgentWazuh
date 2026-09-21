@@ -739,16 +739,21 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-function formatLocalTime(tsStr) {
-    if (!tsStr) return "--:--:--";
+function formatLocalTime(tsVal) {
+    if (!tsVal && tsVal !== 0) return "--:--:--";
     try {
-        let str = String(tsStr).trim();
-        if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
-            str += "Z";
+        let d;
+        if (typeof tsVal === "number") {
+            d = new Date(tsVal > 1e11 ? tsVal : tsVal * 1000);
+        } else {
+            let str = String(tsVal).trim();
+            if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
+                str += "Z";
+            }
+            d = new Date(str);
         }
-        const d = new Date(str);
         if (isNaN(d.getTime())) {
-            return tsStr.substring(11, 19) || "--:--:--";
+            return String(tsVal).substring(11, 19) || "--:--:--";
         }
         return d.toLocaleTimeString("vi-VN", {
             hour12: false,
@@ -757,7 +762,7 @@ function formatLocalTime(tsStr) {
             second: "2-digit"
         });
     } catch (e) {
-        return (tsStr || "").substring(11, 19) || "--:--:--";
+        return String(tsVal || "").substring(11, 19) || "--:--:--";
     }
 }
 
@@ -820,16 +825,17 @@ function formatLocalTime(tsStr) {
             else if (score >= 50) levelClass = "level-high";
             else if (score >= 30) levelClass = "level-medium";
 
+            const groupTime = formatLocalTime(group.last_seen || group.first_seen || group.time_span?.end || group.time_span?.start);
             card.className = `alert-card ${levelClass}`;
             card.innerHTML = `
                 <div class="alert-header-row">
                     <span class="badge-level ${levelClass}">PRIORITY SCORE: ${score}/100</span>
-                    <span class="alert-time">${new Date(group.time_span.start * 1000).toISOString().substring(11, 19)}</span>
+                    <span class="alert-time">${groupTime}</span>
                 </div>
                 <div class="alert-title"><i class="fa-solid fa-layer-group"></i> ${group.group_id} (Gồm ${group.alert_count} cảnh báo)</div>
                 <div class="alert-meta">
                     <span><i class="fa-solid fa-network-wired"></i> Entity: ${group.entity}</span>
-                    <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown.mitre_techniques_found.join(", ") || "Chưa có dữ liệu"}</span>
+                    <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown?.mitre_techniques_found?.join(", ") || "Chưa có dữ liệu"}</span>
                 </div>
                 <div class="alert-actions">
                     <button type="button" class="btn btn--ghost incident-gemini-btn">
@@ -857,13 +863,17 @@ function formatLocalTime(tsStr) {
                         if (ai.status !== "success") {
                             throw new Error(ai.message || "Gemini chưa trả về kết quả.");
                         }
-                        const evidence = (analysis.evidence_ids || []).join(", ") || "Không có";
+                        const evList = Array.isArray(analysis.evidence_ids) ? analysis.evidence_ids : [];
+                        const evCount = evList.length;
+                        const evidenceHtml = evCount > 0
+                            ? `<details class="evidence-toggle" style="margin-top:6px; font-size:11px; cursor:pointer;"><summary style="color:var(--ink-2);"><i class="fa-solid fa-fingerprint"></i> <b>${evCount} bản ghi xác thực</b> (Alert IDs)</summary><div style="margin-top:4px; padding:4px 8px; background:var(--paper-sunk); border-radius:4px; font-family:var(--font-mono); word-break:break-all; max-height:80px; overflow-y:auto; color:var(--ink-3);">${escapeHtml(evList.join(", "))}</div></details>`
+                            : `<span style="color:var(--ink-3); font-size:11px;">Bằng chứng: Đang tổng hợp</span>`;
                         appendChatBot(`
-                            <strong>${escapeHtml(analysis.incident_type || "Incident được phân tích")}</strong><br>
-                            Priority: <b>${escapeHtml(analysis.priority || "N/A")}</b> · Risk: <b>${analysis.risk_score ?? "N/A"}/100</b><br>
+                            <strong><i class="fa-solid fa-shield-halved"></i> ${escapeHtml(analysis.incident_type || "Incident được phân tích")}</strong><br>
+                            Priority: <b>${escapeHtml(analysis.priority || "N/A")}</b> · Risk Score: <b>${analysis.risk_score ?? "N/A"}/100</b><br>
                             ${escapeHtml(analysis.summary || analysis.reasoning || "Không có tóm tắt.")}<br>
-                            MITRE: ${escapeHtml((analysis.mitre_techniques || []).join(", ") || "Chưa xác định")}<br>
-                            Evidence: ${escapeHtml(evidence)}
+                            <div style="margin-top:4px; font-size:12px;"><b>MITRE ATT&CK:</b> ${escapeHtml((analysis.mitre_techniques || []).join(", ") || "Chưa xác định")}</div>
+                            ${evidenceHtml}
                         `, "incident");
                         geminiBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Đã phân tích Gemini';
                     } catch (err) {

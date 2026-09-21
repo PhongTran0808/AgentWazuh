@@ -233,7 +233,7 @@ class IncidentAssistant:
                 if mcp_extension.exists():
                     tool_flags += ["--extension", str(mcp_extension)]
                 cmd = [pi_bin] + tool_flags + model_flag + ["-p", f"@{temp_prompt_path}"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=8, env=env)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=25, env=env)
                 stdout_str = result.stdout.strip()
                 if result.returncode == 0 and stdout_str and "unsupported_api_for_model" not in stdout_str:
                     return stdout_str
@@ -267,19 +267,93 @@ Mình có thể hỗ trợ giải thích Wazuh, phân tích alert/incident, hư�
 
 Bạn có thể hỏi: `hướng dẫn kiểm tra agent`, `giải thích Rule 5710`, `phân tích alert này`, hoặc `tạo rule phát hiện brute force`."""
 
+        q_lower = user_prompt.lower()
+
+        if intent["intent"] == "how_to":
+            if "agent" in q_lower or "kiểm tra" in q_lower:
+                return f"""### 🛠️ Hướng Dẫn Kiểm Tra Trạng Thái Wazuh Agent
+
+#### 1. Kiểm tra trạng thái dịch vụ trên máy trạm/máy chủ:
+- **Linux**:
+  ```bash
+  sudo systemctl status wazuh-agent
+  ```
+- **Windows (PowerShell Admin)**:
+  ```powershell
+  Get-Service -Name "wazuh"
+  ```
+
+#### 2. Kiểm tra nhật ký kết nối của Agent:
+- **Linux**: Xem `/var/ossec/logs/ossec.log` (tìm dòng `Connected to the server`).
+- **Windows**: Xem `C:\\Program Files (x86)\\ossec-agent\\ossec.log`.
+
+#### 3. Quản lý từ Wazuh Manager ({host}):
+```bash
+/var/ossec/bin/agent_control -l
+```
+> Bạn cũng có thể mở mục **Kiểm kê thiết bị (Inventory)** trên thanh điều hướng để xem danh sách Agent kết nối thời gian thực."""
+
+            if "restart" in q_lower or "khởi động" in q_lower:
+                return f"""### 🔄 Hướng Dẫn Khởi Động Lại Dịch Vụ Wazuh
+
+- **Khởi động lại Wazuh Manager**:
+  ```bash
+  sudo systemctl restart wazuh-manager
+  ```
+- **Khởi động lại Wazuh Agent (Linux)**:
+  ```bash
+  sudo systemctl restart wazuh-agent
+  ```
+- **Khởi động lại Wazuh Indexer & Dashboard**:
+  ```bash
+  sudo systemctl restart wazuh-indexer wazuh-dashboard
+  ```
+> Sau khi khởi động lại, kiểm tra trạng thái bằng `sudo systemctl status wazuh-manager`."""
+
+        if intent["intent"] == "wazuh_explanation":
+            rule_id_match = re.search(r"\b(5710|5716|5715|5501|5502|100001|100011|100021|\d{4,6})\b", user_prompt)
+            if rule_id_match:
+                rid = rule_id_match.group(1)
+                explanations = {
+                    "5710": ("sshd: Attempt to login using a non-existent or denied user", "Thấp (Level 5)", "Ghi nhận nỗ lực đăng nhập SSH vào hệ thống sử dụng tên tài khoản không tồn tại hoặc bị chặn. Thường do botnet quét tài khoản ngẫu nhiên (admin, root, test). Cần theo dõi IP nguồn để phát hiện brute force."),
+                    "5716": ("sshd: Authentication failed", "Trung bình (Level 5)", "Đăng nhập SSH thất bại do sai mật khẩu. Nếu lặp lại nhiều lần từ cùng 1 IP trong thời gian ngắn, hệ thống sẽ kích hoạt cảnh báo tấn công dò mật khẩu."),
+                    "5715": ("sshd: Authentication succeeded", "Thông tin (Level 3)", "Đăng nhập SSH thành công vào hệ thống. Cần đối chiếu với thời gian làm việc và IP nội bộ để phát hiện truy cập trái phép ngoài giờ."),
+                    "100001": ("Multiple SSH failed logins (Brute Force attack)", "Cao (Level 10)", "Quy tắc tương quan phát hiện nhiều lần đăng nhập SSH thất bại liên tiếp từ cùng một IP nguồn. Khuyến nghị chặn IP tại tường lửa hoặc kích hoạt Active Response."),
+                    "100011": ("Web Application SQL Injection attempt", "Nghiêm trọng (Level 12)", "Phát hiện chuỗi truy vấn SQL độc hại gửi đến máy chủ web. Cần kiểm tra WAF và chặn IP tấn công ngay lập tức.")
+                }
+                desc, lvl, meaning = explanations.get(rid, (f"Wazuh Rule {rid}", "Chưa xác định", f"Quy tắc phát hiện sự kiện an ninh với mã ID {rid} trong hệ cơ sở dữ liệu luật của Wazuh Manager."))
+                return f"""### 📖 Giải Thích Quy Tắc: Rule `{rid}`
+
+- **Mô tả quy tắc**: `{desc}`
+- **Mức độ cảnh báo (Severity)**: `{lvl}`
+- **Máy chủ Wazuh Manager**: `{host}`
+
+#### 🔍 Ý nghĩa & Cơ chế hoạt động:
+{meaning}
+
+#### 📋 Khuyến nghị cho SOC Analyst:
+1. Đối chiếu IP nguồn trong log với danh sách máy chủ/người dùng hợp lệ.
+2. Nếu xuất hiện tần suất cao (> 5 lần/phút), áp dụng Rule tương quan hoặc chặn IP tại tường lửa.
+"""
+
+            if "alert" in q_lower or "cảnh báo" in q_lower:
+                return f"""### 📖 Khái Niệm: Cảnh Báo An Ninh (Alert) trong Wazuh SIEM
+
+- **Định nghĩa**: Alert là một sự kiện an ninh được Wazuh Manager tạo ra khi một dòng nhật ký (Log) thu thập từ Agent/Syslog khớp với một quy tắc (Rule) và có mức độ (Level) đạt ngưỡng cảnh báo.
+- **Cấu trúc của một Alert**:
+  - `rule.id`: Mã quy tắc phát hiện (VD: 5710, 5716).
+  - `rule.level`: Mức độ nghiêm trọng từ 0 đến 16 (Level >= 7 là Medium/High, >= 12 là Critical).
+  - `agent`: Thiết bị phát sinh sự kiện (Tên máy, ID, IP).
+  - `data`: Ngữ cảnh chi tiết (IP nguồn `srcip`, cổng dịch vụ, tài khoản, tiến trình).
+- **Ví dụ**: Khi có nhiều lần đăng nhập sai liên tiếp, Wazuh kích hoạt cảnh báo *Rule 100001 - Multiple SSH failed logins*.
+"""
+
         if intent["intent"] == "metrics" and stats:
-            return f"""### 📊 Số liệu Wazuh hiện có
+            return self._generate_fallback_analysis(user_prompt, system_context)
 
-| Chỉ số | Giá trị |
-|---|---:|
-| Wazuh Manager | `{host}` |
-| Tổng alert 24 giờ | {stats.get('total_24h', 0)} |
-| Critical | {stats.get('critical', 0)} |
-| High | {stats.get('high', 0)} |
-| Medium | {stats.get('medium', 0)} |
-| Low | {stats.get('low', 0)} |
-
-> Đây là các số liệu có trong context hiện tại; chưa có thêm chi tiết để kết luận ngoài những trường này."""
+        # If user asks for investigation, alerts, or incidents, use deterministic SOC engine
+        if intent["intent"] == "investigation" or any(k in q_lower for k in ("phân tích sự cố", "phân tích nhóm sự cố", "phân tích alert", "inc-", "điều tra", "sơ đồ", "playbook")):
+            return self._generate_fallback_analysis(user_prompt, system_context)
 
         return f"""### ℹ️ Chưa đủ dữ liệu để trả lời chắc chắn
 
@@ -303,27 +377,28 @@ Bạn có thể gửi thêm `alert JSON`, `rule ID`, `agent ID`, khoảng thời
         # 1. Nếu người dùng hỏi phân tích 1 Alert cụ thể (Alert <ID> ...)
         alert_match = re.search(r"alert\s+([A-Za-z0-9_\-]+)", user_prompt, re.IGNORECASE)
         rule_desc_match = re.search(r"\(([^)]+)\)", user_prompt)
-        if alert_match or "alert " in q_lower:
+        if alert_match or "phân tích alert" in q_lower or "alert " in q_lower:
             alert_id = alert_match.group(1) if alert_match else "N/A"
-            rule_desc = rule_desc_match.group(1) if rule_desc_match else "Cảnh báo an ninh lưu lượng mạng"
+            rule_desc = rule_desc_match.group(1) if rule_desc_match else "Cảnh báo an ninh giám sát"
+            is_traffic = "traffic" in q_lower or "fortigate" in q_lower or "flow" in q_lower
+            source_sys = "Syslog Firewall (FortiGate)" if is_traffic else "Wazuh Agent / Syslog"
             
             return f"""### 🛡️ BÁO CÁO ĐIỀU TRA SỰ CỐ ĐƠN LẺ: ALERT `{alert_id}`
 
 - **Mô tả Quy tắc (Rule Description)**: **{rule_desc}**
 - **Máy chủ Wazuh Manager**: `{host}`
-- **Phân loại Nguy cơ**: Mức độ Nghiêm trọng · Lưu lượng bất thường (High Traffic Anomalies)
+- **Nguồn giám sát**: `{source_sys}`
 
 #### 🔍 Đánh giá Kỹ thuật Chuyên sâu:
-1. **Phân tích Hành vi**: Ghi nhận từ luồng giám sát **Syslog Firewall (FortiGate)** hoặc **Wazuh Agent**. Thiết bị phát hiện tần suất gửi gói tin bất thường vượt ngưỡng bảo vệ (Spike Traffic Threshold) từ cùng một địa chỉ nguồn.
+1. **Phân tích Hành vi**: Ghi nhận từ luồng giám sát **{source_sys}**. Thiết bị phát hiện sự kiện khớp với quy tắc: `{rule_desc}`.
 2. **Nguy cơ tiềm ẩn**:
-   - **T1498 (Network Denial of Service)**: Tấn công từ chối dịch vụ hoặc quét cổng quy mô lớn.
-   - **T1071 (Application Layer Protocol)**: Truyền tải dữ liệu rò rỉ (Exfiltration) hoặc flood kết nối TCP/UDP.
-3. **Mức độ rủi ro**: Cần xác minh ngay địa chỉ IP nguồn để tránh làm nghẽn băng thông cổng WAN.
+   - Cần theo dõi tần suất sự kiện để phát hiện tấn công leo thang hoặc thăm dò mạng.
+   - Kiểm tra IP nguồn để xác định tính xác thực của luồng truy cập.
 
 #### 📋 Kế hoạch Hành động Khắc phục (Playbook SOC):
-1. **Bước 1**: Truy cập cấu hình FortiGate, kiểm tra session table của IP nguồn trong cảnh báo `{alert_id}`.
-2. **Bước 2**: Đặt chính sách **Rate-Limiting Policy** hoặc tạm thời Drop traffic tại Interface ngoài.
-3. **Bước 3**: Tạo quy tắc nháp XML trên AgentWazuh để giám sát tự động ngưỡng cảnh báo lặp lại.
+1. **Bước 1**: Mở mục **Gói tin API** hoặc **Log Drill-down** để kiểm tra chi tiết payload của Alert `{alert_id}`.
+2. **Bước 2**: Đối chiếu IP nguồn trong sự kiện với danh sách trắng nội bộ hoặc tường lửa.
+3. **Bước 3**: Kích hoạt Rule lọc tần suất nháp nếu phát hiện dấu hiệu lặp lại bất thường.
 """
 
         # 2. Nếu người dùng hỏi phân tích Nhóm Sự cố Incident (INC-<ID> ...)
@@ -376,17 +451,28 @@ Bạn có thể gửi thêm `alert JSON`, `rule ID`, `agent ID`, khoảng thời
 
         # 2. Yêu cầu trích xuất Log Low / Log cụ thể
         if "low" in q_lower or "trích xuất" in q_lower or "mẫu" in q_lower:
+            recent = (system_context or {}).get("recent_alerts", [])
+            low_alerts = [a for a in recent if (a.get("rule", {}) or {}).get("level", 0) <= 6]
+            if low_alerts:
+                rows = []
+                for a in low_alerts[:5]:
+                    r = a.get("rule", {}) or {}
+                    ag = a.get("agent", {}) or {}
+                    ts = (a.get("timestamp", "") or "")[-8:] or "--:--:--"
+                    rows.append(f"| {ts} | **Rule {r.get('id', '?')}** | LOW ({r.get('level', 1)}) | {r.get('description', 'Alert')} | {ag.get('name', host)} |")
+                table_body = "\n".join(rows)
+            else:
+                table_body = f"| --:--:-- | **Thông tin** | LOW | Không có log Low trong phiên hiện tại | {host} |"
+
             return f"""### 📋 DỮ LIỆU TRÍCH XUẤT CẢNH BÁO MỨC ĐỘ LOW (THẤP)
 
 | Thời gian | Rule ID | Mức độ | Mô tả cảnh báo | Thiết bị / IP |
 |---|---|---|---|---|
-| 10:31:00 | **Rule 554** | LOW (5) | File added to the system | AIM-01 (18.18.10.10) |
-| 10:30:35 | **Rule 503** | LOW (3) | Wazuh agent started | AEB-01 (10.10.30.10) |
-| 10:28:04 | **Rule 5710** | LOW (5) | sshd: Attempt to login using a non-existent user | AEB-01 (10.10.40.10) |
+{table_body}
 
 - **Máy chủ quản lý**: `{host}`
-- **Tổng số cảnh báo trích xuất**: 3 log tiêu biểu trong 24h qua.
-- **Khuyến nghị**: Các cảnh báo mức Low phản ánh hoạt động hệ thống bình thường hoặc thử nghiệm đăng nhập sai tên user.
+- **Nguồn dữ liệu**: Wazuh REST API ({host})
+- **Khuyến nghị**: Các cảnh báo mức Low phản ánh hoạt động hệ thống bình thường hoặc thăm dò nhẹ.
 """
 
         # 3. Yêu cầu vẽ sơ đồ luồng
@@ -396,7 +482,7 @@ Bạn có thể gửi thêm `alert JSON`, `rule ID`, `agent ID`, khoảng thời
 ```mermaid
 graph TD
     A["🚨 Cảnh báo Wazuh SIEM"] -->|Filter Level >= 7| B["🔍 Phân Tích IP Nguồn & Target"]
-    B --> C{"Có dấu hiệu Brute Force?"}
+    B --> C{{"Có dấu hiệu Brute Force?"}}
     C -->|CÓ| D["🛡️ Tạo Rule Lọc Tần Suất (XML)"]
     C -->|KHÔNG| E["📝 Ghi Log Audit & Đóng Case"]
     D --> F["⚡ Kiểm Thử Sandbox Dry-Run"]
@@ -412,6 +498,16 @@ graph TD
 
         # 4. Yêu cầu Thống kê Severity / Agents
         if "thống kê" in q_lower or "medium" in q_lower or "high" in q_lower or "agents" in q_lower:
+            agent_lines = []
+            agents_list = (system_context or {}).get("agents", [])
+            if agents_list:
+                for a in agents_list[:8]:
+                    agent_lines.append(f"- **{a.get('name', 'Agent')}** (ID: `{a.get('id', '?')}`): `{a.get('ip', 'N/A')}` · `{a.get('status', 'ACTIVE').upper()}`")
+            else:
+                agent_lines.append(f"- **Wazuh Server (SIEM Manager)**: `{host}` · `ONLINE`")
+                agent_lines.append(f"- **AgentWazuh AI Agent**: `Local Host` · `CONNECTED`")
+            agents_rendered = "\n".join(agent_lines)
+
             return f"""### 📊 THỐNG KÊ CHI TIẾT CẢNH BÁO & THIẾT BỊ GIÁM SÁT (24H)
 
 - **Máy chủ Wazuh Manager**: `{host}`
@@ -421,11 +517,7 @@ graph TD
   - 🟢 **Mức độ Thấp (Low - Level 1-6)**: `{max(0, total - high - med)}` cảnh báo
 
 #### 🖥️ Trạng thái danh sách Agents:
-- **Wazuh Server (SIEM Manager)**: `100.69.72.103` · `ONLINE`
-- **AgentWazuh AI Agent**: `Local Host` · `CONNECTED`
-- **WIN-01 (Windows Workstation)**: `10.10.10.10` · `DISCONNECTED`
-- **SRV-01 (DMZ Server)**: `10.10.20.10` · `ONLINE`
-- **WEB-01 (Web Application)**: `10.10.30.10` · `ONLINE`
+{agents_rendered}
 """
 
         # 5. Yêu cầu mặc định / Tổng quan
@@ -625,43 +717,21 @@ graph TD
             context_str = f"{context_str}\n\n{solpi_receipt}"
         has_internal = self._has_internal_ip(context_str)
 
-        system_prompt = f"""Bạn là AgentWazuh AI Master Advisor — trợ lý điều tra sự cố an ninh mạng cho SOC.
+        system_prompt = f"""Bạn là AgentWazuh AI Master Advisor — trợ lý điều tra sự cố an ninh mạng chuyên sâu cho SOC.
 
 RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
-1. Chỉ phân tích, tóm tắt và đưa ra đề xuất dựa trên ĐÚNG chuỗi dữ liệu thực tế thu thập từ Wazuh REST API ({current_host}).
-2. Tuyệt đối không tự suy diễn hoặc bịa đặt địa chỉ IP, tên máy chủ, lỗ hổng CVE hay số lượng cảnh báo. Nếu cần đánh giá mức độ nghiêm trọng, bạn PHẢI SỬ DỤNG TOOL/SKILL để gọi hệ thống Python lõi. KHÔNG TỰ TÍNH ĐIỂM.
-3. Nếu hệ thống thiếu dữ liệu, trả lời trung thực.
-4. Dùng BẢNG MARKDOWN khi cần so sánh hoặc trình bày nhiều trường dữ liệu; không biến mọi câu trả lời thành bảng.
-5. Dùng sơ đồ Mermaid khi người dùng yêu cầu sơ đồ hoặc khi chuỗi tấn công có nhiều bước; không chèn sơ đồ chỉ để trang trí.
-6. RÀNG BUỘC SỐ LIỆU BIỂU ĐỒ (DETERMINISTIC CHART DATA - ZERO LLM MATH):
-   - Khi người dùng yêu cầu vẽ/trực quan hóa biểu đồ (tròn/pie/doughnut, cột/bar, đường/line, miền/area, kết hợp) -> Bạn PHẢI SỬ DỤNG ĐÚNG 100% các con số trong mục "SỐ LIỆU BIỂU ĐỒ ĐÃ TÍNH TOÁN BẰNG PYTHON THUẦN" được cung cấp ở trên.
-   - TUYỆT ĐỐI KHÔNG TỰ TÍNH, TỰ TỔNG HỢP, TỰ TĂNG/GIẢM HOẶC BỊA ĐẶT BẤT KỲ CON SỐ NÀO.
-   - Vai trò của bạn CHỈ LÀ đóng gói các con số do Python tính sẵn đó vào đúng cấu trúc JSON Chart.js trong khối ```chart (gồm type, data: {{labels, datasets}}, options).
-7. Luôn ghi rõ nguồn: Dữ liệu thực tế từ Wazuh Server.
-8. QUY TẮC TRÌNH BÀY PHÂN BỐ THEO GIỜ (HOURLY TIME-SERIES TABLE - UTC+7 VIỆT NAM):
-   - Tất cả thời gian hiển thị trong mục Phân bố theo giờ ĐÃ ĐƯỢC CONVERT CHÍNH XÁC sang MÚI GIỜ VIỆT NAM (UTC+7).
-   - Khi tạo báo cáo, mục "Phân bố thời gian theo giờ" BẮT BUỘC TRÌNH BÀY DƯỚI DẠNG BẢNG MARKDOWN gọn gàng (Markdown Table).
-   - Chỉ liệt kê các khung giờ CÓ CẢNH BÁO (>0 alert) hoặc gộp nhóm giờ thông minh, TUYỆT ĐỐI KHÔNG in ra danh sách dài 24 dòng chứa toàn số 0.
-   - Ví dụ định dạng bảng:
-     | Khung giờ (Giờ Việt Nam - UTC+7) | Số lượng cảnh báo | Tỷ lệ |
-     | 13:00 - 14:00 | 199 | ~64.2% |
-     | 14:00 - 15:00 | 111 | ~35.8% |
-9. QUY TẮC TRẠNG THÁI KẾT NỐI (CONNECTION GROUNDING):
-   - Khi mục TRẠNG THÁI KẾT NỐI WAZUH SERVER ghi nhận "CONNECTED - LIVE REALTIME", bạn TUYỆT ĐỐI KHÔNG ĐƯỢC tự ý chèn bất kỳ câu lưu ý hay thông báo lỗi kết nối nào dạng 'Không thể kết nối', 'Lỗi kết nối tới 127.0.0.1' hoặc 'Báo cáo chỉ được tổng hợp từ dữ liệu tính trước'. 
-   - Bạn PHẢI khẳng định đây là DỮ LIỆU THỰC TẾ THỜI GIAN THỰC đang hoạt động trực tiếp từ Wazuh Server ({current_host}).
-10. QUY TẮC BÁO CÁO THIẾT BỊ GIÁM SÁT THỜI GIAN THỰC (STRICT ACTIVE DEVICE REPORTING):
-   - Khi người dùng hỏi về "thiết bị đang giám sát" hoặc "Wazuh đang giám sát thiết bị gì":
-   - Bạn BẮT BUỘC chỉ liệt kê các thiết bị có trạng thái ACTIVE REALTIME (ví dụ: 'active (Kết nối thời gian thực)' hoặc 'active (Đang truyền log phiên hiện tại)').
-   - Nếu KHÔNG có Agent nào active và KHÔNG có gói log Syslog nào xuất hiện trong 15 phút gần đây (các thiết bị đều là inactive hoặc CMDB record), bạn PHẢI khẳng định trung thực: "Hiện tại hệ thống Wazuh CHƯA KẾT NỐI hoặc KHÔNG NHẬN DỮ LIỆU TỪ THIẾT BỊ NÀO TRONG PHIÊN HIỆN TẠI (0 thiết bị active)."
-   - TUYỆT ĐỐI KHÔNG lấy các log cũ từ nhiều giờ/ngày trước của phiên kết nối trước đó để báo cáo là thiết bị đang hoạt động!
-11. QUY TẮC PHÁT SINH FORM CẤU HÌNH RULE XML (CONFIG_FORM GENERATION):
-   - Khi người dùng hỏi/yêu cầu "tạo rule", "viết rule XML", "tạo quy tắc tương quan", "cấu hình rule":
-   - Bạn BẮT BUỘC chèn khối JSON CONFIG_FORM vào cuối câu trả lời dạng:
+1. **Dữ liệu thực tế**: Chỉ phân tích dựa trên dữ liệu thu thập từ Wazuh REST API ({current_host}). Tuyệt đối không tự bịa đặt IP, CVE hay sự kiện không có trong context.
+2. **Số liệu tất định (Deterministic Metrics)**: Khi vẽ biểu đồ hoặc báo cáo số lượng, BẮT BUỘC dùng đúng 100% con số do Python tính sẵn trong context. Không tự cộng trừ hoặc suy diễn số liệu.
+3. **Trực quan hóa**:
+   - Dùng Markdown Table cho phân bố theo giờ hoặc thống kê đa trường (chỉ liệt kê khung giờ có cảnh báo).
+   - Dùng sơ đồ Mermaid khi người dùng yêu cầu luồng/sơ đồ xử lý.
+   - Trình bày mạch lạc: Phân loại nguy cơ ➔ Bằng chứng thực tế ➔ Khuyến nghị SOC Playbook.
+4. **Cấu hình Rule (HITL)**: Khi người dùng yêu cầu tạo/viết rule XML, chèn khối JSON:
 ```json:form
 {{
   "type": "CONFIG_FORM",
   "title": "⚡ Bảng Cấu Hình Rule XML & Tương Quan Wazuh",
-  "description": "Nhấp nút [⚡ Tạo Rule Mẫu XML] hoặc chỉnh sửa thông số bên dưới để test và áp dụng trực tiếp lên Wazuh Manager.",
+  "description": "Chỉnh sửa thông số bên dưới để test và áp dụng trực tiếp lên Wazuh Manager.",
   "form_data": {{
     "rule_name": "Rule Cảnh Báo Mới",
     "match_pattern": "authentication failure",
@@ -671,18 +741,12 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
   }}
 }}
 ```
-12. QUY TẮC ĐIỀU HƯỚNG CÂU TRẢ LỜI:
-   - Intent hiện tại: `{chat_intent['intent']}`; format mong muốn: `{chat_intent['format']}`.
-   - Câu hỏi khái niệm: giải thích ngắn, sau đó đưa ví dụ Wazuh; đánh dấu rõ ví dụ minh họa.
-   - Câu hỏi hướng dẫn: trả theo Điều kiện cần có → Các bước → Kiểm tra kết quả → Xử lý lỗi.
-   - Câu hỏi incident: dùng Quick Verdict → Evidence → Timeline → Risk/Priority → Recommended Actions → Unknowns.
-   - Câu hỏi thống kê: dùng bảng hoặc chart với đúng số liệu Python đã cung cấp.
-   - Câu hỏi rule: giải thích field, tạo bản nháp và luôn yêu cầu HITL trước khi áp dụng.
-   - Câu hỏi không đủ dữ liệu: nói rõ thiếu dữ liệu nào; không điền bằng IP, agent, alert hoặc trạng thái tưởng tượng.
-13. QUY TẮC THỰC THI:
-   - Phân biệt "có thể hướng dẫn" với "đã thực hiện". Chỉ nói đã thực hiện khi có kết quả API/tool.
-   - Không khẳng định hiểu hoặc hỗ trợ mọi thao tác Wazuh nếu hệ thống chưa có tool tương ứng; hãy nói giới hạn và hướng dẫn thủ công.
-   - Trả lời tiếng Việt nếu Analyst hỏi tiếng Việt; dùng heading, bảng, code block, Mermaid hoặc Chart.js khi thực sự giúp dễ hiểu."""
+5. **Định hướng theo Intent (`{chat_intent['intent']}`)**:
+   - Khái niệm: Giải thích bản chất ngắn gọn kèm ví dụ Wazuh.
+   - Hướng dẫn: Liệt kê các bước thực hiện tuần tự và lệnh kiểm tra.
+   - Sự cố/Alert/Incident: Quick Verdict ➔ Chi tiết kỹ thuật ➔ Hành động khắc phục.
+   - Thống kê: Bảng tổng hợp hoặc biểu đồ Chart.js.
+   - Trả lời bằng tiếng Việt tự nhiên, chuyên nghiệp."""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 

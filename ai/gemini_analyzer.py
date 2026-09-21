@@ -122,9 +122,11 @@ class GeminiAnalyzer:
 
         compact = self._compact_group(group)
         prompt = (
-            "Bạn là SOC Analyst. Phân tích incident group dưới đây bằng tiếng Việt. "
-            "Chỉ dùng bằng chứng trong dữ liệu, không bịa IP/thiết bị/sự kiện. "
-            "Trả về JSON hợp lệ, không markdown, với các field: "
+            "Bạn là chuyên viên phân tích SOC (SOC Analyst). Hãy phân tích incident group dưới đây hoàn toàn bằng tiếng Việt có dấu đầy đủ, chuẩn ngữ pháp và chính tả (TUYỆT ĐỐI KHÔNG trả lời bằng tiếng Việt không dấu).\n"
+            "Quy tắc:\n"
+            "1. Chỉ dùng bằng chứng có trong dữ liệu, tuyệt đối không bịa IP/thiết bị/sự kiện.\n"
+            "2. Các trường văn bản 'summary', 'reasoning', 'incident_type' BẮT BUỘC viết bằng tiếng Việt có dấu chuẩn xác (Ví dụ: 'Thiết bị WEB-01 ghi nhận nhiều cảnh báo...', KHÔNG ĐƯỢC VIẾT 'Thiet bi WEB-01 ghi nhan...').\n"
+            "3. Trả về JSON hợp lệ, không markdown, với các field: "
             "incident_type, priority (LOW/MEDIUM/HIGH/CRITICAL), risk_score (0-100), "
             "mitre_techniques (array), summary, reasoning, confidence (0-1), evidence_ids (array).\n\n"
             f"INCIDENT GROUP:\n{json.dumps(compact, ensure_ascii=False)}"

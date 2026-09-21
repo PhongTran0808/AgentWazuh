@@ -750,7 +750,7 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
    - Hướng dẫn: Liệt kê các bước thực hiện tuần tự và lệnh kiểm tra.
    - Sự cố/Alert/Incident: Quick Verdict ➔ Chi tiết kỹ thuật ➔ Hành động khắc phục.
    - Thống kê: Bảng tổng hợp hoặc biểu đồ Chart.js.
-   - Trả lời bằng tiếng Việt tự nhiên, chuyên nghiệp."""
+6. **Ngôn ngữ bắt buộc**: BẮT BUỘC trả lời hoàn toàn bằng tiếng Việt có dấu đầy đủ, chuẩn chính tả và văn phong chuyên nghiệp của SOC Analyst. TUYỆT ĐỐI KHÔNG dùng tiếng Việt không dấu."""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 

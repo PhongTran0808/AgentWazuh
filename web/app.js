@@ -843,7 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
                 <div class="alert-actions">
                     <button type="button" class="btn btn--ghost incident-gemini-btn">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích Gemini
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích
                     </button>
                 </div>
             `;
@@ -865,7 +865,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         const ai = data.ai || {};
                         const analysis = ai.analysis || {};
                         if (ai.status !== "success") {
-                            throw new Error(ai.message || "Gemini chưa trả về kết quả.");
+                            throw new Error(ai.message || "Hệ thống AI chưa trả về kết quả.");
                         }
                         const evList = Array.isArray(analysis.evidence_ids) ? analysis.evidence_ids : [];
                         const evCount = evList.length;
@@ -879,11 +879,11 @@ document.addEventListener("DOMContentLoaded", () => {
                             <div style="margin-top:4px; font-size:12px;"><b>MITRE ATT&CK:</b> ${escapeHtml((analysis.mitre_techniques || []).join(", ") || "Chưa xác định")}</div>
                             ${evidenceHtml}
                         `, "incident");
-                        geminiBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Đã phân tích Gemini';
+                        geminiBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Đã phân tích';
                     } catch (err) {
                         geminiBtn.disabled = false;
-                        geminiBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích Gemini';
-                        appendChatBot(`<span class="danger-text">Gemini chưa phân tích được incident: ${escapeHtml(err.message || String(err))}</span>`);
+                        geminiBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích';
+                        appendChatBot(`<span class="danger-text">Chưa phân tích được incident: ${escapeHtml(err.message || String(err))}</span>`);
                     }
                 });
             }

@@ -134,7 +134,10 @@
             <!-- ── Fan-out canvas ── -->
             <section class="panel panel--grow panel--plain">
                 <header class="panel__head">
-                    <h2 class="panel__title"><i class="fa-solid fa-diagram-project"></i> Sơ đồ hình sao — Wazuh Agents</h2>
+                    <div>
+                        <h2 class="panel__title"><i class="fa-solid fa-diagram-project"></i> Sơ đồ giám sát Wazuh — Agents</h2>
+                        <p class="panel__subtitle">Wazuh Manager ở trung tâm; mỗi node là một thiết bị/Agent đang được theo dõi.</p>
+                    </div>
                     <div class="panel__tools">
                         <button type="button" class="btn btn--ghost btn--sm" id="btn-zoom-fit" title="Căn vừa khung hình">
                             <i class="fa-solid fa-expand"></i> Fit View
@@ -166,6 +169,10 @@
                 <div class="dock__tabs">
                     <span class="dock__tab is-active"><i class="fa-solid fa-circle-info"></i> Thông tin thiết bị</span>
                 </div>
+                <a class="btn btn--ghost btn--sm" id="btn-open-evidence-dashboard" href="/dashboard?tab=evidence"
+                   title="Mở khu vực minh chứng của AI Chat">
+                    <i class="fa-solid fa-file-shield"></i><span>Bằng chứng</span>
+                </a>
                 <button type="button" class="btn btn--icon" data-dock-toggle aria-label="Đóng bảng chi tiết" title="Đóng">
                     <i class="fa-solid fa-xmark"></i>
                 </button>

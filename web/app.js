@@ -259,10 +259,10 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    let currentViewMode = "single"; // "single" or "group"
+    let currentViewMode = "group"; // "single" = raw alerts, "group" = correlated incidents
 
     function escapeHtml(str) {
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
     const btnBackLogin = document.getElementById("btn-back-login");
@@ -343,6 +343,8 @@ document.addEventListener("DOMContentLoaded", () => {
             currentViewMode = "single";
             btnViewModeSingle.classList.add("active");
             btnViewModeGroup.classList.remove("active");
+            btnViewModeSingle.setAttribute("aria-pressed", "true");
+            btnViewModeGroup.setAttribute("aria-pressed", "false");
             fetchLiveAlerts();
         });
         
@@ -350,6 +352,8 @@ document.addEventListener("DOMContentLoaded", () => {
             currentViewMode = "group";
             btnViewModeGroup.classList.add("active");
             btnViewModeSingle.classList.remove("active");
+            btnViewModeGroup.setAttribute("aria-pressed", "true");
+            btnViewModeSingle.setAttribute("aria-pressed", "false");
             fetchLiveAlerts();
         });
     }
@@ -615,6 +619,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const evidenceDetail = document.getElementById("evidence-detail");
     const presetChips = document.querySelectorAll(".chip-btn");
 
+    try {
+        const savedEvidence = sessionStorage.getItem("agentwazuh_last_evidence");
+        if (savedEvidence && evidenceDetail) {
+            const parsedEvidence = JSON.parse(savedEvidence);
+            renderEvidenceDetail(parsedEvidence.investigation || {}, parsedEvidence.alert || null);
+        }
+    } catch (e) {
+        console.warn("Không khôi phục được minh chứng gần nhất:", e);
+    }
+
     if (btnBackLogin) {
         btnBackLogin.addEventListener("click", async () => {
             try {
@@ -655,14 +669,29 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Primary realtime path: the backend pushes webhook/polling events via SSE.
+    // The interval below remains as a recovery path if the stream is unavailable.
+    let realtimeRefreshTimer = null;
+    function connectRealtimeAlertStream() {
+        if (!window.EventSource) return;
+        const stream = new EventSource("/api/events/alerts");
+        stream.addEventListener("alert", () => {
+            clearTimeout(realtimeRefreshTimer);
+            realtimeRefreshTimer = setTimeout(fetchLiveAlerts, 120);
+        });
+        stream.addEventListener("error", () => {
+            // EventSource reconnects automatically; polling remains active meanwhile.
+        });
+    }
+
     function renderAlertsList(alerts) {
         alertsList.innerHTML = "";
         if (!alerts || alerts.length === 0) {
             alertsList.innerHTML = `
                 <div class="empty-state">
                     <i class="fa-solid fa-shield-check empty-icon ok"></i>
-                    <strong>Chưa có Cảnh báo mới (0 Real Alerts)</strong>
-                    <span>Hệ thống đang ở chế độ Real-Time Fetch từ Wazuh API. Toàn bộ log giả lập cũ đã được gỡ bỏ 100%.</span>
+                    <strong>Chưa có alert mới</strong>
+                    <span>Wazuh chưa trả về cảnh báo trong cửa sổ dữ liệu hiện tại.</span>
                 </div>
             `;
             return;
@@ -734,8 +763,8 @@ function formatLocalTime(tsStr) {
             alertsList.innerHTML = `
                 <div class="empty-state">
                     <i class="fa-solid fa-layer-group empty-icon ok"></i>
-                    <strong>Chưa có Incident Group</strong>
-                    <span>Chưa có cảnh báo nào được tương quan thành nhóm.</span>
+                    <strong>Chưa có nhóm sự cố</strong>
+                    <span>Chưa có alert nào được tương quan thành incident trong cửa sổ dữ liệu hiện tại.</span>
                 </div>
             `;
             return;
@@ -760,7 +789,48 @@ function formatLocalTime(tsStr) {
                     <span><i class="fa-solid fa-network-wired"></i> Entity: ${group.entity}</span>
                     <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown.mitre_techniques_found.join(", ") || "Chưa có dữ liệu"}</span>
                 </div>
+                <div class="alert-actions">
+                    <button type="button" class="btn btn--ghost incident-gemini-btn">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích Gemini
+                    </button>
+                </div>
             `;
+
+            const geminiBtn = card.querySelector(".incident-gemini-btn");
+            if (geminiBtn) {
+                geminiBtn.addEventListener("click", async (event) => {
+                    event.stopPropagation();
+                    geminiBtn.disabled = true;
+                    geminiBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích...';
+                    try {
+                        const res = await fetch("/api/wazuh/incidents/analyze", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ incident_id: group.incident_id || group.group_id }),
+                            credentials: "same-origin"
+                        });
+                        const data = await res.json();
+                        const ai = data.ai || {};
+                        const analysis = ai.analysis || {};
+                        if (ai.status !== "success") {
+                            throw new Error(ai.message || "Gemini chưa trả về kết quả.");
+                        }
+                        const evidence = (analysis.evidence_ids || []).join(", ") || "Không có";
+                        appendChatBot(`
+                            <strong>${escapeHtml(analysis.incident_type || "Incident được phân tích")}</strong><br>
+                            Priority: <b>${escapeHtml(analysis.priority || "N/A")}</b> · Risk: <b>${analysis.risk_score ?? "N/A"}/100</b><br>
+                            ${escapeHtml(analysis.summary || analysis.reasoning || "Không có tóm tắt.")}<br>
+                            MITRE: ${escapeHtml((analysis.mitre_techniques || []).join(", ") || "Chưa xác định")}<br>
+                            Evidence: ${escapeHtml(evidence)}
+                        `, "incident");
+                        geminiBtn.innerHTML = '<i class="fa-solid fa-circle-check"></i> Đã phân tích Gemini';
+                    } catch (err) {
+                        geminiBtn.disabled = false;
+                        geminiBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích Gemini';
+                        appendChatBot(`<span class="danger-text">Gemini chưa phân tích được incident: ${escapeHtml(err.message || String(err))}</span>`);
+                    }
+                });
+            }
 
             card.addEventListener("click", () => {
                 document.querySelectorAll(".alert-card").forEach(c => c.classList.remove("selected"));
@@ -786,33 +856,53 @@ function formatLocalTime(tsStr) {
         appendMessageToSession("user", msg);
     }
 
-    async function investigateAlert(query, alertObj = null) {
-        const progressBarHtml = `
-            <div class="ai-loading-container">
+    function processingStepsHtml() {
+        const steps = ["Chuẩn bị context", "Lấy dữ liệu", "Phân tích AI", "Hiển thị kết quả"];
+        return `
+            <div class="ai-loading-container" role="status" aria-live="polite">
                 <div class="ai-loading-head">
-                    <span id="loading-percent" class="ai-loading-percent">0%</span>
+                    <span class="ai-loading-label">Đang xử lý yêu cầu SOC</span>
+                    <span class="muted" data-ai-step-label>${steps[0]}</span>
                 </div>
-                <div class="progress-bar-bg">
-                    <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                <div class="ai-stepper" data-ai-stepper>
+                    ${steps.map((label, index) => `
+                        <div class="ai-step ${index === 0 ? "is-active" : ""}" data-step="${index}">
+                            <span class="ai-step__dot">${index + 1}</span><span>${label}</span>
+                        </div>
+                    `).join("")}
                 </div>
             </div>
         `;
-        const loadingId = appendChatBot(progressBarHtml);
+    }
 
-        const progressBarFill = document.getElementById("progress-bar-fill");
-        const loadingPercent = document.getElementById("loading-percent");
+    function setProcessingStep(id, activeIndex, label) {
+        const root = document.getElementById(id);
+        if (!root) return;
+        const stepper = root.querySelector("[data-ai-stepper]");
+        if (!stepper) return;
+        stepper.querySelectorAll(".ai-step").forEach((step, index) => {
+            step.classList.toggle("is-done", index < activeIndex);
+            step.classList.toggle("is-active", index === activeIndex);
+        });
+        const labelEl = root.querySelector("[data-ai-step-label]");
+        if (labelEl && label) labelEl.textContent = label;
+    }
 
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-            if (progress < 95) {
-                progress += Math.random() * 12 + 4;
-                if (progress > 95) progress = 95;
-                if (progressBarFill && loadingPercent) {
-                    progressBarFill.style.width = progress + "%";
-                    loadingPercent.textContent = Math.floor(progress) + "%";
-                }
-            }
-        }, 300);
+    function responseTypeFor(intent, configForm) {
+        if (configForm || intent === "rule_configuration") return "rule";
+        if (intent === "investigation") return "incident";
+        if (intent === "how_to") return "playbook";
+        if (intent === "metrics") return "metrics";
+        return "answer";
+    }
+
+    function responseLabelFor(type) {
+        return ({ incident: "Incident Report", playbook: "Playbook", metrics: "Metrics", rule: "Rule Draft", answer: "AI Answer" })[type] || "AI Answer";
+    }
+
+    async function investigateAlert(query, alertObj = null) {
+        const loadingId = appendChatBot(processingStepsHtml());
+        setProcessingStep(loadingId, 1, "Lấy dữ liệu");
 
         try {
             const chatModelEl = document.getElementById("chat-model-select");
@@ -831,40 +921,33 @@ function formatLocalTime(tsStr) {
                 credentials: "same-origin"
             });
 
+            setProcessingStep(loadingId, 2, "Phân tích AI");
             const data = await res.json();
             const inv = data.investigation;
 
-            clearInterval(progressInterval);
-            if (progressBarFill && loadingPercent) {
-                progressBarFill.style.width = "100%";
-                loadingPercent.textContent = "100%";
-            }
-
-            setTimeout(() => {
-                const textToRender = inv.layer_2_llm_reasoning || inv.answer || inv.summary || "";
-                const formToRender = inv.config_form || inv.active_form_session || null;
-                updateChatBot(loadingId, textToRender, inv.reasoning_steps || [], formToRender);
-                renderEvidenceDetail(inv, alertObj);
-            }, 600);
+            setProcessingStep(loadingId, 3, "Hiển thị kết quả");
+            const textToRender = inv.layer_2_llm_reasoning || inv.answer || inv.summary || "";
+            const formToRender = inv.config_form || inv.active_form_session || null;
+            updateChatBot(loadingId, textToRender, inv.reasoning_steps || [], formToRender, inv.chat_intent?.intent);
+            renderEvidenceDetail(inv, alertObj);
             
         } catch (err) {
-            clearInterval(progressInterval);
-            updateChatBot(loadingId, "Lỗi kết nối tới máy chủ AI Investigation API.");
+            updateChatBot(loadingId, "Lỗi kết nối tới máy chủ AI Investigation API.", [], null, "general");
         }
     }
 
-    function appendChatBot(msg) {
+    function appendChatBot(msg, responseType = "answer") {
         const id = "bot_" + Date.now();
         const div = document.createElement("div");
         div.className = "chat-bubble system";
         div.id = id;
-        div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI Master Advisor:</strong><div class="msg-text">${msg}</div></div>`;
+        div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content" data-response-type="${responseType}"><strong>AgentWazuh AI Master Advisor</strong><span class="response-label" data-response-label>${responseLabelFor(responseType)}</span><div class="msg-text">${msg}</div></div>`;
         chatStream.appendChild(div);
         chatStream.scrollTop = chatStream.scrollHeight;
         return id;
     }
 
-    function updateChatBot(id, markdownText, steps = [], configForm = null) {
+    function updateChatBot(id, markdownText, steps = [], configForm = null, intent = "general") {
         if (!markdownText) markdownText = "";
 
         // 1. Auto-extract CONFIG_FORM JSON from markdownText if configForm is null
@@ -896,6 +979,14 @@ function formatLocalTime(tsStr) {
         appendMessageToSession("ai", cleanMarkdown || markdownText);
         const div = document.getElementById(id);
         if (!div) return;
+
+        const responseType = responseTypeFor(intent, configForm);
+        const bubble = div.querySelector(".bubble-content");
+        if (bubble) {
+            bubble.dataset.responseType = responseType;
+            const responseLabel = bubble.querySelector("[data-response-label]");
+            if (responseLabel) responseLabel.textContent = responseLabelFor(responseType);
+        }
 
         const content = div.querySelector(".msg-text");
         let parsedHtml = window.marked ? marked.parse(cleanMarkdown || markdownText) : (cleanMarkdown || markdownText).replace(/\n/g, "<br>");
@@ -1051,12 +1142,25 @@ function formatLocalTime(tsStr) {
     }
 
     function renderEvidenceDetail(inv, alertObj) {
+        try {
+            sessionStorage.setItem("agentwazuh_last_evidence", JSON.stringify({
+                investigation: inv,
+                alert: alertObj || null
+            }));
+        } catch (e) {}
         const steps = inv.reasoning_steps || [];
         let stepperHtml = '<div class="reasoning-stepper">';
         steps.forEach(s => {
-            stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Step ${s.step}: ${s.title}</strong><br><span class="step-detail">${s.detail}</span></div>`;
+            stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Bước ${escapeHtml(s.step)}: ${escapeHtml(s.title)}</strong><br><span class="step-detail">${escapeHtml(s.detail)}</span></div>`;
         });
         stepperHtml += '</div>';
+
+        const pipeline = inv.pipeline_evidence || {};
+        const evidenceBlock = (title, value, open = false) => `
+            <details class="evidence-trace" ${open ? "open" : ""}>
+                <summary>${title}</summary>
+                <pre>${escapeHtml(JSON.stringify(value ?? [], null, 2))}</pre>
+            </details>`;
 
         const tClass = inv.threat_classification || "INFORMATIONAL";
         let riskBadge = `<span class="risk-badge risk-low">${tClass}</span>`;
@@ -1064,6 +1168,17 @@ function formatLocalTime(tsStr) {
         else if (tClass === "SUSPICIOUS") riskBadge = `<span class="risk-badge risk-high">${tClass}</span>`;
 
         evidenceDetail.innerHTML = `
+            <div class="evidence-section evidence-pipeline-intro">
+                <h3><i class="fa-solid fa-route"></i> Dấu vết xử lý</h3>
+                <p class="metric-note">Minh chứng tuần tự từ dữ liệu Wazuh đến phân tích AI. Câu trả lời cuối cùng nằm trong chat chính.</p>
+                ${evidenceBlock("1 · Dữ liệu thô từ Wazuh", pipeline.raw_wazuh || (alertObj ? [alertObj] : []), true)}
+                ${evidenceBlock("2 · Bản ghi sau chuẩn hóa Python", pipeline.normalized_by_python || [], true)}
+                ${evidenceBlock("3 · Kết quả phân tích AI", pipeline.ai_analysis || {
+                    threat_classification: tClass,
+                    model_used: inv.model_used || "—",
+                    reasoning_steps: steps
+                }, true)}
+            </div>
             ${stepperHtml}
             <div class="evidence-section">
                 <h3><i class="fa-solid fa-shield-cat"></i> Threat Assessment</h3>
@@ -1094,13 +1209,14 @@ function formatLocalTime(tsStr) {
     });
 
     fetchLiveAlerts();
+    connectRealtimeAlertStream();
     loadSystemSettings();
     // Populate the chat model selector independently of the Settings drawer.
     // Settings may never be opened during a normal dashboard session.
     loadPiModels();
 
     // AUTO-SYNC THỜI GIAN THỰC TỪ BACKEND CACHE MỖI 5 GIÂY (POLLING PUSH-FALLBACK)
-    setInterval(fetchLiveAlerts, 5000);
+    setInterval(fetchLiveAlerts, 15000);
 
     // Sidebar listeners
     const btnToggleSidebar = document.getElementById("btn-toggle-sidebar");

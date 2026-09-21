@@ -118,7 +118,8 @@
     const saved = readStore();
     if (!MOBILE.matches && saved.railCollapsed) body.classList.add("rail-collapsed");
     if (!MOBILE.matches && saved.dockCollapsed) body.classList.add("dock-collapsed");
-    setDockTab(readStore().dockTab || "advisor");
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    setDockTab(requestedTab === "evidence" ? "evidence" : (readStore().dockTab || "advisor"));
     syncScrim();
 
     /* ------------------------------------------- draggable dock resizer */
@@ -127,12 +128,10 @@
       const resizer = document.createElement("div");
       resizer.className = "dock-resizer-v";
       resizer.title = "Kéo để điều chỉnh độ rộng bảng Trợ lý AI và Cảnh báo";
-      // Place resizer right between dock and workspace (after dock)
-      if (dock.nextSibling) {
-        dock.parentNode.insertBefore(resizer, dock.nextSibling);
-      } else {
-        dock.parentNode.appendChild(resizer);
-      }
+      // Place the handle on the dock's left edge, between workspace and dock.
+      // This makes it visible and lets the analyst drag the information panel
+      // inward or outward without losing the monitoring canvas.
+      dock.parentNode.insertBefore(resizer, dock);
 
       let isDragging = false;
       let startX = 0;
@@ -156,7 +155,7 @@
         if (!isDragging) return;
         const dx = e.clientX - startX;
         const maxAllowed = Math.max(800, Math.floor(window.innerWidth - 280));
-        const newWidth = Math.max(260, Math.min(maxAllowed, startWidth + dx));
+        const newWidth = Math.max(260, Math.min(maxAllowed, startWidth - dx));
         document.documentElement.style.setProperty("--dock-w", `${newWidth}px`);
       });
 

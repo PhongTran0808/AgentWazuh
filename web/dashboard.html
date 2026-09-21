@@ -99,8 +99,8 @@
                         <i class="fa-solid fa-brain"></i> Trợ lý AI
                     </button>
                     <button type="button" class="dock__tab" data-dock-tab="evidence"
-                            role="tab" aria-selected="false">
-                        <i class="fa-solid fa-magnifying-glass-chart"></i> Bằng chứng
+                            role="tab" aria-selected="false" title="Xem raw Wazuh, dữ liệu chuẩn hóa và phân tích AI">
+                        <i class="fa-solid fa-magnifying-glass-chart"></i> Bằng chứng xử lý
                         <span class="dot hidden" id="evidence-dot" aria-hidden="true"></span>
                     </button>
                 </div>
@@ -116,7 +116,7 @@
                             <i class="fa-solid fa-robot avatar"></i>
                             <div class="bubble-content">
                                 <strong>AgentWazuh · Trợ lý SOC</strong>
-                                <p>Chào Analyst! Hệ thống đang dùng <strong>PI.dev Agent Engine</strong> để phân tích sự cố an ninh từ Wazuh SIEM. Mở <strong>Cài đặt → AI Engine</strong> để đổi model hoặc API key.</p>
+                                <p>Chào Analyst! Tôi nhận dữ liệu từ Wazuh, tương quan các alert liên quan và dùng Gemini để tạo báo cáo incident hoặc hướng dẫn xử lý. Mở <strong>Cài đặt → AI Engine</strong> để kiểm tra API key.</p>
                             </div>
                         </div>
                     </div>
@@ -138,7 +138,7 @@
                                 <select id="chat-model-select" aria-label="Chọn model AI">
                                     <option value="auto" selected>Auto (CLI model)</option>
                                     <option value="openrouter/free">OpenRouter Free</option>
-                                    <option value="gemini/gemini-2.0-flash">Gemini FREE (API Key)</option>
+                                    <option value="gemini/gemini-2.0-flash">Gemini API · Flash</option>
                                     <option value="github-copilot/gpt-4.1">Copilot · gpt-4.1</option>
                                     <option value="github-copilot/claude-haiku-4.5">Copilot · claude-haiku-4.5</option>
                                     <option value="github-copilot/gpt-5-mini">Copilot · gpt-5-mini</option>
@@ -169,14 +169,17 @@
         <main class="workspace">
             <section class="panel panel--grow">
                 <header class="panel__head">
-                    <h2 class="panel__title"><i class="fa-solid fa-bell-concierge"></i> Wazuh Live Alerts · 24h</h2>
+                    <div>
+                        <h2 class="panel__title"><i class="fa-solid fa-layer-group"></i> Nhóm sự cố tương quan · 24h</h2>
+                        <p class="panel__subtitle">Ưu tiên incident đã gom nhóm; chuyển sang Alert thô khi cần xem từng log.</p>
+                    </div>
                     <div class="panel__tools">
                         <div class="mode-toggle" role="group" aria-label="Chế độ hiển thị cảnh báo">
-                            <button type="button" id="view-mode-single" class="mode-btn active" aria-pressed="true">
-                                <i class="fa-solid fa-list"></i> Riêng lẻ
+                            <button type="button" id="view-mode-single" class="mode-btn" aria-pressed="false">
+                                <i class="fa-solid fa-list"></i> Alert thô
                             </button>
-                            <button type="button" id="view-mode-group" class="mode-btn" aria-pressed="false">
-                                <i class="fa-solid fa-layer-group"></i> Gộp Incident
+                            <button type="button" id="view-mode-group" class="mode-btn active" aria-pressed="true">
+                                <i class="fa-solid fa-layer-group"></i> Nhóm sự cố
                             </button>
                         </div>
                         <button type="button" id="btn-open-import" class="btn btn--ghost btn--sm" title="Nhập dữ liệu Alert thô (JSON)">

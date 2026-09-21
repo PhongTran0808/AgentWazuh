@@ -105,6 +105,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-back-dash")?.addEventListener("click", () => {
         window.location.href = "/dashboard";
     });
+    document.getElementById("btn-open-evidence-dashboard")?.addEventListener("click", () => {
+        window.location.href = "/dashboard?tab=evidence";
+    });
 
     // Reset layout
     document.getElementById("btn-reset-layout")?.addEventListener("click", () => {
@@ -212,9 +215,19 @@ document.addEventListener("DOMContentLoaded", () => {
     // Initial data fetch + polling
     pollConnState();
     pollFullMap();
+    connectRealtimeMapStream();
     setInterval(pollConnState, 5000);
     setInterval(pollFullMap,   15000);
 });
+
+function connectRealtimeMapStream() {
+    if (!window.EventSource) return;
+    const stream = new EventSource("/api/events/alerts");
+    stream.addEventListener("alert", () => {
+        // Alert changes can alter node risk/badges; refresh the monitoring map now.
+        pollFullMap();
+    });
+}
 
 // ─────────────────────────────────────────────
 //  CONNECTION STATE POLLER (5s)
@@ -839,10 +852,10 @@ async function pollLiveApiLogs() {
                     const outgoing = l.direction === "OUTGOING_REQUEST";
                     const dirClass = outgoing ? "is-out" : "is-in";
                     const httpClass = l.status_code === 200 ? "is-ok" : "is-fail";
-                    const icon = outgoing ? "📤 [AGENT ➔ WAZUH SERVER]" : "📥 [WAZUH SERVER ➔ AGENT]";
+                    const direction = outgoing ? "[AGENT -> WAZUH SERVER]" : "[WAZUH SERVER -> AGENT]";
                     return `<div class="live-log-line ${dirClass} ${httpClass}">`
                          + `<span class="live-log-ts">[${escHtml(l.timestamp)}]</span> `
-                         + `<span class="live-log-dir">${icon}</span> `
+                         + `<span class="live-log-dir">${direction}</span> `
                          + `<span class="live-log-http">${escHtml(l.method)} ${escHtml(l.url)} (HTTP ${escHtml(String(l.status_code))})</span>`
                          + ` — <span class="live-log-detail">${escHtml(l.detail || '')}</span>`
                          + `</div>`;

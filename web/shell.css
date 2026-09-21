@@ -254,6 +254,17 @@ body.rail-collapsed .rail__link { justify-content: center; padding-inline: var(-
 .dock-resizer-v.is-dragging {
   background: var(--accent);
 }
+.dock-resizer-v::after {
+  content: "⋮";
+  display: block;
+  margin-top: 50vh;
+  color: var(--ink-3);
+  font-size: var(--text-md);
+  line-height: 1;
+  text-align: center;
+}
+.dock-resizer-v:hover::after,
+.dock-resizer-v.is-dragging::after { color: var(--accent-ink); }
 
 .dock {
   flex: 0 0 var(--dock-w);

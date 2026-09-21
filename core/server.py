@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
@@ -35,11 +35,12 @@ for env_file in [BASE_DIR / "pass.env", BASE_DIR / ".env"]:
             print(f"Error loading {env_file.name}: {e}")
 
 
-from services.wazuh_client import WazuhClient
+from services.wazuh_client import WazuhClient, record_live_api_log
 from services.incident_assistant import IncidentAssistant, IncidentAssistantService
 from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
 from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
+from ai.gemini_analyzer import gemini_analyzer
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from ai_topology_parser import DynamicAITopologyParser
 
@@ -255,6 +256,52 @@ HEARTBEAT_CACHE: Dict[str, Dict[str, Any]] = {
 # --- GLOBAL CACHE (Real-time State Store) ---
 GLOBAL_ALERTS_CACHE: List[Dict[str, Any]] = []
 GLOBAL_SYSTEM_STATUS_CACHE: Dict[str, Any] = {"status": "offline", "agents": []}
+ALERT_EVENT_SUBSCRIBERS: set = set()
+
+
+def _alert_identity(alert: Dict[str, Any]) -> str:
+    """Stable identity used to merge webhook and polling deliveries."""
+    if alert.get("id") is not None:
+        return str(alert["id"])
+    raw = json.dumps(alert, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _merge_alerts(alerts: List[Dict[str, Any]], limit: int = 1000) -> List[Dict[str, Any]]:
+    """Insert only unseen alerts and return the newly inserted records."""
+    global GLOBAL_ALERTS_CACHE
+    existing = {_alert_identity(item) for item in GLOBAL_ALERTS_CACHE}
+    new_items = []
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        identity = _alert_identity(alert)
+        if identity in existing:
+            continue
+        existing.add(identity)
+        new_items.append(alert)
+    if new_items:
+        GLOBAL_ALERTS_CACHE = (new_items + GLOBAL_ALERTS_CACHE)[:limit]
+    return new_items
+
+
+def _broadcast_alerts(alerts: List[Dict[str, Any]]) -> None:
+    """Fan out alert events to connected SSE clients without blocking ingestion."""
+    if not alerts:
+        return
+    event = json.dumps({"type": "alerts", "alerts": alerts}, ensure_ascii=False, default=str)
+    stale = []
+    for queue in list(ALERT_EVENT_SUBSCRIBERS):
+        try:
+            queue.put_nowait(event)
+        except asyncio.QueueFull:
+            try:
+                queue.get_nowait()
+                queue.put_nowait(event)
+            except Exception:
+                stale.append(queue)
+    for queue in stale:
+        ALERT_EVENT_SUBSCRIBERS.discard(queue)
 
 
 def reset_server_in_memory_cache():
@@ -332,11 +379,8 @@ async def heartbeat_background_loop():
                 # Polling dự phòng trong trường hợp Webhook không bắn
                 alerts_data = await loop.run_in_executor(None, lambda: wazuh_client.get_latest_alerts(limit=200))
                 if alerts_data:
-                    existing_ids = {a.get("id") for a in GLOBAL_ALERTS_CACHE if a.get("id")}
-                    new_alerts = [a for a in alerts_data if a.get("id") not in existing_ids]
-                    GLOBAL_ALERTS_CACHE = new_alerts + GLOBAL_ALERTS_CACHE
-                    if len(GLOBAL_ALERTS_CACHE) > 1000:
-                        GLOBAL_ALERTS_CACHE = GLOBAL_ALERTS_CACHE[:1000]
+                    new_alerts = _merge_alerts(alerts_data)
+                    _broadcast_alerts(new_alerts)
             except Exception:
                 pass
 
@@ -453,6 +497,9 @@ class CorrelationRequest(BaseModel):
     rule_id: Optional[str] = "100015"
     rule_description: Optional[str] = "SSH brute force attempt detected"
     agent_name: Optional[str] = "PC-PB1-VLAN10"
+
+class IncidentAnalyzeRequest(BaseModel):
+    incident_id: str
 
 @app.post("/api/wazuh/correlation")
 def analyze_correlation_endpoint(req: CorrelationRequest, session: str = Depends(require_authenticated_session)):
@@ -826,7 +873,6 @@ async def wazuh_webhook(request: Request):
     Cấu hình trong ossec.conf: <integration> chỉa webhook vào URL này.
     Xác thực qua header `X-AgentWazuh-Token` (shared secret) hoặc `Authorization: Bearer <token>`.
     """
-    global GLOBAL_ALERTS_CACHE
     expected = SYSTEM_SETTINGS.get("webhook_token", "") or os.getenv("WAZUH_WEBHOOK_TOKEN", "")
     if not expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
@@ -839,16 +885,27 @@ async def wazuh_webhook(request: Request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token")
     try:
         data = await request.json()
-        if isinstance(data, list):
-            for alert in data:
-                GLOBAL_ALERTS_CACHE.insert(0, alert)
-        else:
-            GLOBAL_ALERTS_CACHE.insert(0, data)
+        incoming = data if isinstance(data, list) else [data]
+        new_alerts = _merge_alerts(incoming)
+        _broadcast_alerts(new_alerts)
+        record_live_api_log(
+            direction="INCOMING_WEBHOOK",
+            method="POST",
+            url=str(request.url),
+            status_code=200,
+            detail=f"Received {len(new_alerts)} new Wazuh alert(s) via webhook",
+            headers={"X-AgentWazuh-Token": "<REDACTED>"},
+            response_preview={"accepted": len(new_alerts)},
+        )
+        if new_alerts:
+            GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
             
-        if len(GLOBAL_ALERTS_CACHE) > 500:
-            del GLOBAL_ALERTS_CACHE[500:]
-            
-        return {"status": "success", "message": "Alert received via push webhook"}
+        return {
+            "status": "success",
+            "accepted": len(new_alerts),
+            "duplicates": len(incoming) - len(new_alerts),
+            "message": "Alert received via push webhook",
+        }
     except Exception as e:
         print(f"Webhook error: {e}")
         return {"status": "error", "message": str(e)}
@@ -872,6 +929,33 @@ async def get_status(session: str = Depends(require_authenticated_session)):
 async def get_wazuh_live_logs(session: str = Depends(require_authenticated_session)):
     """Trả về nhật ký thời gian thực các gói yêu cầu REST API giữa AgentWazuh ↔ Wazuh Server."""
     return {"status": "success", "count": len(LIVE_API_LOGS), "logs": list(LIVE_API_LOGS)}
+
+
+@app.get("/api/events/alerts")
+async def stream_alert_events(request: Request, session: str = Depends(require_authenticated_session)):
+    """SSE stream: push new webhook/polling alerts to the current browser immediately."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=10)
+    ALERT_EVENT_SUBSCRIBERS.add(queue)
+
+    async def event_generator():
+        try:
+            yield "event: ready\ndata: {\"type\": \"ready\"}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: alert\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            ALERT_EVENT_SUBSCRIBERS.discard(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 @app.get("/api/solpi/observations/{handle}")
 async def recall_solpi_observation(
@@ -963,6 +1047,40 @@ async def import_alerts(req: ImportAlertsRequest, session: str = Depends(require
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi nhập dữ liệu: {str(e)}")
 
+def build_correlated_groups(raw_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Run the deterministic Python stage of the Wazuh -> AI pipeline."""
+    deduped = deduplicate_alerts(raw_alerts, dedup_window_seconds=60)
+    groups = correlate_alerts(deduped, time_window_minutes=5)
+    mitre_map = assistant.mitre_mappings
+    asset_criticality = load_known_devices_dict()
+
+    for group in groups:
+        scoring = score_priority(group, mitre_map, asset_criticality)
+        group["priority_score"] = scoring["score"]
+        group["risk_score"] = scoring["score"]
+        group["breakdown"] = scoring["breakdown"]
+        group["ai_analysis_status"] = "not_requested"
+    return groups
+
+
+async def retrieve_correlated_groups() -> List[Dict[str, Any]]:
+    """Retrieve live alerts and build groups, falling back to local cache."""
+    if GLOBAL_SYSTEM_STATUS_CACHE.get("status") == "offline" and GLOBAL_ALERTS_CACHE:
+        return build_correlated_groups(GLOBAL_ALERTS_CACHE)
+    loop = asyncio.get_event_loop()
+    try:
+        raw_alerts = await loop.run_in_executor(
+            None, lambda: wazuh_client.get_alerts_for_correlation(hours_back=24, max_results=1000)
+        )
+    except Exception:
+        raw_alerts = GLOBAL_ALERTS_CACHE
+    if not raw_alerts:
+        # OpenSearch can return an empty list when Wazuh is offline without
+        # raising an exception; preserve local webhook/import data as fallback.
+        raw_alerts = GLOBAL_ALERTS_CACHE
+    return build_correlated_groups(raw_alerts)
+
+
 @app.get("/api/wazuh/alerts/correlated")
 async def get_correlated_alerts(session: str = Depends(require_authenticated_session)):
     """
@@ -972,32 +1090,37 @@ async def get_correlated_alerts(session: str = Depends(require_authenticated_ses
 
     Pipeline: Dedicated Retrieval -> Deduplication -> Correlation -> Scoring
     """
-    loop = asyncio.get_event_loop()
-    try:
-        # Dedicated retrieval — NOT bounded by UI preview cache (200 alerts)
-        raw_alerts = await loop.run_in_executor(
-            None, lambda: wazuh_client.get_alerts_for_correlation(hours_back=24, max_results=1000)
-        )
-    except Exception:
-        # Fallback to cache if dedicated retrieval fails (e.g. Wazuh offline)
-        raw_alerts = GLOBAL_ALERTS_CACHE
-
-    # Dedup -> Correlate
-    deduped = deduplicate_alerts(raw_alerts, dedup_window_seconds=60)
-    groups = correlate_alerts(deduped, time_window_minutes=5)
-
-    # Score Priority
-    mitre_map = assistant.mitre_mappings
-    asset_criticality = load_known_devices_dict()
-
-    for g in groups:
-        scoring = score_priority(g, mitre_map, asset_criticality)
-        g["priority_score"] = scoring["score"]
-        g["risk_score"] = scoring["score"]  # Populate risk_score field from score_priority()
-        g["breakdown"] = scoring["breakdown"]
+    groups = await retrieve_correlated_groups()
 
     return {"status": "success", "count": len(groups), "groups": groups,
             "retrieval_window_hours": 24, "source": "dedicated_correlation_retrieval"}
+
+
+@app.post("/api/wazuh/incidents/analyze")
+async def analyze_correlated_incident(
+    req: IncidentAnalyzeRequest,
+    session: str = Depends(require_authenticated_session),
+):
+    """Send one Python-correlated incident group to Gemini on analyst request."""
+    groups = await retrieve_correlated_groups()
+    group = next(
+        (item for item in groups if item.get("incident_id") == req.incident_id or item.get("group_id") == req.incident_id),
+        None,
+    )
+    if not group:
+        raise HTTPException(status_code=404, detail="Không tìm thấy incident group trong cửa sổ 24 giờ.")
+
+    loop = asyncio.get_event_loop()
+    ai_result = await loop.run_in_executor(None, gemini_analyzer.analyze_group, group)
+    audit_logger.log_ai_engine(
+        action="ANALYZE_INCIDENT_GROUP",
+        status="SUCCESS" if ai_result.get("status") == "success" else "WARNING",
+        message=f"Gemini analysis requested for {req.incident_id}",
+        payload={"incident_id": req.incident_id, "provider": ai_result.get("provider"), "status": ai_result.get("status")},
+    )
+    group["ai_analysis_status"] = ai_result.get("status")
+    group["ai_analysis"] = ai_result
+    return {"status": "success", "incident": group, "ai": ai_result}
 
 
 @app.get("/api/wazuh/alerts/filter")

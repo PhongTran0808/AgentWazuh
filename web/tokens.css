@@ -28,6 +28,8 @@
   /* ---- semantic / severity ---- */
   --ok:           oklch(0.760 0.140 155);
   --ok-soft:      oklch(0.760 0.140 155 / 0.16);
+  --low:          oklch(0.700 0.070 245);
+  --low-soft:     oklch(0.700 0.070 245 / 0.16);
   --info:         oklch(0.720 0.140 230);
   --info-soft:    oklch(0.720 0.140 230 / 0.16);
   --medium:       oklch(0.800 0.140 85);

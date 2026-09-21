@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import shutil
 import requests
+from services.chat_intent import classify_chat_intent
 
 logger = logging.getLogger("IncidentAssistant")
 
@@ -146,7 +147,9 @@ class IncidentAssistant:
             or_key = env.get("OPENROUTER_API_KEY")
             o_key = env.get("OPENAI_API_KEY")
 
-            if or_key or o_key:
+            # Gemini is the declared project provider.  Other keys remain
+            # optional fallbacks and must not silently take precedence.
+            if (or_key or o_key) and not g_key:
                 clean_api_key = (or_key if or_key else o_key).strip().strip("\"'")
                 url = "https://openrouter.ai/api/v1/chat/completions" if or_key else "https://api.openai.com/v1/chat/completions"
                 headers = {
@@ -222,17 +225,55 @@ class IncidentAssistant:
                 pass
 
             # 3. Dynamic Local SOC Rule-Based Engine
-            return self._generate_fallback_analysis(user_prompt, system_context)
+            return self._generate_truthful_fallback(user_prompt, system_context)
                 
         except Exception as e:
             logger.error(f"⚠️ LLM Exception: {e}")
-            return self._generate_fallback_analysis(user_prompt, system_context)
+            return self._generate_truthful_fallback(user_prompt, system_context)
         finally:
             if temp_prompt_path and os.path.exists(temp_prompt_path):
                 try:
                     os.unlink(temp_prompt_path)
                 except Exception:
                     pass
+
+    def _generate_truthful_fallback(self, user_prompt: str, system_context: Optional[Dict[str, Any]]) -> str:
+        """Answer locally without inventing alerts, agents, IPs or actions."""
+        context = system_context or {}
+        host = context.get("wazuh_host") or context.get("host") or os.getenv("WAZUH_HOST", "chưa xác định")
+        stats = context.get("alert_stats") or {}
+        intent = classify_chat_intent(user_prompt)
+
+        if intent["intent"] == "greeting":
+            return """### 👋 AgentWazuh SOC Assistant
+
+Mình có thể hỗ trợ giải thích Wazuh, phân tích alert/incident, hướng dẫn kiểm tra Agent/Manager/API, tương quan sự kiện, tạo bản nháp Rule XML và trình bày kết quả bằng bảng, timeline hoặc sơ đồ.
+
+Bạn có thể hỏi: `hướng dẫn kiểm tra agent`, `giải thích Rule 5710`, `phân tích alert này`, hoặc `tạo rule phát hiện brute force`."""
+
+        if intent["intent"] == "metrics" and stats:
+            return f"""### 📊 Số liệu Wazuh hiện có
+
+| Chỉ số | Giá trị |
+|---|---:|
+| Wazuh Manager | `{host}` |
+| Tổng alert 24 giờ | {stats.get('total_24h', 0)} |
+| Critical | {stats.get('critical', 0)} |
+| High | {stats.get('high', 0)} |
+| Medium | {stats.get('medium', 0)} |
+| Low | {stats.get('low', 0)} |
+
+> Đây là các số liệu có trong context hiện tại; chưa có thêm chi tiết để kết luận ngoài những trường này."""
+
+        return f"""### ℹ️ Chưa đủ dữ liệu để trả lời chắc chắn
+
+Mình nhận diện câu hỏi thuộc nhóm **{intent['intent']}** và nên trả lời theo dạng **{intent['format']}**.
+
+- Wazuh Manager trong context: `{host}`
+- Cần truy vấn thêm Wazuh hoặc cần bạn cung cấp alert JSON/log cụ thể.
+- Mình không tự khẳng định trạng thái Agent, IP, Rule, kết nối hoặc kết quả thao tác khi chưa có evidence.
+
+Bạn có thể gửi thêm `alert JSON`, `rule ID`, `agent ID`, khoảng thời gian hoặc mô tả thao tác cần thực hiện."""
 
     def _generate_fallback_analysis(self, user_prompt: str, system_context: Optional[Dict[str, Any]]) -> str:
         """Hàm tổng hợp phân tích động chuẩn SOC bằng Python lõi dựa trên chính xác câu hỏi của người dùng."""
@@ -402,8 +443,9 @@ graph TD
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
         static_info = self.lookup_static_rule(rule_id) if rule_id else None
         current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["", "N/A", "admin", "none", "null"]) else os.getenv("WAZUH_HOST", "127.0.0.1")
+        chat_intent = classify_chat_intent(query)
 
-        model_label = "PI Agent (OpenRouter)"
+        model_label = "AgentWazuh AI (Gemini nếu đã cấu hình)"
 
         reasoning_steps = [
             {"step": 1, "title": "Wazuh Log Extraction", "status": "COMPLETED", "detail": f"Target Host: {current_host} | Alert ID: {alert_data.get('id') if alert_data else 'System Wide'}"},
@@ -422,6 +464,12 @@ graph TD
         threat_class = self._classify_threat(alert_data, static_info)
 
         context_lines = [f"- Nguồn Máy Chủ Wazuh Server: {current_host}"]
+        context_lines.append(
+            f"- CHAT INTENT ROUTER: intent={chat_intent['intent']}; format={chat_intent['format']}"
+        )
+        context_lines.append(
+            "- RESPONSE CONTRACT: chọn đúng kiểu trình bày theo intent; không ép mọi câu hỏi thành incident report."
+        )
         if scope_filter:
             context_lines.append(f"- Phạm Vi Phân Vùng Log (Scoped Context): {json.dumps(scope_filter)}")
 
@@ -567,8 +615,8 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
 1. Chỉ phân tích, tóm tắt và đưa ra đề xuất dựa trên ĐÚNG chuỗi dữ liệu thực tế thu thập từ Wazuh REST API ({current_host}).
 2. Tuyệt đối không tự suy diễn hoặc bịa đặt địa chỉ IP, tên máy chủ, lỗ hổng CVE hay số lượng cảnh báo. Nếu cần đánh giá mức độ nghiêm trọng, bạn PHẢI SỬ DỤNG TOOL/SKILL để gọi hệ thống Python lõi. KHÔNG TỰ TÍNH ĐIỂM.
 3. Nếu hệ thống thiếu dữ liệu, trả lời trung thực.
-4. Nếu câu trả lời có từ 2 mục dữ liệu trở lên -> PHẢI trình bày dưới dạng BẢNG MARKDOWN (Markdown Table).
-5. Nếu mô tả chuỗi tấn công -> PHẢI sinh kèm sơ đồ Mermaid trong khối ```mermaid.
+4. Dùng BẢNG MARKDOWN khi cần so sánh hoặc trình bày nhiều trường dữ liệu; không biến mọi câu trả lời thành bảng.
+5. Dùng sơ đồ Mermaid khi người dùng yêu cầu sơ đồ hoặc khi chuỗi tấn công có nhiều bước; không chèn sơ đồ chỉ để trang trí.
 6. RÀNG BUỘC SỐ LIỆU BIỂU ĐỒ (DETERMINISTIC CHART DATA - ZERO LLM MATH):
    - Khi người dùng yêu cầu vẽ/trực quan hóa biểu đồ (tròn/pie/doughnut, cột/bar, đường/line, miền/area, kết hợp) -> Bạn PHẢI SỬ DỤNG ĐÚNG 100% các con số trong mục "SỐ LIỆU BIỂU ĐỒ ĐÃ TÍNH TOÁN BẰNG PYTHON THUẦN" được cung cấp ở trên.
    - TUYỆT ĐỐI KHÔNG TỰ TÍNH, TỰ TỔNG HỢP, TỰ TĂNG/GIẢM HOẶC BỊA ĐẶT BẤT KỲ CON SỐ NÀO.
@@ -606,7 +654,19 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
     "level": 10
   }}
 }}
-```"""
+```
+12. QUY TẮC ĐIỀU HƯỚNG CÂU TRẢ LỜI:
+   - Intent hiện tại: `{chat_intent['intent']}`; format mong muốn: `{chat_intent['format']}`.
+   - Câu hỏi khái niệm: giải thích ngắn, sau đó đưa ví dụ Wazuh; đánh dấu rõ ví dụ minh họa.
+   - Câu hỏi hướng dẫn: trả theo Điều kiện cần có → Các bước → Kiểm tra kết quả → Xử lý lỗi.
+   - Câu hỏi incident: dùng Quick Verdict → Evidence → Timeline → Risk/Priority → Recommended Actions → Unknowns.
+   - Câu hỏi thống kê: dùng bảng hoặc chart với đúng số liệu Python đã cung cấp.
+   - Câu hỏi rule: giải thích field, tạo bản nháp và luôn yêu cầu HITL trước khi áp dụng.
+   - Câu hỏi không đủ dữ liệu: nói rõ thiếu dữ liệu nào; không điền bằng IP, agent, alert hoặc trạng thái tưởng tượng.
+13. QUY TẮC THỰC THI:
+   - Phân biệt "có thể hướng dẫn" với "đã thực hiện". Chỉ nói đã thực hiện khi có kết quả API/tool.
+   - Không khẳng định hiểu hoặc hỗ trợ mọi thao tác Wazuh nếu hệ thống chưa có tool tương ứng; hãy nói giới hạn và hướng dẫn thủ công.
+   - Trả lời tiếng Việt nếu Analyst hỏi tiếng Việt; dùng heading, bảng, code block, Mermaid hoặc Chart.js khi thực sự giúp dễ hiểu."""
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 
@@ -629,6 +689,42 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
             }
         }
 
+        # Audit-friendly evidence for the UI: preserve the source event, expose
+        # the deterministic fields used by the pipeline, and keep the final AI
+        # prose in the main chat instead of duplicating it in the evidence pane.
+        evidence_alerts = ([alert_data] if alert_data else (recent_alerts or [])[:10])
+        normalized_alerts = []
+        for item in evidence_alerts:
+            rule = item.get("rule") or {}
+            agent = item.get("agent") or {}
+            payload = item.get("data") or {}
+            normalized_alerts.append({
+                "alert_id": item.get("id"),
+                "timestamp": item.get("timestamp"),
+                "rule_id": rule.get("id"),
+                "rule_level": rule.get("level"),
+                "description": rule.get("description"),
+                "agent_name": agent.get("name"),
+                "agent_ip": agent.get("ip"),
+                "source_ip": payload.get("srcip") or payload.get("src_ip"),
+                "destination_ip": payload.get("dstip") or payload.get("dst_ip"),
+                "event_payload": payload,
+            })
+
+        pipeline_evidence = {
+            "source": "Wazuh REST API / local alert cache",
+            "raw_wazuh": evidence_alerts,
+            "normalized_by_python": normalized_alerts,
+            "ai_analysis": {
+                "intent": chat_intent,
+                "threat_classification": threat_class,
+                "static_lookup": static_info,
+                "model_used": model_label,
+                "reasoning_steps": reasoning_steps,
+            },
+            "note": "Câu trả lời cuối cùng của AI được hiển thị trong khung chat chính.",
+        }
+
         return {
             "layer_1_static_lookup": static_info,
             "layer_2_llm_reasoning": formatted_response,
@@ -636,10 +732,12 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
             "threat_classification": threat_class,
             "opensearch_payload": opensearch_payload,
             "model_used": model_label,
+            "chat_intent": chat_intent,
             "is_global_chat": is_global_chat,
             "scope_filter": scope_filter,
             "config_form": None,
-            "anti_hallucination_guarded": True
+            "anti_hallucination_guarded": True,
+            "pipeline_evidence": pipeline_evidence,
         }
 
     def _parse_drilldown_placeholders(self, text: str) -> str:

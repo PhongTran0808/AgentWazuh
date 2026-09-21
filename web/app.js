@@ -693,19 +693,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || data.message || `Backend HTTP ${res.status}`);
+            }
             if (currentViewMode === "group") {
                 renderIncidentGroupsList(data.groups || []);
             } else {
                 renderAlertsList(data.alerts || []);
             }
         } catch (err) {
+            console.error("Không tải được danh sách cảnh báo:", err);
             const errorHtml = `
                 <div class="inline-alert danger">
-                    <i class="fa-solid fa-plug-circle-xmark"></i> Mất kết nối tới Wazuh Server/Backend. Đang thử kết nối lại...
+                    <i class="fa-solid fa-plug-circle-xmark"></i> Không tải được danh sách cảnh báo. Đang thử kết nối lại...
                 </div>
             `;
             // Only update if it's not already showing the error to avoid flicker
-            if (!alertsList.innerHTML.includes("Mất kết nối tới")) {
+            if (!alertsList.innerHTML.includes("Không tải được danh sách cảnh báo")) {
                 alertsList.innerHTML = errorHtml;
             }
         }
@@ -726,6 +730,33 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    function formatLocalTime(tsVal) {
+        if (!tsVal && tsVal !== 0) return "--:--:--";
+        try {
+            let d;
+            if (typeof tsVal === "number") {
+                d = new Date(tsVal > 1e11 ? tsVal : tsVal * 1000);
+            } else {
+                let str = String(tsVal).trim();
+                if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
+                    str += "Z";
+                }
+                d = new Date(str);
+            }
+            if (isNaN(d.getTime())) {
+                return String(tsVal).substring(11, 19) || "--:--:--";
+            }
+            return d.toLocaleTimeString("vi-VN", {
+                hour12: false,
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            });
+        } catch (e) {
+            return String(tsVal || "").substring(11, 19) || "--:--:--";
+        }
+    }
+
     function renderAlertsList(alerts) {
         alertsList.innerHTML = "";
         if (!alerts || alerts.length === 0) {
@@ -738,33 +769,6 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
             return;
         }
-
-function formatLocalTime(tsVal) {
-    if (!tsVal && tsVal !== 0) return "--:--:--";
-    try {
-        let d;
-        if (typeof tsVal === "number") {
-            d = new Date(tsVal > 1e11 ? tsVal : tsVal * 1000);
-        } else {
-            let str = String(tsVal).trim();
-            if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
-                str += "Z";
-            }
-            d = new Date(str);
-        }
-        if (isNaN(d.getTime())) {
-            return String(tsVal).substring(11, 19) || "--:--:--";
-        }
-        return d.toLocaleTimeString("vi-VN", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit"
-        });
-    } catch (e) {
-        return String(tsVal || "").substring(11, 19) || "--:--:--";
-    }
-}
 
         alerts.forEach(alert => {
             const card = document.createElement("div");
@@ -1164,6 +1168,9 @@ function formatLocalTime(tsVal) {
                         const frequency = parseInt(document.getElementById(`hitl_input_freq_${f.form_id}`).value) || 5;
                         const timeframe = parseInt(document.getElementById(`hitl_input_time_${f.form_id}`).value) || 60;
                         const level = parseInt(document.getElementById(`hitl_input_level_${f.form_id}`).value) || 10;
+                        const draftXml = f.draft_xml || "";
+                        const draftIdMatch = draftXml.match(/<rule\s+[^>]*\bid=["'](\d+)["']/i);
+                        const draftRuleId = draftIdMatch ? parseInt(draftIdMatch[1], 10) : null;
 
                         btnApply.disabled = true;
                         btnApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp rule & khởi động lại Wazuh Manager...';
@@ -1172,7 +1179,16 @@ function formatLocalTime(tsVal) {
                             const res = await fetch("/api/wazuh/apply-rule", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ rule_name, match_pattern, frequency, timeframe, level, approved: true }),
+                                body: JSON.stringify({
+                                    rule_name,
+                                    match_pattern,
+                                    frequency,
+                                    timeframe,
+                                    level,
+                                    rule_id: draftRuleId,
+                                    raw_xml: draftXml || null,
+                                    approved: true
+                                }),
                                 credentials: "same-origin"
                             });
 
@@ -1426,6 +1442,15 @@ function formatLocalTime(tsVal) {
 window.openXmlRuleBuilderModal = function(presetData) {
     const modal = document.getElementById("xml-rule-builder-modal");
     if (!modal) return;
+
+    // Avoid reusing the historical demo ID when opening a fresh builder.
+    // The HITL form already carries its generated ID in draft_xml.
+    if (!presetData) {
+        const idInput = document.getElementById("builder-rule-id");
+        if (idInput && (!idInput.value || idInput.value === "100201")) {
+            idInput.value = String(100100 + Math.floor(Math.random() * 900));
+        }
+    }
 
     if (presetData) {
         if (presetData.rule_id) document.getElementById("builder-rule-id").value = presetData.rule_id;

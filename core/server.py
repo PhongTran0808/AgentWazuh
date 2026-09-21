@@ -8,6 +8,7 @@ import ipaddress
 import subprocess
 import asyncio
 import threading
+import re
 import requests
 import uvicorn
 import sys
@@ -516,6 +517,40 @@ class CorrelationRequest(BaseModel):
 
 class IncidentAnalyzeRequest(BaseModel):
     incident_id: str
+
+
+def infer_rule_form_defaults(query: str) -> Dict[str, Any]:
+    """Keep the HITL form fast without discarding the analyst's request."""
+    text = (query or "").strip()
+    lowered = text.lower()
+    frequency_match = re.search(r"\b(\d+)\s*(?:lần|lan|times?|attempts?)\b", lowered)
+    timeframe_match = re.search(r"\b(\d+)\s*(?:giây|s|seconds?)\b", lowered)
+    frequency = int(frequency_match.group(1)) if frequency_match else 5
+    timeframe = int(timeframe_match.group(1)) if timeframe_match else 60
+
+    if "ftp" in lowered:
+        subject, pattern = "FTP brute force", "authentication failure"
+    elif "ssh" in lowered or "sshd" in lowered:
+        subject, pattern = "SSH brute force", "Failed password"
+    elif "rdp" in lowered:
+        subject, pattern = "RDP brute force", "authentication failure"
+    elif "web" in lowered or "http" in lowered or "login" in lowered:
+        subject, pattern = "web authentication brute force", "authentication failure"
+    else:
+        request_text = re.sub(
+            r"^(?:hãy\s+|vui lòng\s+)?(?:tạo|viết|thêm|sửa)\s+(?:một\s+)?rule\s*",
+            "", text, flags=re.IGNORECASE,
+        ).strip(" .:-")
+        subject, pattern = (request_text[:80] or "custom security event"), "authentication failure"
+
+    level = 12 if any(word in lowered for word in ("critical", "nghiêm trọng", "criticality")) else 10
+    return {
+        "rule_name": f"Phát hiện {subject}",
+        "match_pattern": pattern,
+        "frequency": max(1, frequency),
+        "timeframe": max(1, timeframe),
+        "level": level,
+    }
 
 @app.post("/api/wazuh/correlation")
 def analyze_correlation_endpoint(req: CorrelationRequest, session: str = Depends(require_authenticated_session)):
@@ -1833,14 +1868,11 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
     active_form = ACTIVE_FORM_SESSIONS.get(session)
 
     if is_config_request or (active_form and active_form.get("status") != "applied"):
+        rule_defaults = infer_rule_form_defaults(req.query)
         config = {"configurable": {"thread_id": session}, "recursion_limit": 10}
         initial_state = {
             "session_id": session,
-            "rule_name": "Phát Hiện Tấn Công Giám Sát Đặt Thù",
-            "match_pattern": "Failed password",
-            "frequency": 5,
-            "timeframe": 60,
-            "level": 12,
+            **rule_defaults,
             "fields_completed": [],
             "intervening_questions_count": active_form.get("intervening_questions_count", 0) if active_form else 0,
             "draft_xml": None,
@@ -1944,7 +1976,9 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
 @app.post("/api/wazuh/apply-rule")
 async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_authenticated_session)):
     timestamp = int(time.time())
-    new_rule_id = req.rule_id or 100201
+    # Never use one fixed fallback ID: every generated HITL draft must be
+    # independently applicable, even after an earlier rule was accepted.
+    new_rule_id = req.rule_id or (100100 + (time.time_ns() % 900))
     
     if req.raw_xml and req.raw_xml.strip():
         rule_xml = req.raw_xml.strip()

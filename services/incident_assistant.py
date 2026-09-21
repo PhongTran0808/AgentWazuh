@@ -121,9 +121,11 @@ class IncidentAssistant:
             ai_cfg_file = self.base_dir / "config" / "ai_config.json"
             target_model = None
             cfg = {}
+            engine_mode = "pi_dev"
             if ai_cfg_file.exists():
                 try:
                     cfg = json.loads(ai_cfg_file.read_text(encoding="utf-8"))
+                    engine_mode = str(cfg.get("mode") or "pi_dev").strip().lower()
                     cfg_model = cfg.get("pi_model", "auto")
                     if cfg_model and cfg_model.lower() != "auto":
                         target_model = cfg_model
@@ -144,14 +146,16 @@ class IncidentAssistant:
 
             model_flag = ["--model", target_model] if target_model else []
 
-            # 1. ƯU TIÊN GỌI TRỰC TIẾP API NẾU CÓ KEY (TỐC ĐỘ < 2 GIÂY)
+            # In pi_dev mode, Pi CLI is the selected engine and must remain
+            # primary. A leftover cloud key must not silently bypass Pi and
+            # prevent the Pi extension/MCP tools from loading.
             g_key = env.get("GEMINI_API_KEY")
             or_key = env.get("OPENROUTER_API_KEY")
             o_key = env.get("OPENAI_API_KEY")
 
             # Gemini is the declared project provider.  Other keys remain
             # optional fallbacks and must not silently take precedence.
-            if (or_key or o_key) and not g_key:
+            if engine_mode != "pi_dev" and (or_key or o_key) and not g_key:
                 clean_api_key = (or_key if or_key else o_key).strip().strip("\"'")
                 url = "https://openrouter.ai/api/v1/chat/completions" if or_key else "https://api.openai.com/v1/chat/completions"
                 headers = {
@@ -194,7 +198,7 @@ class IncidentAssistant:
                     except Exception as mod_err:
                         logger.warning(f"OpenRouter attempt with {mod} failed: {mod_err}")
 
-            if g_key:
+            if engine_mode != "pi_dev" and g_key:
                 chosen_gemini_model = "gemini-2.5-flash"
                 if target_model and "gemini" in target_model.lower():
                     chosen_gemini_model = target_model.split("/")[-1].strip()

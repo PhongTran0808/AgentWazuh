@@ -38,6 +38,19 @@ python3 -m pip install -r requirements.txt
 Nếu dùng `pass.env`, đặt hai biến trên trong file đó. Khi AgentWazuh khởi động,
 bot sẽ tự chạy polling; gửi `/start` hoặc câu hỏi tự nhiên để nhận phản hồi.
 
+### 3.0.1 Discord alert forwarding
+
+Để tự động gửi các alert có `rule.level > 11` sang Discord, đặt webhook ở
+runtime, không ghi trực tiếp vào source:
+
+```bash
+export DISCORD_WEBHOOK_URL='<Discord webhook URL>'
+```
+
+Hoặc thêm biến này vào `pass.env`. Launcher sẽ khởi động chức năng forwarding
+cùng web server; alert trùng được loại bỏ theo alert ID và thông báo được gửi
+dưới dạng Discord Embed.
+
 ### 3.1 Lệnh khởi động độc lập (Port 8080)
 ```bash
 cd "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh"

@@ -53,6 +53,12 @@ else
   echo "⚠️ Chưa cấu hình TELEGRAM_BOT_TOKEN; web dashboard vẫn khởi động, Telegram bridge sẽ tắt"
 fi
 
+if [[ -n "${DISCORD_WEBHOOK_URL:-}" ]] || { [[ -f "$BASE_DIR/pass.env" ]] && grep -q '^DISCORD_WEBHOOK_URL=' "$BASE_DIR/pass.env"; }; then
+  echo "✅ Discord alert forwarding sẽ được khởi động cùng AgentWazuh"
+else
+  echo "⚠️ Chưa cấu hình DISCORD_WEBHOOK_URL; Discord forwarding sẽ tắt"
+fi
+
 MCP_URL="http://127.0.0.1:3000"
 if curl -fsS --max-time 2 "$MCP_URL/health" >/dev/null 2>&1; then
   echo "✅ MCP đang chạy: $MCP_URL"

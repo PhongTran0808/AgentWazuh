@@ -53,8 +53,10 @@ from ai.gemini_analyzer import gemini_analyzer
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from ai_topology_parser import DynamicAITopologyParser
 from services.telegram_bot import run_telegram_bot
+from services.discord_webhook import DiscordAlertNotifier
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
+discord_notifier = DiscordAlertNotifier()
 
 
 @app.on_event("startup")
@@ -418,6 +420,12 @@ async def heartbeat_background_loop():
                 if alerts_data:
                     new_alerts = _merge_alerts(alerts_data)
                     _broadcast_alerts(new_alerts)
+                    if not discord_notifier.baseline_initialized:
+                        discord_notifier.prime_baseline(alerts_data)
+                    else:
+                        await discord_notifier.notify(new_alerts)
+                elif not discord_notifier.baseline_initialized:
+                    discord_notifier.prime_baseline([])
             except Exception:
                 pass
 
@@ -1028,6 +1036,7 @@ async def wazuh_webhook(request: Request):
         incoming = data if isinstance(data, list) else [data]
         new_alerts = _merge_alerts(incoming)
         _broadcast_alerts(new_alerts)
+        await discord_notifier.notify(new_alerts)
         record_live_api_log(
             direction="INCOMING_WEBHOOK",
             method="POST",

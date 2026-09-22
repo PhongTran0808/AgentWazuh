@@ -24,6 +24,20 @@
 
 ## 🚀 3. HƯỚNG DẪN KHỞI ĐỘNG HỆ THỐNG (RUNNING PROCEDURE)
 
+### 3.0 Telegram bot hai chiều
+
+Bot Telegram dùng cùng pipeline điều tra Wazuh với dashboard. Cấu hình token ở
+runtime, không ghi token vào source hoặc git:
+
+```bash
+export TELEGRAM_BOT_TOKEN='<token của bot>'
+# Khuyến nghị giới hạn chat được phép, ví dụ: export TELEGRAM_ALLOWED_CHAT_IDS='123456789'
+python3 -m pip install -r requirements.txt
+```
+
+Nếu dùng `pass.env`, đặt hai biến trên trong file đó. Khi AgentWazuh khởi động,
+bot sẽ tự chạy polling; gửi `/start` hoặc câu hỏi tự nhiên để nhận phản hồi.
+
 ### 3.1 Lệnh khởi động độc lập (Port 8080)
 ```bash
 cd "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh"

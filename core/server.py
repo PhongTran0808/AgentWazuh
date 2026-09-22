@@ -52,6 +52,7 @@ from services.correlation_engine import deduplicate_alerts, correlate_alerts, sc
 from ai.gemini_analyzer import gemini_analyzer
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 from ai_topology_parser import DynamicAITopologyParser
+from services.telegram_bot import run_telegram_bot
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
 
@@ -60,6 +61,25 @@ app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
 async def startup_event():
     import asyncio
     asyncio.create_task(heartbeat_background_loop())
+    app.state.telegram_stop_event = asyncio.Event()
+    app.state.telegram_task = asyncio.create_task(
+        run_telegram_bot(process_telegram_message, app.state.telegram_stop_event)
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    import asyncio
+    stop_event = getattr(app.state, "telegram_stop_event", None)
+    task = getattr(app.state, "telegram_task", None)
+    if stop_event:
+        stop_event.set()
+    if task:
+        try:
+            await asyncio.wait_for(task, timeout=10)
+        except asyncio.TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 WEB_DIR = BASE_DIR / "web"
 CONFIG_DIR = BASE_DIR / "config"
@@ -1773,6 +1793,50 @@ async def add_chat_message(session_id: str, msg: ChatMessage, session: str = Dep
     return {"status": "success"}
 
 ACTIVE_FORM_SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+async def process_telegram_message(chat_id: int, query: str, user_label: str = "telegram") -> str:
+    """Process a Telegram question through the same Wazuh assistant as the web chat."""
+    session_id = f"telegram:{chat_id}"
+    alerts = list(GLOBAL_ALERTS_CACHE)
+    alert_to_use = None
+    system_status = dict(GLOBAL_SYSTEM_STATUS_CACHE)
+    system_status["host"] = SYSTEM_SETTINGS.get("wazuh_host", system_status.get("host", ""))
+
+    # Telegram has no browser session, so refresh stale data here while keeping
+    # all blocking Wazuh/API work off the asyncio event loop.
+    if time.time() - system_status.get("_cached_at", 0) > 30:
+        loop = asyncio.get_event_loop()
+        try:
+            fresh_status = await loop.run_in_executor(None, wazuh_client.get_system_status)
+            fresh_status["alert_stats"] = await loop.run_in_executor(
+                None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
+            )
+            fresh_status["_cached_at"] = time.time()
+            GLOBAL_SYSTEM_STATUS_CACHE.clear()
+            GLOBAL_SYSTEM_STATUS_CACHE.update(fresh_status)
+            system_status = dict(GLOBAL_SYSTEM_STATUS_CACHE)
+            system_status["host"] = SYSTEM_SETTINGS.get("wazuh_host", system_status.get("host", ""))
+        except Exception as exc:
+            system_status.setdefault("status", "offline")
+            system_status["error"] = str(exc)
+
+    receipt = solpi_wazuh.build_investigation_package(
+        session_id, query, alert_to_use, alerts, system_status
+    )
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: assistant.investigate_incident(
+            query,
+            alert_to_use,
+            system_context=system_status,
+            is_global_chat=True,
+            recent_alerts=alerts,
+            solpi_receipt=receipt.to_prompt_context(),
+        ),
+    )
+    return str(result.get("layer_2_llm_reasoning") or "Không có phản hồi từ AgentWazuh.")
 
 class UpdateFormSessionRequest(BaseModel):
     form_id: str

@@ -11,12 +11,27 @@ set -Eeuo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASE_DIR"
 
-if command -v python3.11 >/dev/null 2>&1; then
-  PY_BIN="$(command -v python3.11)"
-elif command -v python3.10 >/dev/null 2>&1; then
-  PY_BIN="$(command -v python3.10)"
-else
-  PY_BIN="$(command -v python3)"
+PY_BIN=""
+for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
+  if command -v "$PY_CANDIDATE" >/dev/null 2>&1 && \
+     "$PY_CANDIDATE" -c 'import fastapi, uvicorn, telegram, cryptography' >/dev/null 2>&1; then
+    PY_BIN="$(command -v "$PY_CANDIDATE")"
+    break
+  fi
+done
+
+if [[ -z "$PY_BIN" ]]; then
+  for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
+    if command -v "$PY_CANDIDATE" >/dev/null 2>&1; then
+      PY_BIN="$(command -v "$PY_CANDIDATE")"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$PY_BIN" ]]; then
+  echo "Không tìm thấy Python 3.10+ trên hệ thống." >&2
+  exit 1
 fi
 
 USER_HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
@@ -24,9 +39,18 @@ export PATH="$USER_HOME/.local/bin:$PATH"
 export PYTHONUNBUFFERED=1
 mkdir -p "$BASE_DIR/logs"
 
-if ! "$PY_BIN" -c 'import fastapi, uvicorn' >/dev/null 2>&1; then
-  echo "Thiếu dependency Python. Chạy: $PY_BIN -m pip install -r $BASE_DIR/requirements.txt" >&2
-  exit 1
+if ! "$PY_BIN" -c 'import fastapi, uvicorn, telegram, cryptography' >/dev/null 2>&1; then
+  echo "Thiếu dependency Python (bao gồm python-telegram-bot). Đang cài đặt..." >&2
+  if ! "$PY_BIN" -m pip install --user --break-system-packages -r "$BASE_DIR/requirements.txt"; then
+    echo "Cài dependency thất bại. Chạy thủ công: $PY_BIN -m pip install -r $BASE_DIR/requirements.txt" >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] || { [[ -f "$BASE_DIR/pass.env" ]] && grep -q '^TELEGRAM_BOT_TOKEN=' "$BASE_DIR/pass.env"; }; then
+  echo "✅ Telegram bridge sẽ được khởi động cùng AgentWazuh"
+else
+  echo "⚠️ Chưa cấu hình TELEGRAM_BOT_TOKEN; web dashboard vẫn khởi động, Telegram bridge sẽ tắt"
 fi
 
 MCP_URL="http://127.0.0.1:3000"

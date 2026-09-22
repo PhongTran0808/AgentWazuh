@@ -8,3 +8,5 @@ python-dotenv>=1.0.0
 python-multipart>=0.0.6
 langgraph>=0.2.0,<1.0.0
 mcp>=1.2.0,<2.0
+python-telegram-bot>=21.0,<23.0
+cryptography>=42.0.0,<47.0.0

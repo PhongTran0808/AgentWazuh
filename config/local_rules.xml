@@ -2,11 +2,9 @@
 <group name="local,syslog,sshd,web,syscheck,">
 
   <!-- Scenario 1: SSH Brute Force Attack -->
-  <rule id="100001" level="10">
-    <if_sid>5716</if_sid>
+  <rule id="100001" level="10" frequency="6" timeframe="120">
+    <if_matched_sid>5716</if_matched_sid>
     <same_source_ip />
-    <frequency>6</frequency>
-    <timeframe>120</timeframe>
     <description>SOC Alert: Multiple SSH authentication failures detected from single source IP (Possible Brute Force Attack).</description>
     <mitre>
       <id>T1110</id>

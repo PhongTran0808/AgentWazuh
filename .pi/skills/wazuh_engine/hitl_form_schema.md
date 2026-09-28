@@ -13,7 +13,7 @@ Khi người dùng yêu cầu cấu hình hoặc tạo rule mới cho Wazuh, ph�
     "frequency": 5,
     "timeframe": 60,
     "level": 12,
-    "draft_xml": "<group name=\"custom\">\n  <rule id=\"100105\" level=\"12\">\n    <match>Failed password for root</match>\n    <frequency>5</frequency>\n    <timeframe>60</timeframe>\n    <description>Phát Hiện Tấn Công Brute Force SSH Tần Suất Cao</description>\n  </rule>\n</group>"
+    "draft_xml": "<group name=\"custom,\">\n  <rule id=\"100105\" level=\"12\" frequency=\"5\" timeframe=\"60\">\n    <if_matched_sid>5716</if_matched_sid>\n    <same_source_ip />\n    <description>Phát Hiện Tấn Công Brute Force SSH Tần Suất Cao</description>\n  </rule>\n</group>"
   },
   "sandbox_result": {
     "status": "PASS",

@@ -103,6 +103,29 @@ def _validate(kind: str, content: str) -> None:
         raise WazuhConfigError("ossec.conf must contain the ossec_config root element")
     if kind == "rules" and "<group" not in content:
         raise WazuhConfigError("local_rules.xml must contain at least one group element")
+    if kind == "rules":
+        root = ElementTree.fromstring(content)
+        for rule in root.findall(".//rule"):
+            rule_id = (rule.get("id") or "unknown").strip()
+            if rule.find("frequency") is not None or rule.find("timeframe") is not None:
+                raise WazuhConfigError(
+                    f"Rule {rule_id}: frequency/timeframe phải là thuộc tính của <rule>, không phải thẻ con"
+                )
+            window_values = [(rule.get(name) or "").strip() for name in ("frequency", "timeframe")]
+            if any(window_values):
+                if not all(window_values):
+                    raise WazuhConfigError(f"Rule {rule_id}: phải khai báo đủ frequency và timeframe")
+                try:
+                    if any(int(value) <= 0 for value in window_values):
+                        raise ValueError
+                except ValueError as exc:
+                    raise WazuhConfigError(
+                        f"Rule {rule_id}: frequency/timeframe phải là số nguyên dương"
+                    ) from exc
+                if rule.find("if_matched_sid") is None and rule.find("if_matched_group") is None:
+                    raise WazuhConfigError(
+                        f"Rule {rule_id}: correlation window cần if_matched_sid hoặc if_matched_group"
+                    )
     if kind == "decoders" and "<decoder" not in content:
         raise WazuhConfigError("local_decoder.xml must contain at least one decoder element")
 

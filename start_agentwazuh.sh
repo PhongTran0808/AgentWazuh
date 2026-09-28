@@ -14,7 +14,7 @@ cd "$BASE_DIR"
 PY_BIN=""
 for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
   if command -v "$PY_CANDIDATE" >/dev/null 2>&1 && \
-     "$PY_CANDIDATE" -c 'import fastapi, uvicorn, telegram, cryptography' >/dev/null 2>&1; then
+     "$PY_CANDIDATE" -c 'import fastapi, uvicorn, telegram, cryptography, networkx' >/dev/null 2>&1; then
     PY_BIN="$(command -v "$PY_CANDIDATE")"
     break
   fi
@@ -39,7 +39,7 @@ export PATH="$USER_HOME/.local/bin:$PATH"
 export PYTHONUNBUFFERED=1
 mkdir -p "$BASE_DIR/logs"
 
-if ! "$PY_BIN" -c 'import fastapi, uvicorn, telegram, cryptography' >/dev/null 2>&1; then
+if ! "$PY_BIN" -c 'import fastapi, uvicorn, telegram, cryptography, networkx' >/dev/null 2>&1; then
   echo "Thiếu dependency Python (bao gồm python-telegram-bot). Đang cài đặt..." >&2
   if ! "$PY_BIN" -m pip install --user --break-system-packages -r "$BASE_DIR/requirements.txt"; then
     echo "Cài dependency thất bại. Chạy thủ công: $PY_BIN -m pip install -r $BASE_DIR/requirements.txt" >&2
@@ -101,4 +101,13 @@ fi
 
 echo "✅ MCP sẵn sàng tại $MCP_URL"
 echo "⚡ AgentWazuh web chạy tại http://127.0.0.1:8080"
+
+# Kill existing process running on port 8080 if any
+EXISTING_PID="$(lsof -t -i:8080 2>/dev/null || true)"
+if [[ -n "$EXISTING_PID" ]]; then
+  echo "🔄 Đang tắt tiến trình cũ (PID: $EXISTING_PID) đang chiếm port 8080..."
+  kill -9 $EXISTING_PID 2>/dev/null || true
+  sleep 1
+fi
+
 exec "$PY_BIN" -m uvicorn core.server:app --host 0.0.0.0 --port 8080

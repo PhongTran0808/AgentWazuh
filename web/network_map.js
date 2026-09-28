@@ -141,7 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (intervalEl && s.icmp_ping_interval_seconds) intervalEl.value = s.icmp_ping_interval_seconds;
             if (retryEl && s.ping_retry_threshold) retryEl.value = s.ping_retry_threshold;
 
-            const resAi = await fetch("/api/settings/ai", { credentials: "same-origin" });
+            const resAi = await fetch("/api/ai/config", { credentials: "same-origin" });
             const aiJson = await resAi.json();
             const geminiKeyEl = document.getElementById("input-gemini-key");
             const geminiModelEl = document.getElementById("select-gemini-model");
@@ -156,7 +156,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    document.getElementById("btn-save-all-settings")?.addEventListener("click", async () => {
+    const saveSettingsBtn = document.getElementById("btn-save-all-settings");
+    saveSettingsBtn?.addEventListener("click", async () => {
         const hostEl = document.getElementById("setting-wazuh-host");
         const portEl = document.getElementById("setting-wazuh-port");
         const timeoutEl = document.getElementById("setting-timeout-min");
@@ -165,7 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const geminiKeyEl = document.getElementById("input-gemini-key");
         const geminiModelEl = document.getElementById("select-gemini-model");
 
-        const hostVal = hostEl ? hostEl.value.trim() : "127.0.0.1";
+        const hostVal = (hostEl && hostEl.value.trim()) ? hostEl.value.trim() : "127.0.0.1";
         const sysPayload = {
             session_timeout_minutes: parseInt(timeoutEl ? timeoutEl.value : 30) || 30,
             icmp_ping_interval_seconds: parseInt(intervalEl ? intervalEl.value : 15) || 15,
@@ -180,12 +181,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const aiPayload = {
             mode: "pi_dev",
-            pi_model: "openrouter/anthropic/claude-3-5-haiku",
+            pi_model: "auto",
             active_providers: ["gemini"],
             gemini_model: geminiModelEl ? geminiModelEl.value : "gemini-2.5-flash",
             cloud_api_key: geminiKeyEl ? geminiKeyEl.value.trim() : "",
             gemini_api_key: geminiKeyEl ? geminiKeyEl.value.trim() : ""
         };
+
+        const origHtml = saveSettingsBtn.innerHTML;
+        saveSettingsBtn.disabled = true;
+        saveSettingsBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu cài đặt...';
 
         try {
             const resSys = await fetch("/api/settings", {
@@ -209,11 +214,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 credentials: "same-origin"
             });
 
+            // Update UI elements immediately
+            const statusIpEl = document.getElementById("status-host") || document.getElementById("status-wazuh-ip");
+            if (statusIpEl) statusIpEl.textContent = `Wazuh Server: ${sysPayload.wazuh_host}`;
+            const serverLabel = document.getElementById("bus-server-label");
+            if (serverLabel) serverLabel.innerHTML = `${escHtml(sysPayload.wazuh_host)}<br><span class="bus-node-role server">SIEM</span>`;
+            if (hostEl) hostEl.value = sysPayload.wazuh_host;
+
             alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT THÀNH CÔNG!\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Port: ${sysPayload.wazuh_port}`);
             window.closeSettingsModal();
+            pollConnState();
             pollFullMap();
         } catch (err) {
             alert(`❌ Lỗi khi lưu cài đặt: ${err.message}`);
+        } finally {
+            saveSettingsBtn.disabled = false;
+            saveSettingsBtn.innerHTML = origHtml;
         }
     });
 

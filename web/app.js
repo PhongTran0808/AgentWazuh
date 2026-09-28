@@ -12,7 +12,22 @@ document.addEventListener("DOMContentLoaded", () => {
         active_forms: []
     };
 
-    let current_session_id = null;
+    const CHAT_SESSION_CACHE_KEY = "agentwazuh.activeChatSessionId";
+    const dashboardChatPath = (id) => `/dashboard/chats/${encodeURIComponent(id)}`;
+    const sessionIdFromUrl = () => {
+        const match = window.location.pathname.match(/^\/dashboard\/chats\/([^/]+)\/?$/);
+        return match ? decodeURIComponent(match[1]) : null;
+    };
+    const setChatUrl = (id, replace = false) => {
+        const target = id ? dashboardChatPath(id) : "/dashboard";
+        const method = replace ? "replaceState" : "pushState";
+        if (window.location.pathname !== target) window.history[method]({ chatSessionId: id || null }, "", target);
+        if (id) localStorage.setItem(CHAT_SESSION_CACHE_KEY, id);
+        else localStorage.removeItem(CHAT_SESSION_CACHE_KEY);
+    };
+
+    let current_session_id = sessionIdFromUrl() || localStorage.getItem(CHAT_SESSION_CACHE_KEY);
+    if (current_session_id) localStorage.setItem(CHAT_SESSION_CACHE_KEY, current_session_id);
 
     async function pollWazuhStatus() {
         try {
@@ -82,6 +97,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 groups[proj].forEach(s => {
                     const item = document.createElement("div");
                     item.className = "history-item";
+                    item.dataset.sessionId = s.id;
+                    item.title = `Session ID: ${s.id}`;
                     if (s.id === current_session_id) item.classList.add("active");
 
                     const titleSpan = document.createElement("span");
@@ -166,6 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.ok) {
                 if (current_session_id === sessionId) {
                     current_session_id = null;
+                    setChatUrl(null);
                     renderWelcomeMessage();
                 }
                 await loadChatHistoryList();
@@ -192,6 +210,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function createNewChat() {
         current_session_id = null;
+        setChatUrl(null);
         renderWelcomeMessage();
         document.querySelectorAll(".history-item.active").forEach(el => el.classList.remove("active"));
     }
@@ -217,6 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await res.json();
                 if (data.session && data.session.id) {
                     current_session_id = data.session.id;
+                    setChatUrl(current_session_id, true);
                 }
                 await loadChatHistoryList();
                 return current_session_id;
@@ -231,12 +251,21 @@ document.addEventListener("DOMContentLoaded", () => {
         return await sessionCreationPromise;
     }
 
-    async function loadChatSession(id) {
+    async function loadChatSession(id, { navigate = true } = {}) {
         try {
             const res = await fetch(`/api/chat/history/${id}`, { credentials: "same-origin" });
             const data = await res.json();
+            if (!res.ok || !data.session || !data.session.id) {
+                if (current_session_id === id) {
+                    current_session_id = null;
+                    setChatUrl(null, true);
+                    renderWelcomeMessage();
+                }
+                return;
+            }
             if (data.session && data.session.id) {
                 current_session_id = data.session.id;
+                if (navigate) setChatUrl(current_session_id);
                 const stream = chatStream || document.getElementById("chat-stream");
                 if (stream) {
                     stream.innerHTML = "";
@@ -266,6 +295,17 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Error loading chat session:", e);
         }
     }
+
+    window.addEventListener("popstate", () => {
+        const id = sessionIdFromUrl();
+        if (id) {
+            loadChatSession(id, { navigate: false });
+        } else {
+            current_session_id = null;
+            renderWelcomeMessage();
+            loadChatHistoryList();
+        }
+    });
 
     async function appendMessageToSession(role, content) {
         try {
@@ -1343,8 +1383,13 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Load initial history
-    loadChatHistoryList();
+    // Restore a deep-linked chat before allowing the dashboard to start a new one.
+    if (current_session_id) {
+        setChatUrl(current_session_id, true);
+        loadChatSession(current_session_id, { navigate: false });
+    } else {
+        loadChatHistoryList();
+    }
 
     // --- AUDIT LOGS CONSOLE CONTROLLER ---
     async function fetchAndRenderAuditLogs() {

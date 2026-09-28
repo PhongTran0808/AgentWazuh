@@ -803,6 +803,12 @@ async def serve_dashboard(request: Request):
         return FileResponse(str(WEB_DIR / "login.html"))
     return FileResponse(str(WEB_DIR / "dashboard.html"))
 
+@app.get("/dashboard/chats/{session_id}", response_class=HTMLResponse)
+async def serve_dashboard_chat(request: Request, session_id: str):
+    if not get_current_session(request):
+        return FileResponse(str(WEB_DIR / "login.html"))
+    return FileResponse(str(WEB_DIR / "dashboard.html"))
+
 @app.get("/drilldown", response_class=HTMLResponse)
 async def serve_drilldown(request: Request):
     if not get_current_session(request):

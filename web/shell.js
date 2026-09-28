@@ -6,6 +6,7 @@
   const body = document.body;
   const MOBILE = window.matchMedia("(max-width: 980px)");
   const STORE_KEY = "awz.shell";
+  const CHAT_SESSION_CACHE_KEY = "agentwazuh.activeChatSessionId";
 
   const readStore = () => {
     try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); }
@@ -18,6 +19,26 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  function dashboardTarget() {
+    try {
+      const id = localStorage.getItem(CHAT_SESSION_CACHE_KEY);
+      return id ? `/dashboard/chats/${encodeURIComponent(id)}` : "/dashboard";
+    } catch (e) {
+      return "/dashboard";
+    }
+  }
+
+  function syncDashboardLinks() {
+    $$('a[href="/dashboard"]').forEach((link) => {
+      link.setAttribute("href", dashboardTarget());
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest?.('a[href="/dashboard"]');
+    if (link) link.setAttribute("href", dashboardTarget());
+  }, true);
 
   /* ------------------------------------------------------------ scrim */
   let scrim = $(".scrim");
@@ -115,6 +136,7 @@
   }
 
   function bootShell() {
+    syncDashboardLinks();
     const saved = readStore();
     if (!MOBILE.matches && saved.railCollapsed) body.classList.add("rail-collapsed");
     if (!MOBILE.matches && saved.dockCollapsed) body.classList.add("dock-collapsed");

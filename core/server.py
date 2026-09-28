@@ -48,11 +48,24 @@ from services.wazuh_client import WazuhClient, record_live_api_log
 from services.incident_assistant import IncidentAssistant, IncidentAssistantService
 from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
-from services.correlation_engine import deduplicate_alerts, correlate_alerts, score_priority, dry_run_rule, generate_config_diff
+from services.correlation_engine import (
+    deduplicate_alerts,
+    correlate_alerts,
+    score_priority,
+    dry_run_rule,
+    generate_config_diff,
+    generate_incident_attack_graph_mermaid,
+    calculate_incident_confidence,
+    extract_alert_entities,
+)
 from ai.gemini_analyzer import gemini_analyzer
-from langgraph_engine.graphs.config_form_graph import config_form_graph
 from ai_topology_parser import DynamicAITopologyParser
-from services.telegram_bot import run_telegram_bot
+from langgraph_engine.graphs.config_form_graph import config_form_graph
+try:
+    from services.telegram_bot import run_telegram_bot
+except ImportError:
+    run_telegram_bot = None
+
 from services.discord_webhook import DiscordAlertNotifier
 
 app = FastAPI(title="AgentWazuh SOC Incident Assistant Demo", version="14.0.0")
@@ -64,9 +77,12 @@ async def startup_event():
     import asyncio
     asyncio.create_task(heartbeat_background_loop())
     app.state.telegram_stop_event = asyncio.Event()
-    app.state.telegram_task = asyncio.create_task(
-        run_telegram_bot(process_telegram_message, app.state.telegram_stop_event)
-    )
+    if run_telegram_bot is not None:
+        app.state.telegram_task = asyncio.create_task(
+            run_telegram_bot(process_telegram_message, app.state.telegram_stop_event)
+        )
+    else:
+        app.state.telegram_task = None
 
 
 @app.on_event("shutdown")
@@ -1209,6 +1225,10 @@ def build_correlated_groups(raw_alerts: List[Dict[str, Any]]) -> List[Dict[str, 
         group["risk_score"] = scoring["score"]
         group["breakdown"] = scoring["breakdown"]
         group["ai_analysis_status"] = "not_requested"
+        if "confidence_score" not in group:
+            group["confidence_score"] = calculate_incident_confidence(group.get("alerts", []))
+        if not group.get("attack_graph_mermaid"):
+            group["attack_graph_mermaid"] = generate_incident_attack_graph_mermaid(group)
     return groups
 
 

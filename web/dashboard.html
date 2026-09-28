@@ -343,6 +343,30 @@
         </div>
     </div>
 
+    <!-- ============================ Incident Attack Graph Modal ============================ -->
+    <div id="incident-graph-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card--wide">
+            <div class="modal-header">
+                <h3 id="incident-graph-title"><i class="fa-solid fa-diagram-project"></i> Sơ đồ chuỗi tấn công (Attack Graph)</h3>
+                <button type="button" class="btn-close" onclick="window.closeAttackGraphModal()" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="incident-graph-meta" style="margin-bottom:12px; display:flex; gap:10px; flex-wrap:wrap; font-size:13px;"></div>
+                <div id="incident-graph-canvas" class="mermaid-container" style="background:var(--paper-sunk); padding:16px; border-radius:8px; overflow-x:auto; min-height:180px; display:flex; align-items:center; justify-content:center;">
+                    <span style="color:var(--ink-3);">Đang khởi tạo biểu đồ...</span>
+                </div>
+                <div class="builder-actions" style="margin-top:16px;">
+                    <button type="button" class="btn btn--ghost" onclick="window.closeAttackGraphModal()">Đóng</button>
+                    <button type="button" id="btn-export-graph-mermaid" class="btn btn--secondary">
+                        <i class="fa-solid fa-copy"></i> Sao chép mã Mermaid
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/settings_drawer.js?v=3.2"></script>
     <script src="/static/app.js?v=3.2"></script>
 </body>

@@ -62,6 +62,264 @@ def get_entity(alert: Dict[str, Any]) -> str:
     return "syslog-gateway"
 
 
+def extract_alert_entities(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Trích xuất toàn diện các thực thể (Multi-Entity) từ Alert:
+    - IP nguồn (src_ips), IP đích (dst_ips)
+    - Tên/ID Agent (agents)
+    - Tài khoản người dùng (users)
+    - Tên thiết bị mạng (devnames)
+    - Rule ID, Rule Level, Rule Description, Timestamp
+    """
+    data = alert.get("data", {})
+    agent = alert.get("agent", {})
+    rule = alert.get("rule", {})
+
+    exclude_ips = {"0.0.0.0", "127.0.0.1", "::1", "255.255.255.255", ""}
+
+    src_ips = set()
+    for k in ["srcip", "src_ip"]:
+        v = data.get(k)
+        if v and str(v).strip() not in exclude_ips:
+            src_ips.add(str(v).strip())
+
+    dst_ips = set()
+    for k in ["dstip", "dst_ip"]:
+        v = data.get(k)
+        if v and str(v).strip() not in exclude_ips:
+            dst_ips.add(str(v).strip())
+
+    agents = set()
+    a_name = agent.get("name")
+    if a_name and a_name not in ["wazuh-server", "localhost", ""]:
+        agents.add(str(a_name).strip())
+    a_id = str(agent.get("id", "")).strip()
+    if a_id and a_id not in ["000", ""]:
+        agents.add(f"agent-{a_id}")
+
+    users = set()
+    for k in ["srcuser", "dstuser", "user", "username", "dst_user", "src_user"]:
+        u = data.get(k)
+        if u and str(u).strip() not in ["", "-", "unknown"]:
+            users.add(str(u).strip())
+    syscheck = alert.get("syscheck", {})
+    if isinstance(syscheck, dict):
+        uname = syscheck.get("uname")
+        if uname and str(uname).strip() not in ["", "-"]:
+            users.add(str(uname).strip())
+
+    devnames = set()
+    dev = data.get("devname")
+    if dev and str(dev).strip():
+        devnames.add(str(dev).strip())
+
+    return {
+        "src_ips": sorted(src_ips),
+        "dst_ips": sorted(dst_ips),
+        "agents": sorted(agents),
+        "users": sorted(users),
+        "devnames": sorted(devnames),
+        "rule_id": str(rule.get("id", "")),
+        "rule_level": int(rule.get("level", 0)),
+        "rule_desc": str(rule.get("description", "")),
+        "timestamp": parse_wazuh_time(alert.get("timestamp", ""))
+    }
+
+
+def compute_correlation_weight(
+    e1: Dict[str, Any],
+    e2: Dict[str, Any],
+    time_window_sec: float,
+    semantic_sim: float = 0.0
+) -> (float, List[str]):
+    """
+    Tính trọng số tương quan giữa 2 alert (0.0 -> 1.0) kèm lý do tương quan.
+    Áp dụng trọng số phân cấp:
+    - Trùng src_ip: +0.50
+    - Trùng dst_ip: +0.40
+    - Dấu hiệu Lateral Movement / Pivot (e1.dst == e2.src hoặc ngược lại): +0.55
+    - Trùng Agent: +0.45
+    - Trùng User: +0.40
+    - Trùng Devname: +0.30
+    - Tương đồng ngữ nghĩa mô tả (TF-IDF Cosine Similarity >= 0.65): + (sim * 0.30)
+    - Suy giảm theo thời gian: nhân hệ số thời gian (1 - 0.20 * (dt / window))
+    """
+    t1 = e1["timestamp"]
+    t2 = e2["timestamp"]
+    dt = abs(t2 - t1)
+    if dt > time_window_sec:
+        return 0.0, []
+
+    weight = 0.0
+    reasons = []
+
+    shared_src = set(e1["src_ips"]) & set(e2["src_ips"])
+    if shared_src:
+        weight += 0.50
+        reasons.append(f"shared_src_ip:{list(shared_src)[0]}")
+
+    shared_dst = set(e1["dst_ips"]) & set(e2["dst_ips"])
+    if shared_dst:
+        weight += 0.40
+        reasons.append(f"shared_dst_ip:{list(shared_dst)[0]}")
+
+    # Lateral movement / pivoting: dst IP của bước trước trở thành src IP của bước sau
+    pivoting = (set(e1["dst_ips"]) & set(e2["src_ips"])) | (set(e2["dst_ips"]) & set(e1["src_ips"]))
+    if pivoting:
+        weight += 0.55
+        reasons.append(f"lateral_movement_pivot:{list(pivoting)[0]}")
+
+    shared_agent = set(e1["agents"]) & set(e2["agents"])
+    if shared_agent:
+        weight += 0.45
+        reasons.append(f"shared_agent:{list(shared_agent)[0]}")
+
+    shared_user = set(e1["users"]) & set(e2["users"])
+    if shared_user:
+        weight += 0.40
+        reasons.append(f"shared_user:{list(shared_user)[0]}")
+
+    shared_dev = set(e1["devnames"]) & set(e2["devnames"])
+    if shared_dev:
+        weight += 0.30
+        reasons.append(f"shared_device:{list(shared_dev)[0]}")
+
+    if semantic_sim >= 0.65:
+        weight += (semantic_sim * 0.30)
+        reasons.append(f"semantic_similarity:{round(semantic_sim, 2)}")
+
+    if weight > 0:
+        decay = max(0.80, 1.0 - (0.20 * (dt / max(time_window_sec, 1))))
+        weight = min(round(weight * decay, 3), 1.0)
+
+    return weight, reasons
+
+
+def calculate_incident_confidence(
+    sub_alerts: List[Dict[str, Any]],
+    edge_weights: Optional[List[float]] = None
+) -> int:
+    """
+    Tính điểm độ tin cậy (Confidence Score, 0 - 100%) của Incident Group:
+    - Số lượng cảnh báo và tần suất quan sát
+    - Tính đa dạng của nguồn dữ liệu (Wazuh Agent, FortiGate Syslog, Network)
+    - Trọng số tương quan trung bình giữa các nút
+    - Cấp độ nghiêm trọng (Rule Level)
+    - Có kỹ thuật MITRE ATT&CK được ghi nhận hay không
+    Điểm được giới hạn trong khoảng [15%, 98%] để tuân thủ nguyên tắc SOC thực tế.
+    """
+    if not sub_alerts:
+        return 0
+
+    n = len(sub_alerts)
+    max_level = max(a.get("rule", {}).get("level", 0) for a in sub_alerts)
+    total_occurrences = sum(a.get("occurrence_count", 1) for a in sub_alerts)
+
+    if n == 1:
+        base = 35 + min(max_level * 2, 20)
+        occ_bonus = min(math.log10(max(total_occurrences, 1)) * 5, 10)
+        return min(max(round(base + occ_bonus), 15), 75)
+
+    size_score = min(10 + (n * 3), 25)
+
+    if edge_weights and len(edge_weights) > 0:
+        avg_weight = sum(edge_weights) / len(edge_weights)
+        graph_score = min(avg_weight * 30, 30)
+    else:
+        graph_score = 15
+
+    severity_score = min(max_level * 1.3, 20)
+
+    has_agent = any(a.get("agent", {}).get("name") not in ["wazuh-server", "localhost", None, ""] for a in sub_alerts)
+    has_syslog = any(a.get("data", {}).get("devname") for a in sub_alerts)
+    has_network_ip = any(a.get("data", {}).get("srcip") for a in sub_alerts)
+
+    corroboration_score = 5
+    if (has_agent and has_syslog) or (has_agent and has_network_ip and len(sub_alerts) > 1):
+        corroboration_score = 15
+    elif has_agent or has_syslog:
+        corroboration_score = 10
+
+    mitre_bonus = 0
+    for a in sub_alerts:
+        rule = a.get("rule", {})
+        if rule.get("mitre", {}) or str(rule.get("id")) in ["100100", "100101", "100102", "100103", "100104", "5710"]:
+            mitre_bonus = 10
+            break
+
+    total = size_score + graph_score + severity_score + corroboration_score + mitre_bonus
+    return min(max(round(total), 20), 98)
+
+
+def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> str:
+    """
+    Sinh mã Mermaid đồ thị chuỗi tấn công có hướng (Directed Attack Graph):
+    Attacker / Source IP -> Bước 1 (Rule/Tactic) -> Bước 2 -> ... -> Target Entity / Asset
+    """
+    alerts = incident_group.get("alerts", [])
+    if not alerts:
+        return "graph LR\n    empty[\"Không có dữ liệu cảnh báo\"]"
+
+    sorted_alerts = sorted(alerts, key=lambda a: parse_wazuh_time(a.get("timestamp", "")))
+
+    lines = [
+        "graph LR",
+        "    classDef attacker fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fecaca;",
+        "    classDef step fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#e2e8f0;",
+        "    classDef target fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#bbf7d0;"
+    ]
+
+    def clean_text(s: Any) -> str:
+        text = str(s or "").replace('"', "'").replace("[", "(").replace("]", ")").replace("<", "&lt;").replace(">", "&gt;")
+        return re.sub(r'[\r\n]+', ' ', text).strip()
+
+    src_ips = incident_group.get("source_ips", [])
+    dst_ips = incident_group.get("destination_ips", [])
+    devices = incident_group.get("devices", [])
+    primary_entity = incident_group.get("entity", "Unknown-Target")
+
+    src_node_id = "src_node"
+    src_label = clean_text(src_ips[0] if src_ips else "External Attacker / Remote")
+    lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
+
+    max_steps = 8
+    displayed_alerts = sorted_alerts[:max_steps]
+    prev_node_id = src_node_id
+
+    for i, a in enumerate(displayed_alerts):
+        step_id = f"step_{i}"
+        r_id = a.get("rule", {}).get("id", "Rule")
+        r_lvl = a.get("rule", {}).get("level", 0)
+        r_desc = clean_text(a.get("rule", {}).get("description", "Cảnh báo bảo mật"))[:50]
+        step_label = f"Bước {i+1}: Rule {r_id}<br/>{r_desc} (Lvl {r_lvl})"
+        lines.append(f'    {step_id}["{step_label}"]:::step')
+        lines.append(f'    {prev_node_id} --> {step_id}')
+        prev_node_id = step_id
+
+    if len(sorted_alerts) > max_steps:
+        more_id = "step_more"
+        lines.append(f'    {more_id}["... +{len(sorted_alerts) - max_steps} cảnh báo tiếp theo ..."]:::step')
+        lines.append(f'    {prev_node_id} --> {more_id}')
+        prev_node_id = more_id
+
+    dst_node_id = "dst_node"
+    target_names = []
+    if devices:
+        target_names.extend(devices[:2])
+    if dst_ips:
+        for ip in dst_ips[:2]:
+            if ip not in target_names:
+                target_names.append(ip)
+    if not target_names:
+        target_names = [clean_text(primary_entity)]
+
+    target_label = clean_text(", ".join(target_names))
+    lines.append(f'    {dst_node_id}["Mục Tiêu: {target_label}"]:::target')
+    lines.append(f'    {prev_node_id} --> {dst_node_id}')
+
+    return "\n".join(lines)
+
+
 def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int = 60) -> List[Dict[str, Any]]:
     """
     Gộp các alert trùng fingerprint trong khoảng thời gian ngắn thành 1.
@@ -156,31 +414,22 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
         except Exception:
             similarity_matrix = None
 
-    # 2. Dựng Đồ Thị Tương Quan NetworkX (Graph-Based Attack Chain)
+    # 2. Dựng Đồ Thị Tương Quan NetworkX (Multi-Entity Weighted Attack Chain)
     if nx:
         G = nx.Graph()
+        entities_list = [extract_alert_entities(a) for a in alerts_sorted]
         for idx, alert in enumerate(alerts_sorted):
-            G.add_node(idx, alert=alert)
+            G.add_node(idx, alert=alert, entities=entities_list[idx])
 
-        # Nối cạnh dựa trên Entity hoặc TF-IDF Cosine Similarity
+        # Nối cạnh dựa trên Multi-Entity Weighted Correlation hoặc TF-IDF Cosine Similarity
         for i in range(len(alerts_sorted)):
-            a1 = alerts_sorted[i]
-            t1 = parse_wazuh_time(a1.get("timestamp", ""))
-            e1 = get_entity(a1)
-
+            e1 = entities_list[i]
             for j in range(i + 1, len(alerts_sorted)):
-                a2 = alerts_sorted[j]
-                t2 = parse_wazuh_time(a2.get("timestamp", ""))
-                e2 = get_entity(a2)
-
-                # Nối cạnh nếu thỏa mãn khung thời gian
-                if abs(t2 - t1) <= time_window_sec:
-                    # Tiêu chuẩn 1: Trùng Entity (IP/Agent/Hostname)
-                    if e1 != "syslog-gateway" and e1 == e2:
-                        G.add_edge(i, j, reason="shared_entity")
-                    # Tiêu chuẩn 2: TF-IDF Cosine Similarity cao (>= 0.65)
-                    elif similarity_matrix is not None and similarity_matrix[i][j] >= 0.65:
-                        G.add_edge(i, j, reason="semantic_similarity")
+                e2 = entities_list[j]
+                sim = float(similarity_matrix[i][j]) if similarity_matrix is not None else 0.0
+                weight, reasons = compute_correlation_weight(e1, e2, time_window_sec, sim)
+                if weight >= 0.40:
+                    G.add_edge(i, j, weight=weight, reasons=reasons)
 
         # Tách các connected components
         components = list(nx.connected_components(G))
@@ -195,23 +444,30 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
 
             # Collect unique source/destination IPs and devices across all alerts in group
             source_ips = list({a.get("data", {}).get("srcip", "") for a in sub_alerts
-                               if a.get("data", {}).get("srcip", "") not in ["", "0.0.0.0", "127.0.0.1"]})
+                               if a.get("data", {}).get("srcip", "") not in ["", "0.0.0.0", "127.0.0.1", "::1"]})
             dest_ips = list({a.get("data", {}).get("dstip", "") for a in sub_alerts
-                             if a.get("data", {}).get("dstip", "") not in ["", "0.0.0.0", "255.255.255.255"]})
+                             if a.get("data", {}).get("dstip", "") not in ["", "0.0.0.0", "255.255.255.255", "127.0.0.1"]})
             devices = list({a.get("agent", {}).get("name", "") for a in sub_alerts
-                            if a.get("agent", {}).get("name", "")})
+                            if a.get("agent", {}).get("name", "") and a.get("agent", {}).get("name") not in ["wazuh-server", "localhost"]})
 
-            # Determine correlation reason(s) for this component
+            # Edge weights & reasons in component
+            comp_nodes = list(comp)
+            edge_weights = []
             corr_reasons = set()
-            for edge_i, edge_j in G.edges(comp):
-                ed = G.edges[edge_i, edge_j].get("reason", "")
-                if ed:
-                    corr_reasons.add(ed)
-            correlation_reason = ", ".join(sorted(corr_reasons)) if corr_reasons else "temporal_proximity"
+            for u in comp_nodes:
+                for v in comp_nodes:
+                    if u < v and G.has_edge(u, v):
+                        ed = G.edges[u, v]
+                        edge_weights.append(ed.get("weight", 0.5))
+                        for r in ed.get("reasons", []):
+                            corr_reasons.add(r.split(":")[0])
+
+            correlation_reason = ", ".join(sorted(corr_reasons)) if corr_reasons else ("single_alert_event" if len(sub_alerts) == 1 else "temporal_multi_entity")
+            confidence = calculate_incident_confidence(sub_alerts, edge_weights)
 
             group_id = hashlib.md5(f"{primary_entity}_{start_t}_{comp_idx}".encode()).hexdigest()[:12]
             incident_id = f"INC-{group_id.upper()}"
-            groups.append({
+            group_dict = {
                 "group_id": incident_id,
                 "incident_id": incident_id,
                 "entity": primary_entity,
@@ -221,9 +477,10 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 "alert_count": total_count,
                 "graph_nodes_count": len(sub_alerts),
                 "devices": devices,
-                "source_ips": source_ips,
-                "destination_ips": dest_ips,
+                "source_ips": sorted(source_ips),
+                "destination_ips": sorted(dest_ips),
                 "correlation_reason": correlation_reason,
+                "confidence_score": confidence,
                 "time_span": {
                     "start": start_t,
                     "end": end_t
@@ -231,7 +488,9 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 "first_seen": datetime.fromtimestamp(start_t, tz=timezone.utc).isoformat() if start_t else "",
                 "last_seen": datetime.fromtimestamp(end_t, tz=timezone.utc).isoformat() if end_t else "",
                 "risk_score": None  # Populated by score_priority() in server.py
-            })
+            }
+            group_dict["attack_graph_mermaid"] = generate_incident_attack_graph_mermaid(group_dict)
+            groups.append(group_dict)
         return groups
 
     # Keep the core SOC workflow available on a lean local installation where
@@ -250,6 +509,7 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 group["alerts"].append(alert)
                 group["alert_count"] += alert.get("occurrence_count", 1)
                 group["graph_nodes_count"] += 1
+                group["involved_alerts"] = len(group["alerts"])
                 group["time_span"]["end"] = current_time
                 group["last_seen"] = datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat()
                 merged = True
@@ -274,6 +534,9 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 "last_seen": datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat(),
                 "risk_score": None,
             })
+    for g in groups:
+        g["confidence_score"] = calculate_incident_confidence(g["alerts"])
+        g["attack_graph_mermaid"] = generate_incident_attack_graph_mermaid(g)
     return groups
 
 

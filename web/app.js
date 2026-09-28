@@ -829,24 +829,43 @@ document.addEventListener("DOMContentLoaded", () => {
             else if (score >= 50) levelClass = "level-high";
             else if (score >= 30) levelClass = "level-medium";
 
+            const confidence = (group.confidence_score !== undefined && group.confidence_score !== null) ? group.confidence_score : 50;
+            let confClass = "conf-medium";
+            if (confidence >= 75) confClass = "conf-high";
+            else if (confidence < 45) confClass = "conf-low";
+
             const groupTime = formatLocalTime(group.last_seen || group.first_seen || group.time_span?.end || group.time_span?.start);
             card.className = `alert-card ${levelClass}`;
             card.innerHTML = `
                 <div class="alert-header-row">
-                    <span class="badge-level ${levelClass}">PRIORITY SCORE: ${score}/100</span>
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                        <span class="badge-level ${levelClass}">PRIORITY: ${score}/100</span>
+                        <span class="badge-confidence ${confClass}" title="Độ tin cậy tương quan dựa trên bằng chứng đa nguồn"><i class="fa-solid fa-bullseye"></i> TIN CẬY: ${confidence}%</span>
+                    </div>
                     <span class="alert-time">${groupTime}</span>
                 </div>
                 <div class="alert-title"><i class="fa-solid fa-layer-group"></i> ${group.group_id} (Gồm ${group.alert_count} cảnh báo)</div>
                 <div class="alert-meta">
-                    <span><i class="fa-solid fa-network-wired"></i> Entity: ${group.entity}</span>
-                    <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown?.mitre_techniques_found?.join(", ") || "Chưa có dữ liệu"}</span>
+                    <span><i class="fa-solid fa-network-wired"></i> Entity: ${escapeHtml(group.entity || "N/A")}</span>
+                    <span><i class="fa-solid fa-spider"></i> MITRE: ${escapeHtml(group.breakdown?.mitre_techniques_found?.join(", ") || "Chưa có dữ liệu")}</span>
                 </div>
                 <div class="alert-actions">
+                    <button type="button" class="btn btn--outline incident-graph-btn" title="Xem sơ đồ chuỗi tấn công (Attack Graph)">
+                        <i class="fa-solid fa-diagram-project"></i> Sơ đồ tấn công
+                    </button>
                     <button type="button" class="btn btn--ghost incident-gemini-btn">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> Phân tích
                     </button>
                 </div>
             `;
+
+            const graphBtn = card.querySelector(".incident-graph-btn");
+            if (graphBtn) {
+                graphBtn.addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    window.openAttackGraphModal(group);
+                });
+            }
 
             const geminiBtn = card.querySelector(".incident-gemini-btn");
             if (geminiBtn) {
@@ -1632,4 +1651,70 @@ window.applyXmlRule = async function() {
         btnApply.disabled = false;
         btnApply.innerHTML = `<i class="fa-solid fa-bolt"></i> 🚀 Phê Duyệt & Áp Dụng Lên Wazuh Manager`;
     }
+};
+
+// --- INCIDENT ATTACK GRAPH MODAL LOGIC ---
+window.openAttackGraphModal = function(group) {
+    const modal = document.getElementById("incident-graph-modal");
+    if (!modal) return;
+    const title = document.getElementById("incident-graph-title");
+    const meta = document.getElementById("incident-graph-meta");
+    const canvas = document.getElementById("incident-graph-canvas");
+    const copyBtn = document.getElementById("btn-export-graph-mermaid");
+
+    const incId = group.incident_id || group.group_id || "INC-UNKNOWN";
+    if (title) title.innerHTML = `<i class="fa-solid fa-diagram-project"></i> Sơ đồ chuỗi tấn công: <b>${String(incId).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</b>`;
+
+    const conf = (group.confidence_score !== undefined && group.confidence_score !== null) ? group.confidence_score : 50;
+    const priority = (group.priority_score !== undefined && group.priority_score !== null) ? group.priority_score : 50;
+    let confBadgeClass = "conf-medium";
+    if (conf >= 75) confBadgeClass = "conf-high";
+    else if (conf < 45) confBadgeClass = "conf-low";
+
+    if (meta) {
+        meta.innerHTML = `
+            <span class="badge-level level-high">Priority: ${priority}/100</span>
+            <span class="badge-confidence ${confBadgeClass}"><i class="fa-solid fa-bullseye"></i> Độ tin cậy: ${conf}%</span>
+            <span><i class="fa-solid fa-shield-halved"></i> Số cảnh báo: <b>${group.alert_count || (group.alerts ? group.alerts.length : 1)}</b></span>
+            <span><i class="fa-solid fa-network-wired"></i> Thực thể: <b>${String(group.entity || "N/A").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</b></span>
+            <span><i class="fa-solid fa-tag"></i> Tương quan: <b>${String(group.correlation_reason || "Multi-stage").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</b></span>
+        `;
+    }
+
+    const mermaidCode = group.attack_graph_mermaid || `graph LR\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
+
+    if (copyBtn) {
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(mermaidCode);
+            copyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Đã sao chép!';
+            setTimeout(() => {
+                copyBtn.innerHTML = '<i class="fa-solid fa-copy"></i> Sao chép mã Mermaid';
+            }, 2000);
+        };
+    }
+
+    modal.classList.remove("hidden");
+
+    if (canvas) {
+        canvas.innerHTML = '<div style="padding:24px; text-align:center; color:var(--ink-3);"><i class="fa-solid fa-spinner fa-spin"></i> Đang vẽ sơ đồ...</div>';
+        const renderId = `attack_graph_svg_${Date.now()}`;
+        if (window.mermaid) {
+            try {
+                window.mermaid.render(renderId, mermaidCode).then(res => {
+                    canvas.innerHTML = res.svg;
+                }).catch(err => {
+                    canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+                });
+            } catch (err) {
+                canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre>`;
+            }
+        } else {
+            canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre>`;
+        }
+    }
+};
+
+window.closeAttackGraphModal = function() {
+    const modal = document.getElementById("incident-graph-modal");
+    if (modal) modal.classList.add("hidden");
 };

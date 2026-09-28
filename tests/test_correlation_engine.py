@@ -117,3 +117,98 @@ class MultiEntityAndGraphUpgradeTests(unittest.TestCase):
         self.assertIn("Bước 1: Rule 5710", mermaid)
         self.assertIn("Bước 2: Rule 100104", mermaid)
 
+
+class WazuhFactualQueryTests(unittest.TestCase):
+    def setUp(self):
+        from services.incident_assistant import IncidentAssistant
+        self.assistant = IncidentAssistant()
+        self.mock_context = {
+            "status": "online",
+            "version": "Wazuh v4.14.7",
+            "wazuh_host": "172.16.175.145",
+            "agents": [
+                {
+                    "id": "001",
+                    "name": "ubuntu-dmz",
+                    "ip": "10.0.0.50",
+                    "status": "active",
+                    "os": {"name": "Ubuntu", "version": "22.04"},
+                    "lastKeepAlive": "2026-09-28T09:00:00Z"
+                },
+                {
+                    "id": "002",
+                    "name": "windows-ad",
+                    "ip": "10.0.0.60",
+                    "status": "disconnected",
+                    "os": {"name": "Windows Server", "version": "2022"},
+                    "lastKeepAlive": "2026-09-27T10:00:00Z"
+                }
+            ],
+            "total_agents": 2,
+            "active_agents": 1,
+            "disconnected_agents": 1,
+            "alert_stats": {
+                "total_24h": 150,
+                "critical": 5,
+                "high": 15,
+                "medium": 30,
+                "low": 100
+            },
+            "error": None
+        }
+
+    def test_query_agent_count_and_list(self):
+        res = self.assistant.resolve_wazuh_server_factual_query(
+            "Wazuh server có bao nhiêu agent?",
+            self.mock_context
+        )
+        self.assertIsNotNone(res)
+        self.assertIn("172.16.175.145", res)
+        self.assertIn("2", res)
+        self.assertIn("ubuntu-dmz", res)
+        self.assertIn("windows-ad", res)
+        self.assertIn("🟢 ACTIVE", res)
+        self.assertIn("🔴 DISCONNECTED", res)
+        self.assertNotIn("/ /", res)
+
+    def test_query_server_version_and_status(self):
+        res = self.assistant.resolve_wazuh_server_factual_query(
+            "Wazuh server đang chạy phiên bản bao nhiêu?",
+            self.mock_context
+        )
+        self.assertIsNotNone(res)
+        self.assertIn("Wazuh v4.14.7", res)
+        self.assertIn("ONLINE", res)
+        self.assertIn("55000", res)
+        self.assertNotIn("/ /", res)
+
+    def test_query_alert_stats(self):
+        res = self.assistant.resolve_wazuh_server_factual_query(
+            "Cho tôi thống kê cảnh báo trong 24h qua",
+            self.mock_context
+        )
+        self.assertIsNotNone(res)
+        self.assertIn("150", res)
+        self.assertIn("Khẩn cấp (Critical)", res)
+        self.assertIn("5", res)
+        self.assertNotIn("/ /", res)
+
+    def test_query_rule_lookup(self):
+        res = self.assistant.resolve_wazuh_server_factual_query(
+            "Quy tắc rule 5710 có ý nghĩa gì?",
+            self.mock_context
+        )
+        self.assertIsNotNone(res)
+        self.assertIn("5710", res)
+        self.assertNotIn("/ /", res)
+
+    def test_investigate_incident_returns_deterministic_answer_directly(self):
+        result = self.assistant.investigate_incident(
+            "danh sách agent hiện tại",
+            system_context=self.mock_context
+        )
+        self.assertIn("summary", result)
+        self.assertIn("ubuntu-dmz", result["summary"])
+        self.assertEqual(result["reasoning_steps"][1]["title"], "Ground-Truth Verification")
+
+

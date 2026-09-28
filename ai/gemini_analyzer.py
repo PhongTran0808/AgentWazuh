@@ -89,6 +89,13 @@ class GeminiAnalyzer:
             "source_ips": group.get("source_ips", []),
             "destination_ips": group.get("destination_ips", []),
             "correlation_reason": group.get("correlation_reason"),
+            "correlation_reasons": group.get("correlation_reasons", []),
+            "correlation_evidence": group.get("correlation_evidence", {}),
+            "correlation_confidence": group.get("correlation_confidence", 0),
+            "correlation_type": group.get("correlation_type"),
+            "mitre_techniques": group.get("mitre_techniques", []),
+            "mitre_tactics": group.get("mitre_tactics", []),
+            "evidence_ids": group.get("alert_ids", [])[:100],
             "python_priority_score": group.get("priority_score", group.get("risk_score")),
             "alerts": alerts,
         }
@@ -166,4 +173,3 @@ class GeminiAnalyzer:
 
 
 gemini_analyzer = GeminiAnalyzer()
-

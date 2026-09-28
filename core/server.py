@@ -411,8 +411,18 @@ async def heartbeat_background_loop():
             # --- TÁCH BẠCH: BACKGROUND SYNC THU THẬP DỮ LIỆU (NON-BLOCKING EXECUTOR) ---
             try:
                 status_data = await loop.run_in_executor(None, wazuh_client.get_system_status)
-            except Exception:
-                status_data = {"status": "offline", "agents": []}
+            except Exception as e:
+                status_data = {
+                    "status": "offline",
+                    "version": "Unknown",
+                    "wazuh_host": wazuh_client.host,
+                    "agents": [],
+                    "total_agents": 0,
+                    "active_agents": 0,
+                    "disconnected_agents": 0,
+                    "error": str(e)
+                }
+            status_data["wazuh_host"] = wazuh_client.host
                 
             try:
                 # Polling dự phòng trong trường hợp Webhook không bắn
@@ -716,9 +726,9 @@ async def login_endpoint(req: LoginRequest, response: Response):
         # 1. Reset all server in-memory caches and state stores
         reset_server_in_memory_cache()
 
-        # 2. Update active Wazuh Host & Port dynamically (không reset về 127.0.0.1 nếu rỗng)
-        if req.wazuh_host and req.wazuh_host.strip() not in ["", "127.0.0.1", "localhost"]:
-            clean_host = req.wazuh_host.strip().replace("https://", "").replace("http://", "").split("/")[0]
+        # 2. Update active Wazuh Host & Port dynamically
+        if req.wazuh_host and req.wazuh_host.strip():
+            clean_host = req.wazuh_host.strip().replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
             SYSTEM_SETTINGS["wazuh_host"] = clean_host
             SYSTEM_SETTINGS["wazuh_port"] = req.wazuh_port or 55000
             SETTINGS_PATH.write_text(json.dumps(SYSTEM_SETTINGS, indent=2), encoding="utf-8")
@@ -829,10 +839,13 @@ async def update_settings(req: SystemSettingsRequest, session: str = Depends(req
     global SYSTEM_SETTINGS, wazuh_client
     # Do not let omitted fields reintroduce legacy OVA defaults.
     new_data = req.dict(exclude_unset=True)
-    target_host = new_data.get("wazuh_host", "").strip()
+    raw_host = str(new_data.get("wazuh_host") or "").strip()
     
-    if not target_host or target_host in ["127.0.0.1", "localhost"]:
-        target_host = SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "N/A")
+    if raw_host:
+        target_host = raw_host.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+        new_data["wazuh_host"] = target_host
+    else:
+        target_host = SYSTEM_SETTINGS.get("wazuh_host") or os.getenv("WAZUH_HOST", "127.0.0.1")
         new_data["wazuh_host"] = target_host
         
     SYSTEM_SETTINGS.update(new_data)
@@ -845,11 +858,28 @@ async def update_settings(req: SystemSettingsRequest, session: str = Depends(req
     # Force immediate cache refresh (offload blocking I/O off the event loop)
     global GLOBAL_SYSTEM_STATUS_CACHE
     loop = asyncio.get_event_loop()
-    _fresh_settings_status = await loop.run_in_executor(None, wazuh_client.get_system_status)
-    _fresh_settings_status["alert_stats"] = await loop.run_in_executor(
-        None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
-    )
+    try:
+        _fresh_settings_status = await loop.run_in_executor(None, wazuh_client.get_system_status)
+    except Exception as e:
+        _fresh_settings_status = {
+            "status": "offline",
+            "version": "Unknown",
+            "wazuh_host": wazuh_client.host,
+            "agents": [],
+            "total_agents": 0,
+            "active_agents": 0,
+            "disconnected_agents": 0,
+            "error": str(e)
+        }
+    try:
+        _fresh_settings_status["alert_stats"] = await loop.run_in_executor(
+            None, lambda: wazuh_client.get_alert_stats_aggregated(hours_back=24)
+        )
+    except Exception:
+        _fresh_settings_status["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
+
     _fresh_settings_status["_cached_at"] = time.time()
+    _fresh_settings_status["wazuh_host"] = wazuh_client.host
     GLOBAL_SYSTEM_STATUS_CACHE.clear()
     GLOBAL_SYSTEM_STATUS_CACHE.update(_fresh_settings_status)
     
@@ -1199,8 +1229,17 @@ async def import_alerts(req: ImportAlertsRequest, session: str = Depends(require
 def build_correlated_groups(raw_alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Run the deterministic Python stage of the Wazuh -> AI pipeline."""
     deduped = deduplicate_alerts(raw_alerts, dedup_window_seconds=60)
-    groups = correlate_alerts(deduped, time_window_minutes=5)
     mitre_map = assistant.mitre_mappings
+    groups = correlate_alerts(
+        deduped,
+        time_window_minutes=5,
+        max_incident_span_minutes=30,
+        mitre_mapping=mitre_map,
+    )
+    # The normal Alert tab already contains standalone events.  The incident
+    # view must only show groups backed by a shared entity/sequence or a
+    # deduplicated burst, never wrap a lone alert as a correlated incident.
+    groups = [group for group in groups if group.get("is_correlated")]
     asset_criticality = load_known_devices_dict()
 
     for group in groups:
@@ -1209,7 +1248,11 @@ def build_correlated_groups(raw_alerts: List[Dict[str, Any]]) -> List[Dict[str, 
         group["risk_score"] = scoring["score"]
         group["breakdown"] = scoring["breakdown"]
         group["ai_analysis_status"] = "not_requested"
-    return groups
+    return sorted(
+        groups,
+        key=lambda group: (group.get("priority_score", 0), group.get("time_span", {}).get("end", 0)),
+        reverse=True,
+    )
 
 
 async def retrieve_correlated_groups() -> List[Dict[str, Any]]:
@@ -1303,7 +1346,7 @@ async def get_filtered_alerts(type: str = "severity", value: str = "low", limit:
             val_lower = value.lower().strip()
             val_clean = val_lower.replace("agent_", "")
 
-            candidates = {ag_id, ag_ip, ag_name, src.lower(), dst.lower(), val_clean}
+            candidates = {ag_id, ag_ip, ag_name, src.lower(), dst.lower()}
             candidates.discard("")
 
             if (val_lower in candidates or
@@ -2140,11 +2183,9 @@ async def generate_rule(req: RuleGenerateRequest, session: str = Depends(require
     timestamp = int(time.time())
     new_rule_id = 100026
     rule_xml = f"""<group name="sshd,authentication_failures,">
-  <rule id="{new_rule_id}" level="10">
+  <rule id="{new_rule_id}" level="10" frequency="{req.frequency}" timeframe="{req.timeframe}">
     <if_matched_sid>5716</if_matched_sid>
     <same_source_ip />
-    <frequency>{req.frequency}</frequency>
-    <timeframe>{req.timeframe}</timeframe>
     <description>AI Generated Rule: SSH Brute Force ({req.frequency} failures in {req.timeframe}s)</description>
     <mitre>
       <id>T1110.001</id>

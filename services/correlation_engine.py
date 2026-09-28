@@ -1,10 +1,12 @@
 import hashlib
+import ipaddress
 import json
 import math
 import re
 import time
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set, Tuple
 
 try:
     import networkx as nx
@@ -20,15 +22,91 @@ except ImportError:
 
 
 def parse_wazuh_time(timestamp_str: str) -> float:
-    """Parse Wazuh ISO timestamp to Unix float timestamp. Fallback to current time if invalid."""
+    """Parse a Wazuh ISO timestamp, returning ``0`` when the value is invalid."""
     if not timestamp_str:
-        return datetime.now(timezone.utc).timestamp()
+        return 0.0
     try:
         clean_str = timestamp_str.replace("Z", "+00:00")
         dt = datetime.fromisoformat(clean_str)
         return dt.timestamp()
     except Exception:
-        return datetime.now(timezone.utc).timestamp()
+        return 0.0
+
+
+INVALID_IPS = {"", "0.0.0.0", "127.0.0.1", "255.255.255.255", "::", "::1"}
+
+
+def _clean_scalar(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _valid_ip(value: Any) -> str:
+    candidate = _clean_scalar(value)
+    if candidate in INVALID_IPS:
+        return ""
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return ""
+
+
+def _first_value(data: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value: Any = data
+        for part in key.split("."):
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(part)
+        scalar = _clean_scalar(value)
+        if scalar:
+            return scalar
+    return ""
+
+
+def extract_entities(alert: Dict[str, Any]) -> Set[str]:
+    """Return normalized, typed entities that can support a correlation edge."""
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    entities: Set[str] = set()
+
+    for key in ("srcip", "src_ip", "source.ip"):
+        value = _valid_ip(_first_value(data, key))
+        if value:
+            entities.add(f"ip:{value}")
+    for key in ("dstip", "dst_ip", "destination.ip"):
+        value = _valid_ip(_first_value(data, key))
+        if value:
+            entities.add(f"ip:{value}")
+
+    agent_id = _clean_scalar(agent.get("id"))
+    if agent_id and agent_id != "000":
+        entities.add(f"agent-id:{agent_id.lower()}")
+    agent_name = _clean_scalar(agent.get("name"))
+    if agent_name and agent_name.lower() not in {"wazuh-server", "localhost"}:
+        entities.add(f"agent:{agent_name.lower()}")
+    agent_ip = _valid_ip(agent.get("ip"))
+    if agent_ip:
+        entities.add(f"ip:{agent_ip}")
+
+    for value in (
+        _first_value(data, "srcuser", "dstuser", "user", "username"),
+        _first_value(data, "win.eventdata.targetUserName", "win.eventdata.subjectUserName"),
+    ):
+        if value and value.lower() not in {"-", "unknown", "system", "root"}:
+            entities.add(f"user:{value.lower()}")
+
+    hostname = _first_value(data, "hostname", "host", "devname")
+    if hostname:
+        entities.add(f"host:{hostname.lower()}")
+    return entities
 
 
 def get_entity(alert: Dict[str, Any]) -> str:
@@ -36,18 +114,18 @@ def get_entity(alert: Dict[str, Any]) -> str:
     Extract primary entity (srcip, dstip, agent name, or hostname) from multi-source alerts
     (Supports both Wazuh Agent host events and FortiGate Syslog network events).
     """
-    data = alert.get("data", {})
-    srcip = data.get("srcip") or data.get("src_ip")
-    if srcip and srcip not in ["0.0.0.0", "127.0.0.1", "::1", ""]:
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    srcip = _valid_ip(_first_value(data, "srcip", "src_ip", "source.ip"))
+    if srcip:
         return srcip
 
-    dstip = data.get("dstip") or data.get("dst_ip")
-    if dstip and dstip not in ["0.0.0.0", "255.255.255.255", "127.0.0.1", "::1", ""]:
+    dstip = _valid_ip(_first_value(data, "dstip", "dst_ip", "destination.ip"))
+    if dstip:
         return dstip
 
-    agent = alert.get("agent", {})
-    agent_name = agent.get("name")
-    if agent_name and agent_name not in ["wazuh-server", "localhost"]:
+    agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    agent_name = _clean_scalar(agent.get("name"))
+    if agent_name and agent_name.lower() not in {"wazuh-server", "localhost"}:
         return f"agent-{agent_name}"
 
     agent_id = agent.get("id")
@@ -55,11 +133,37 @@ def get_entity(alert: Dict[str, Any]) -> str:
         return f"agent-{agent_id}"
 
     # Check FortiGate devname or predecoder hostname
-    devname = data.get("devname")
+    devname = _first_value(data, "devname", "hostname", "host")
     if devname:
         return f"device-{devname}"
 
     return "syslog-gateway"
+
+
+def _dedup_fingerprint(alert: Dict[str, Any]) -> str:
+    """Fingerprint one event without collapsing the same rule across different assets."""
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    fields = {
+        "rule": _clean_scalar(rule.get("id")),
+        "agent_id": _clean_scalar(agent.get("id")),
+        "agent_name": _clean_scalar(agent.get("name")).lower(),
+        "location": _clean_scalar(alert.get("location")).lower(),
+        "src": _first_value(data, "srcip", "src_ip", "source.ip"),
+        "dst": _first_value(data, "dstip", "dst_ip", "destination.ip"),
+        "src_port": _first_value(data, "srcport", "src_port", "source.port"),
+        "dst_port": _first_value(data, "dstport", "dst_port", "destination.port"),
+        "user": _first_value(data, "srcuser", "dstuser", "user", "username", "win.eventdata.targetUserName").lower(),
+        "process": _first_value(data, "process", "process.name", "win.eventdata.image").lower(),
+        "device": _first_value(data, "devname", "hostname", "host").lower(),
+        # Preserve event-specific fields (file path, command, registry key, URL,
+        # Windows event data, etc.).  Missing these fields causes different
+        # security events on one agent to collapse merely because Rule ID matches.
+        "data": data,
+    }
+    payload = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int = 60) -> List[Dict[str, Any]]:
@@ -77,56 +181,143 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
         return []
 
     alerts_sorted = sorted(alerts, key=lambda a: parse_wazuh_time(a.get("timestamp", "")))
-    deduped = []
+    deduped: List[Dict[str, Any]] = []
+    latest_by_fingerprint: Dict[str, Dict[str, Any]] = {}
 
     for alert in alerts_sorted:
-        rule_id = str(alert.get("rule", {}).get("id", ""))
-        data = alert.get("data", {})
-        srcip = data.get("srcip", "")
-        dstip = data.get("dstip", "")
-        devname = data.get("devname", "")
-
-        raw_fingerprint = f"{rule_id}_{srcip}_{dstip}_{devname}"
-        fingerprint = hashlib.md5(raw_fingerprint.encode()).hexdigest()
+        fingerprint = _dedup_fingerprint(alert)
 
         current_time = parse_wazuh_time(alert.get("timestamp", ""))
         current_ts_str = alert.get("timestamp", "")
         alert_id = alert.get("id", "")
 
         merged = False
-        for existing in deduped:
-            if existing.get("_fingerprint") == fingerprint:
-                existing_time = parse_wazuh_time(existing.get("timestamp", ""))
-                if abs(current_time - existing_time) <= dedup_window_seconds:
-                    existing["occurrence_count"] = existing.get("occurrence_count", 1) + 1
-                    # Track first_seen (earliest timestamp)
-                    if current_ts_str and current_ts_str < existing.get("first_seen", current_ts_str):
-                        existing["first_seen"] = current_ts_str
-                    # Track last_seen (latest timestamp)
-                    if current_ts_str and current_ts_str > existing.get("last_seen", current_ts_str):
-                        existing["last_seen"] = current_ts_str
-                    # Accumulate evidence IDs
-                    if alert_id and alert_id not in existing.get("evidence_ids", []):
-                        existing.setdefault("evidence_ids", []).append(alert_id)
-                    merged = True
-                    break
+        existing = latest_by_fingerprint.get(fingerprint)
+        if existing is not None:
+            burst_start = float(existing.get("_first_seen_epoch", 0) or 0)
+            if current_time > 0 and burst_start > 0 and current_time - burst_start <= dedup_window_seconds:
+                existing["occurrence_count"] = existing.get("occurrence_count", 1) + 1
+                existing["_last_seen_epoch"] = current_time
+                existing["last_seen"] = current_ts_str or existing.get("last_seen", "")
+                if alert_id and alert_id not in existing.get("evidence_ids", []):
+                    existing.setdefault("evidence_ids", []).append(alert_id)
+                merged = True
 
         if not merged:
             new_alert = alert.copy()
             new_alert["_fingerprint"] = fingerprint
+            new_alert["_first_seen_epoch"] = current_time
+            new_alert["_last_seen_epoch"] = current_time
             new_alert["occurrence_count"] = 1
             new_alert["first_seen"] = current_ts_str
             new_alert["last_seen"] = current_ts_str
             new_alert["evidence_ids"] = [alert_id] if alert_id else []
             deduped.append(new_alert)
+            latest_by_fingerprint[fingerprint] = new_alert
 
     for a in deduped:
         a.pop("_fingerprint", None)
+        a.pop("_first_seen_epoch", None)
+        a.pop("_last_seen_epoch", None)
 
     return deduped
 
 
-def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15) -> List[Dict[str, Any]]:
+def _mitre_values(alert: Dict[str, Any], mitre_mapping: Optional[Dict[str, Any]] = None) -> Tuple[Set[str], Set[str]]:
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    native = rule.get("mitre") if isinstance(rule.get("mitre"), dict) else {}
+
+    def values(value: Any) -> Set[str]:
+        if isinstance(value, list):
+            return {_clean_scalar(item) for item in value if _clean_scalar(item)}
+        scalar = _clean_scalar(value)
+        return {scalar} if scalar else set()
+
+    techniques = values(native.get("id")) | values(native.get("technique"))
+    tactics = values(native.get("tactic"))
+    mapping = (mitre_mapping or {}).get(_clean_scalar(rule.get("id")), {})
+    if isinstance(mapping, dict):
+        techniques |= values(mapping.get("technique_id"))
+        tactics |= values(mapping.get("tactic"))
+    return techniques, tactics
+
+
+def _edge_reasons(a1: Dict[str, Any], a2: Dict[str, Any], semantic_score: float = 0.0) -> Set[str]:
+    entities1 = extract_entities(a1)
+    entities2 = extract_entities(a2)
+    shared = entities1 & entities2
+    reasons: Set[str] = set()
+    shared_ip = any(item.startswith("ip:") for item in shared)
+    shared_asset = any(item.startswith(("agent:", "agent-id:", "host:")) for item in shared)
+    shared_user = any(item.startswith("user:") for item in shared)
+    if shared_ip:
+        reasons.add("shared_ip")
+    if shared_user:
+        reasons.add("shared_user")
+
+    rule_obj1 = a1.get("rule") or {}
+    rule_obj2 = a2.get("rule") or {}
+    rule1 = _clean_scalar(rule_obj1.get("id"))
+    rule2 = _clean_scalar(rule_obj2.get("id"))
+    max_level = max(_safe_int(rule_obj1.get("level")), _safe_int(rule_obj2.get("level")))
+    techniques1, tactics1 = _mitre_values(a1)
+    techniques2, tactics2 = _mitre_values(a2)
+
+    # Same-host temporal proximity is supporting context, not enough evidence
+    # by itself. Require a repeated rule, a material rule sequence, MITRE
+    # continuity, or semantic support before creating an incident edge.
+    if shared_asset and rule1 and rule1 == rule2:
+        reasons.update({"shared_asset", "repeated_rule"})
+    if rule1 and rule2 and rule1 != rule2 and (shared_ip or shared_user or (shared_asset and max_level >= 7)):
+        reasons.add("rule_sequence")
+        if shared_asset:
+            reasons.add("shared_asset")
+    if (shared_ip or shared_user or shared_asset) and ((techniques1 & techniques2) or (tactics1 & tactics2)):
+        reasons.add("mitre_context")
+        if shared_asset:
+            reasons.add("shared_asset")
+    if shared_asset and semantic_score >= 0.80:
+        reasons.add("shared_asset")
+        reasons.add("semantic_support")
+    return reasons
+
+
+def _primary_entity(alerts: List[Dict[str, Any]]) -> str:
+    candidates = [get_entity(alert) for alert in alerts]
+    candidates = [candidate for candidate in candidates if candidate != "syslog-gateway"]
+    return Counter(candidates).most_common(1)[0][0] if candidates else "syslog-gateway"
+
+
+def _iso_from_epoch(value: float) -> str:
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat() if value > 0 else ""
+
+
+def _alert_start_epoch(alert: Dict[str, Any]) -> float:
+    return parse_wazuh_time(alert.get("first_seen") or alert.get("timestamp", ""))
+
+
+def _alert_end_epoch(alert: Dict[str, Any]) -> float:
+    return parse_wazuh_time(alert.get("last_seen") or alert.get("timestamp", ""))
+
+
+def _interval_gap_seconds(a1: Dict[str, Any], a2: Dict[str, Any]) -> float:
+    start1, end1 = _alert_start_epoch(a1), _alert_end_epoch(a1)
+    start2, end2 = _alert_start_epoch(a2), _alert_end_epoch(a2)
+    if not start1 or not end1 or not start2 or not end2:
+        return math.inf
+    if end1 < start2:
+        return start2 - end1
+    if end2 < start1:
+        return start1 - end2
+    return 0.0
+
+
+def correlate_alerts(
+    alerts: List[Dict[str, Any]],
+    time_window_minutes: int = 15,
+    max_incident_span_minutes: int = 60,
+    mitre_mapping: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """
     Tương quan Đa Nguồn & Graph-based Kill-Chain Analysis (Wazuh Agent + FortiGate Syslog):
     - Sử dụng NetworkX graph để nối các nút alert nếu dùng chung entity (src_ip/dst_ip/user).
@@ -136,8 +327,9 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
     if not alerts:
         return []
 
-    alerts_sorted = sorted(alerts, key=lambda a: parse_wazuh_time(a.get("timestamp", "")))
-    time_window_sec = time_window_minutes * 60
+    alerts_sorted = sorted(alerts, key=_alert_start_epoch)
+    time_window_sec = max(time_window_minutes, 1) * 60
+    max_span_sec = max(max_incident_span_minutes, time_window_minutes) * 60
 
     # 1. Tính toán TF-IDF Cosine Similarity giữa các log text nếu scikit-learn khả dụng
     text_corpus = []
@@ -165,57 +357,119 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
         # Nối cạnh dựa trên Entity hoặc TF-IDF Cosine Similarity
         for i in range(len(alerts_sorted)):
             a1 = alerts_sorted[i]
-            t1 = parse_wazuh_time(a1.get("timestamp", ""))
-            e1 = get_entity(a1)
-
+            end1 = _alert_end_epoch(a1)
             for j in range(i + 1, len(alerts_sorted)):
                 a2 = alerts_sorted[j]
-                t2 = parse_wazuh_time(a2.get("timestamp", ""))
-                e2 = get_entity(a2)
-
-                # Nối cạnh nếu thỏa mãn khung thời gian
-                if abs(t2 - t1) <= time_window_sec:
-                    # Tiêu chuẩn 1: Trùng Entity (IP/Agent/Hostname)
-                    if e1 != "syslog-gateway" and e1 == e2:
-                        G.add_edge(i, j, reason="shared_entity")
-                    # Tiêu chuẩn 2: TF-IDF Cosine Similarity cao (>= 0.65)
-                    elif similarity_matrix is not None and similarity_matrix[i][j] >= 0.65:
-                        G.add_edge(i, j, reason="semantic_similarity")
+                start2 = _alert_start_epoch(a2)
+                if end1 and start2 and start2 - end1 > time_window_sec:
+                    break
+                if _interval_gap_seconds(a1, a2) > time_window_sec:
+                    continue
+                semantic_score = float(similarity_matrix[i][j]) if similarity_matrix is not None else 0.0
+                reasons = _edge_reasons(a1, a2, semantic_score)
+                if reasons:
+                    G.add_edge(i, j, reasons=sorted(reasons))
 
         # Tách các connected components
-        components = list(nx.connected_components(G))
+        raw_components = list(nx.connected_components(G))
+        components = []
+        for component in raw_components:
+            ordered = sorted(component, key=lambda idx: _alert_start_epoch(alerts_sorted[idx]))
+            segment: List[int] = []
+            segment_start = 0.0
+            for idx in ordered:
+                event_start = _alert_start_epoch(alerts_sorted[idx])
+                event_end = _alert_end_epoch(alerts_sorted[idx])
+                if segment and event_end and segment_start and event_end - segment_start > max_span_sec:
+                    components.append(set(segment))
+                    segment = []
+                if not segment:
+                    segment_start = event_start
+                segment.append(idx)
+            if segment:
+                components.append(set(segment))
         groups = []
 
         for comp_idx, comp in enumerate(components):
             sub_alerts = [alerts_sorted[idx] for idx in sorted(comp)]
-            primary_entity = get_entity(sub_alerts[0])
-            start_t = min(parse_wazuh_time(a.get("timestamp", "")) for a in sub_alerts)
-            end_t = max(parse_wazuh_time(a.get("timestamp", "")) for a in sub_alerts)
+            primary_entity = _primary_entity(sub_alerts)
+            start_t = min(_alert_start_epoch(a) for a in sub_alerts)
+            end_t = max(_alert_end_epoch(a) for a in sub_alerts)
             total_count = sum(a.get("occurrence_count", 1) for a in sub_alerts)
+            rule_ids = sorted({_clean_scalar((a.get("rule") or {}).get("id")) for a in sub_alerts} - {""})
 
             # Collect unique source/destination IPs and devices across all alerts in group
-            source_ips = list({a.get("data", {}).get("srcip", "") for a in sub_alerts
-                               if a.get("data", {}).get("srcip", "") not in ["", "0.0.0.0", "127.0.0.1"]})
-            dest_ips = list({a.get("data", {}).get("dstip", "") for a in sub_alerts
-                             if a.get("data", {}).get("dstip", "") not in ["", "0.0.0.0", "255.255.255.255"]})
-            devices = list({a.get("agent", {}).get("name", "") for a in sub_alerts
-                            if a.get("agent", {}).get("name", "")})
+            source_ips = sorted({_valid_ip(_first_value(a.get("data") or {}, "srcip", "src_ip", "source.ip"))
+                                 for a in sub_alerts} - {""})
+            dest_ips = sorted({_valid_ip(_first_value(a.get("data") or {}, "dstip", "dst_ip", "destination.ip"))
+                               for a in sub_alerts} - {""})
+            devices = sorted({_clean_scalar((a.get("agent") or {}).get("name")) for a in sub_alerts} - {""})
 
             # Determine correlation reason(s) for this component
-            corr_reasons = set()
-            for edge_i, edge_j in G.edges(comp):
-                ed = G.edges[edge_i, edge_j].get("reason", "")
-                if ed:
-                    corr_reasons.add(ed)
-            correlation_reason = ", ".join(sorted(corr_reasons)) if corr_reasons else "temporal_proximity"
+            corr_reasons: Set[str] = set()
+            evidence_counts: Dict[str, int] = defaultdict(int)
+            for edge_i, edge_j, edge_data in G.subgraph(comp).edges(data=True):
+                for reason in edge_data.get("reasons", []):
+                    corr_reasons.add(reason)
+                    evidence_counts[reason] += 1
+            repeated = total_count > len(sub_alerts)
+            if repeated:
+                corr_reasons.add("repeated_activity")
+                evidence_counts["repeated_activity"] += total_count - len(sub_alerts)
+            correlation_reason = ", ".join(sorted(corr_reasons)) if corr_reasons else "singleton"
 
-            group_id = hashlib.md5(f"{primary_entity}_{start_t}_{comp_idx}".encode()).hexdigest()[:12]
+            all_techniques: Set[str] = set()
+            all_tactics: Set[str] = set()
+            for alert in sub_alerts:
+                techniques, tactics = _mitre_values(alert, mitre_mapping)
+                all_techniques |= techniques
+                all_tactics |= tactics
+
+            confidence = 0
+            if "shared_ip" in corr_reasons:
+                confidence += 40
+            if "shared_asset" in corr_reasons:
+                confidence += 25
+            if "shared_user" in corr_reasons:
+                confidence += 20
+            if "rule_sequence" in corr_reasons:
+                confidence += 15
+            if "repeated_rule" in corr_reasons:
+                confidence += 15
+            if "mitre_context" in corr_reasons:
+                confidence += 10
+            if "repeated_activity" in corr_reasons:
+                confidence += min(35, 15 + int(math.log10(max(total_count, 1)) * 10))
+            if "semantic_support" in corr_reasons:
+                confidence += 5
+            confidence = min(confidence, 100)
+            is_correlated = bool(corr_reasons) and correlation_reason != "singleton"
+            if len(devices) > 1 and "rule_sequence" in corr_reasons:
+                correlation_type = "cross_device_rule_sequence"
+            elif len(rule_ids) > 1 and "rule_sequence" in corr_reasons:
+                correlation_type = "multi_rule_sequence"
+            elif "repeated_activity" in corr_reasons or "repeated_rule" in corr_reasons:
+                correlation_type = "repeated_activity"
+            elif is_correlated:
+                correlation_type = "shared_entity_cluster"
+            else:
+                correlation_type = "singleton"
+
+            first_alert = sub_alerts[0]
+            anchor_ids = first_alert.get("evidence_ids") or [first_alert.get("id")]
+            anchor = _clean_scalar(anchor_ids[0] if anchor_ids else "") or f"{start_t}:{(first_alert.get('rule') or {}).get('id', '')}"
+            alert_ids = []
+            for alert in sub_alerts:
+                for alert_id in alert.get("evidence_ids") or [alert.get("id", "unknown")]:
+                    if alert_id and alert_id not in alert_ids:
+                        alert_ids.append(alert_id)
+            group_id = hashlib.sha256(f"{primary_entity}:{anchor}".encode()).hexdigest()[:12]
             incident_id = f"INC-{group_id.upper()}"
             groups.append({
                 "group_id": incident_id,
                 "incident_id": incident_id,
                 "entity": primary_entity,
-                "alert_ids": [a.get("id", "unknown") for a in sub_alerts],
+                "alert_ids": alert_ids,
                 "involved_alerts": len(sub_alerts),
                 "alerts": sub_alerts,
                 "alert_count": total_count,
@@ -224,12 +478,20 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 "source_ips": source_ips,
                 "destination_ips": dest_ips,
                 "correlation_reason": correlation_reason,
+                "correlation_reasons": sorted(corr_reasons),
+                "correlation_evidence": dict(sorted(evidence_counts.items())),
+                "correlation_confidence": confidence,
+                "correlation_type": correlation_type,
+                "is_correlated": is_correlated,
+                "distinct_rule_ids": rule_ids,
+                "mitre_techniques": sorted(all_techniques),
+                "mitre_tactics": sorted(all_tactics),
                 "time_span": {
                     "start": start_t,
                     "end": end_t
                 },
-                "first_seen": datetime.fromtimestamp(start_t, tz=timezone.utc).isoformat() if start_t else "",
-                "last_seen": datetime.fromtimestamp(end_t, tz=timezone.utc).isoformat() if end_t else "",
+                "first_seen": _iso_from_epoch(start_t),
+                "last_seen": _iso_from_epoch(end_t),
                 "risk_score": None  # Populated by score_priority() in server.py
             })
         return groups
@@ -241,26 +503,37 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
     groups = []
     for alert in alerts_sorted:
         entity = get_entity(alert)
-        current_time = parse_wazuh_time(alert.get("timestamp", ""))
+        current_time = _alert_start_epoch(alert)
+        current_end = _alert_end_epoch(alert)
         merged = False
         for group in groups:
             previous_time = group["time_span"]["end"]
-            if group["entity"] == entity and current_time - previous_time <= time_window_sec:
-                group["alert_ids"].append(alert.get("id", "unknown"))
+            if current_time and previous_time and group["entity"] == entity and current_time - previous_time <= time_window_sec:
+                for alert_id in alert.get("evidence_ids") or [alert.get("id", "unknown")]:
+                    if alert_id and alert_id not in group["alert_ids"]:
+                        group["alert_ids"].append(alert_id)
                 group["alerts"].append(alert)
                 group["alert_count"] += alert.get("occurrence_count", 1)
                 group["graph_nodes_count"] += 1
-                group["time_span"]["end"] = current_time
-                group["last_seen"] = datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat()
+                group["involved_alerts"] += 1
+                group["time_span"]["end"] = current_end
+                group["last_seen"] = _iso_from_epoch(current_end)
+                group["correlation_reason"] = "shared_entity_temporal_fallback"
+                group["correlation_reasons"] = ["shared_primary_entity"]
+                group["correlation_evidence"] = {"shared_primary_entity": group["graph_nodes_count"] - 1}
+                group["correlation_confidence"] = 50
+                group["is_correlated"] = True
                 merged = True
                 break
         if not merged:
-            group_id = hashlib.md5(f"{entity}_{current_time}".encode()).hexdigest()[:12]
+            repeated = _safe_int(alert.get("occurrence_count"), 1) > 1
+            anchor = _clean_scalar(alert.get("id")) or f"{current_time}:{(alert.get('rule') or {}).get('id', '')}"
+            group_id = hashlib.sha256(f"{entity}:{anchor}".encode()).hexdigest()[:12]
             groups.append({
                 "group_id": f"INC-{group_id.upper()}",
                 "incident_id": f"INC-{group_id.upper()}",
                 "entity": entity,
-                "alert_ids": [alert.get("id", "unknown")],
+                "alert_ids": list(alert.get("evidence_ids") or [alert.get("id", "unknown")]),
                 "involved_alerts": 1,
                 "alerts": [alert],
                 "alert_count": alert.get("occurrence_count", 1),
@@ -268,12 +541,25 @@ def correlate_alerts(alerts: List[Dict[str, Any]], time_window_minutes: int = 15
                 "devices": [alert.get("agent", {}).get("name", "")] if alert.get("agent", {}).get("name") else [],
                 "source_ips": [alert.get("data", {}).get("srcip", "")] if alert.get("data", {}).get("srcip") else [],
                 "destination_ips": [alert.get("data", {}).get("dstip", "")] if alert.get("data", {}).get("dstip") else [],
-                "correlation_reason": "shared_entity_temporal_fallback",
-                "time_span": {"start": current_time, "end": current_time},
-                "first_seen": datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat(),
-                "last_seen": datetime.fromtimestamp(current_time, tz=timezone.utc).isoformat(),
+                "correlation_reason": "repeated_activity" if repeated else "singleton",
+                "correlation_reasons": ["repeated_activity"] if repeated else [],
+                "correlation_evidence": {"repeated_activity": _safe_int(alert.get("occurrence_count"), 1) - 1} if repeated else {},
+                "correlation_confidence": 25 if repeated else 0,
+                "correlation_type": "repeated_activity" if repeated else "singleton",
+                "is_correlated": repeated,
+                "distinct_rule_ids": [_clean_scalar((alert.get("rule") or {}).get("id"))],
+                "mitre_techniques": sorted(_mitre_values(alert, mitre_mapping)[0]),
+                "mitre_tactics": sorted(_mitre_values(alert, mitre_mapping)[1]),
+                "time_span": {"start": current_time, "end": current_end},
+                "first_seen": _iso_from_epoch(current_time),
+                "last_seen": _iso_from_epoch(current_end),
                 "risk_score": None,
             })
+    for group in groups:
+        rule_ids = sorted({_clean_scalar((a.get("rule") or {}).get("id")) for a in group["alerts"]} - {""})
+        group["distinct_rule_ids"] = rule_ids
+        if group.get("is_correlated") and len(rule_ids) > 1:
+            group["correlation_type"] = "multi_rule_sequence"
     return groups
 
 
@@ -325,7 +611,7 @@ def generate_config_diff(old_content: str, new_content: str, filename: str = "lo
 def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any], asset_criticality: Dict[str, Any]) -> Dict[str, Any]:
     """
     Tính điểm ưu tiên cho Incident Group nâng cao (Kill-Chain Priority Score):
-    score = w1*max_severity + w2*mitre_bonus + w3*occurrence_log + w4*asset_criticality + w5*kill_chain_stage
+    score = severity + MITRE + occurrence + asset criticality + correlation confidence + kill-chain stage
     """
     if not incident_group or "alerts" not in incident_group:
         return {"score": 0, "breakdown": {"error": "Invalid incident group"}}
@@ -335,39 +621,54 @@ def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any]
         return {"score": 0, "breakdown": {"error": "Empty alerts"}}
 
     # 1. Base Severity (Max severity level)
-    max_severity = max(a.get("rule", {}).get("level", 0) for a in alerts)
-    w1_severity = min(max_severity * 4.5, 45)
+    max_severity = max(_safe_int((a.get("rule") or {}).get("level")) for a in alerts)
+    w1_severity = min(max_severity * 3.0, 45)
 
     # 2. MITRE Tactic Bonus
-    mitre_score = 0
-    mitre_details = []
+    mitre_details: Set[str] = set(incident_group.get("mitre_techniques", []))
+    mitre_tactics: Set[str] = set(incident_group.get("mitre_tactics", []))
     for a in alerts:
-        rule_id = str(a.get("rule", {}).get("id", ""))
-        mapping = mitre_mapping.get(rule_id)
-        if mapping:
-            mitre_details.append(mapping.get("technique_id", "Unknown"))
-            mitre_score = 20
-            break
-
-    w2_mitre = mitre_score
+        techniques, tactics = _mitre_values(a, mitre_mapping)
+        mitre_details |= techniques
+        mitre_tactics |= tactics
+    w2_mitre = min(len(mitre_details) * 4 + len(mitre_tactics) * 2, 15)
 
     # 3. Logarithmic Occurrence Frequency
-    count = incident_group.get("alert_count", len(alerts))
-    w3_occurrence = min(math.log10(max(count, 1)) * 8, 15)
+    count = _safe_int(incident_group.get("alert_count"), len(alerts))
+    w3_occurrence = min(math.log10(max(count, 1)) * 6, 10)
 
     # 4. Asset Criticality
-    entity = incident_group.get("entity", "")
-    criticality = asset_criticality.get(entity, {}).get("criticality", 1) if isinstance(asset_criticality, dict) else 1
+    aliases = {incident_group.get("entity", ""), *incident_group.get("source_ips", []), *incident_group.get("destination_ips", [])}
+    criticality = 1
+    if isinstance(asset_criticality, dict):
+        for alias in aliases:
+            asset = asset_criticality.get(alias, {})
+            if not isinstance(asset, dict):
+                continue
+            raw = asset.get("criticality", 1)
+            if isinstance(raw, str):
+                raw = {"low": 1, "medium": 3, "high": 4, "critical": 5}.get(raw.lower(), 1)
+            try:
+                criticality = max(criticality, int(raw))
+            except (TypeError, ValueError):
+                pass
     w4_asset = min(criticality * 2, 10)
 
-    # 5. Kill-Chain Stage Multiplier Bonus
-    kill_chain_bonus = 5
-    if max_severity >= 12 or any(a.get("rule", {}).get("id") == "100104" for a in alerts):
-        kill_chain_bonus = 15
-    elif max_severity >= 7:
-        kill_chain_bonus = 10
+    # 5. Correlation evidence. A singleton alert must not receive an incident bonus.
+    correlation_confidence = _safe_int(incident_group.get("correlation_confidence"))
+    w5_correlation = min(correlation_confidence / 10, 10)
 
-    total_score = w1_severity + w2_mitre + w3_occurrence + w4_asset + kill_chain_bonus
+    # 6. Later ATT&CK stages carry more operational impact, capped at 10.
+    tactic_weights = {
+        "reconnaissance": 1, "resource development": 1, "initial access": 3,
+        "execution": 5, "persistence": 5, "privilege escalation": 6,
+        "defense evasion": 6, "credential access": 6, "discovery": 3,
+        "lateral movement": 8, "collection": 6, "command and control": 8,
+        "exfiltration": 10, "impact": 10,
+    }
+    kill_chain_bonus = max((tactic_weights.get(tactic.lower(), 0) for tactic in mitre_tactics), default=0)
+
+    total_score = w1_severity + w2_mitre + w3_occurrence + w4_asset + w5_correlation + kill_chain_bonus
     final_score = min(round(total_score), 100)
 
     breakdown = {
@@ -376,10 +677,13 @@ def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any]
         "occurrence_frequency_score": round(w3_occurrence, 2),
         "asset_criticality_score": round(w4_asset, 2),
         "kill_chain_stage_bonus": kill_chain_bonus,
+        "correlation_confidence_score": round(w5_correlation, 2),
+        "correlation_confidence": correlation_confidence,
         "max_rule_level": max_severity,
         "total_occurrences": count,
         "entity_criticality_level": criticality,
-        "mitre_techniques_found": mitre_details
+        "mitre_techniques_found": sorted(mitre_details),
+        "mitre_tactics_found": sorted(mitre_tactics),
     }
 
     return {

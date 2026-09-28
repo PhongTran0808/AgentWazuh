@@ -613,8 +613,13 @@ class WazuhClient:
             "_source": [
                 "timestamp", "id",
                 "rule.id", "rule.level", "rule.description", "rule.groups",
+                "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
                 "agent.id", "agent.name", "agent.ip",
-                "data.srcip", "data.dstip", "data.devname",
+                "data.srcip", "data.dstip", "data.src_ip", "data.dst_ip",
+                "data.source.ip", "data.destination.ip",
+                "data.srcport", "data.dstport", "data.srcuser", "data.dstuser",
+                "data.user", "data.username", "data.hostname", "data.host", "data.devname",
+                "data.process", "data.process.name", "data.win.eventdata.targetUserName",
                 "location", "full_log"
             ]
         }

@@ -615,6 +615,10 @@ document.addEventListener("DOMContentLoaded", () => {
             multi_api_enabled: activeProvs.length > 1
         };
 
+        const originalBtnHtml = btnSaveAllSettings.innerHTML;
+        btnSaveAllSettings.disabled = true;
+        btnSaveAllSettings.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu cài đặt...';
+
         try {
             const resSys = await fetch("/api/settings", {
                 method: "POST",
@@ -644,11 +648,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            const headerIpEl = document.getElementById("status-wazuh-ip") || document.getElementById("status-host");
+            if (headerIpEl) headerIpEl.textContent = `Wazuh Server: ${sysPayload.wazuh_host}`;
+            if (settingWazuhHost) settingWazuhHost.value = sysPayload.wazuh_host;
+
+            await pollWazuhStatus();
+
             alert(`🟢 ĐÃ LƯU TOÀN BỘ CÀI ĐẶT HỆ THỐNG THÀNH CÔNG!\n- Session Timeout: ${sysPayload.session_timeout_minutes} phút\n- Wazuh Host: ${sysPayload.wazuh_host}\n- Mode AI: ${currentAIMode.toUpperCase()}`);
-            if (statusWazuhIp) statusWazuhIp.textContent = `Wazuh Server: ${sysPayload.wazuh_host}`;
             if (typeof window.closeSettingsModal === "function") window.closeSettingsModal();
         } catch (err) {
             alert(`❌ Lỗi khi lưu cài đặt: ${err.message}`);
+        } finally {
+            btnSaveAllSettings.disabled = false;
+            btnSaveAllSettings.innerHTML = originalBtnHtml;
         }
     });
 
@@ -836,10 +848,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span class="badge-level ${levelClass}">PRIORITY SCORE: ${score}/100</span>
                     <span class="alert-time">${groupTime}</span>
                 </div>
-                <div class="alert-title"><i class="fa-solid fa-layer-group"></i> ${group.group_id} (Gồm ${group.alert_count} cảnh báo)</div>
+                <div class="alert-title"><i class="fa-solid fa-layer-group"></i> ${escapeHtml(group.group_id)} (Gồm ${group.alert_count} cảnh báo)</div>
                 <div class="alert-meta">
-                    <span><i class="fa-solid fa-network-wired"></i> Entity: ${group.entity}</span>
-                    <span><i class="fa-solid fa-spider"></i> MITRE: ${group.breakdown?.mitre_techniques_found?.join(", ") || "Chưa có dữ liệu"}</span>
+                    <span><i class="fa-solid fa-network-wired"></i> Entity: ${escapeHtml(group.entity || "Chưa xác định")}</span>
+                    <span><i class="fa-solid fa-link"></i> Tin cậy: ${Number(group.correlation_confidence || 0)}/100</span>
+                    <span><i class="fa-solid fa-spider"></i> MITRE: ${escapeHtml(group.breakdown?.mitre_techniques_found?.join(", ") || "Chưa có dữ liệu")}</span>
                 </div>
                 <div class="alert-actions">
                     <button type="button" class="btn btn--ghost incident-gemini-btn">

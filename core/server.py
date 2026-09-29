@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 
@@ -100,6 +100,13 @@ async def shutdown_event():
             await asyncio.gather(task, return_exceptions=True)
 
 WEB_DIR = BASE_DIR / "web"
+PROTECTED_STATIC_HTML = {
+    "/static/dashboard.html",
+    "/static/drilldown.html",
+    "/static/network_map.html",
+    "/static/device_inventory.html",
+    "/static/api_inspector.html",
+}
 CONFIG_DIR = BASE_DIR / "config"
 KNOWN_DEVICES_PATH = CONFIG_DIR / "known_devices.json"
 PENDING_RULES_DIR = CONFIG_DIR / "pending_rules"
@@ -114,6 +121,8 @@ PENDING_RULES_DIR.mkdir(parents=True, exist_ok=True)
 # Enterprise Stateless Anti-Cache HTTP Middleware
 @app.middleware("http")
 async def add_anti_cache_headers(request: Request, call_next):
+    if request.url.path in PROTECTED_STATIC_HTML and not get_current_session(request):
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -464,6 +473,12 @@ def _incident_id_from_query(query: str) -> Optional[str]:
     """Recover an incident reference when an analyst types it manually."""
     match = re.search(r"\bINC-[A-Z0-9][A-Z0-9-]{5,}\b", query or "", re.IGNORECASE)
     return match.group(0).upper() if match else None
+
+
+def _rule_id_from_query(query: str) -> Optional[str]:
+    """Recover an explicit Wazuh Rule ID for authoritative ruleset lookup."""
+    match = re.search(r"\b(?:rule|quy tắc)\s+(\d{3,6})\b", query or "", re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def _get_or_create_incident_snapshot(
@@ -995,38 +1010,38 @@ async def logout_endpoint(request: Request, response: Response):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def serve_dashboard(request: Request):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "dashboard.html"))
 
 @app.get("/dashboard/chats/{session_id}", response_class=HTMLResponse)
 async def serve_dashboard_chat(request: Request, session_id: str):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "dashboard.html"))
 
 @app.get("/drilldown", response_class=HTMLResponse)
 async def serve_drilldown(request: Request):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "drilldown.html"))
 
 @app.get("/network-map", response_class=HTMLResponse)
 async def serve_network_map(request: Request):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "network_map.html"))
 
 @app.get("/device-inventory", response_class=HTMLResponse)
 async def serve_device_inventory(request: Request):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "device_inventory.html"))
 
 @app.get("/api-inspector", response_class=HTMLResponse)
 @app.get("/api-packets", response_class=HTMLResponse)
 async def serve_api_inspector(request: Request):
     if not get_current_session(request):
-        return FileResponse(str(WEB_DIR / "login.html"))
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
     return FileResponse(str(WEB_DIR / "api_inspector.html"))
 
 class TestConnectionRequest(BaseModel):
@@ -2287,6 +2302,13 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
     global GLOBAL_SYSTEM_STATUS_CACHE
     alerts = GLOBAL_ALERTS_CACHE
     alert_to_use = req.alert_data
+    if req.alert_id:
+        alert_to_use = next((a for a in alerts if str(a.get("id")) == str(req.alert_id)), None)
+        if not alert_to_use:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Không tìm thấy cảnh báo với ID '{req.alert_id}' trong bộ đệm hệ thống.",
+            )
     incident_group = None
     analysis_alerts = alerts
     requested_incident_id = req.incident_id or _incident_id_from_query(req.query)
@@ -2298,9 +2320,6 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             # representative evidence for every later replay of this incident.
             if analysis_alerts:
                 alert_to_use = analysis_alerts[0]
-    if not alert_to_use and req.alert_id:
-        alert_to_use = next((a for a in alerts if a.get("id") == req.alert_id), None)
-
     # The drill-down table and the assistant must receive the same evidence
     # set. Do not let the global newest-alert cache leak into a device scope.
     if req.scope_filter or alert_to_use:
@@ -2362,6 +2381,16 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         GLOBAL_SYSTEM_STATUS_CACHE.clear()
         GLOBAL_SYSTEM_STATUS_CACHE.update(system_status)
 
+    # Resolve explicit Rule IDs against the live Wazuh Manager ruleset before
+    # the assistant can produce a deterministic rule answer. Do not infer
+    # "Custom Rule" from a missing local MITRE mapping.
+    rule_lookup = None
+    requested_rule_id = _rule_id_from_query(req.query)
+    if requested_rule_id and not alert_to_use:
+        rule_lookup = await _investigate_loop.run_in_executor(
+            None, lambda: wazuh_client.get_rule_definition(requested_rule_id)
+        )
+
     # Router LangGraph Form Engine (HITL StateGraph)
     q_lower = req.query.lower()
     is_config_request = any(kw in q_lower for kw in ["cấu hình", "thêm rule", "tạo rule", "sửa rule", "thiết lập", "tạo quy tắc", "mở form"])
@@ -2409,6 +2438,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 conversation_history=conversation_history,
                 solpi_receipt=solpi_receipt.to_prompt_context(),
                 incident_group=incident_group,
+                rule_lookup=rule_lookup,
             )
             result["solpi"] = {
                 "observation_handle": solpi_receipt.handle,
@@ -2464,6 +2494,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         conversation_history=conversation_history,
         solpi_receipt=solpi_receipt.to_prompt_context(),
         incident_group=incident_group,
+        rule_lookup=rule_lookup,
     )
     result["solpi"] = {
         "observation_handle": solpi_receipt.handle,

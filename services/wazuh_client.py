@@ -448,6 +448,54 @@ class WazuhClient:
                 "error": f"Không thể kết nối tới {self.host} ({e})"
             }
 
+    def get_rule_definition(self, rule_id: str) -> Dict[str, Any]:
+        """Verify a rule against the Wazuh Manager ruleset.
+
+        An empty result is meaningful only after a successful API response;
+        authentication, permission, and connectivity failures are returned as
+        ``unavailable`` so callers never mislabel an unknown rule as custom.
+        """
+        normalized_id = str(rule_id or "").strip()
+        if not normalized_id.isdigit():
+            return {"status": "invalid", "rule_id": normalized_id, "rule": None, "error": "Rule ID phải là số"}
+
+        url = f"{self.base_url}/rules"
+        response = self._request_with_auth_retry(
+            "GET",
+            url,
+            params={"rule_ids": normalized_id, "limit": 1},
+            timeout=4.0,
+        )
+        if response is None:
+            return {
+                "status": "unavailable",
+                "rule_id": normalized_id,
+                "rule": None,
+                "error": self.last_auth_error or "Không nhận được phản hồi từ Wazuh Manager",
+            }
+        if response.status_code != 200:
+            return {
+                "status": "unavailable",
+                "rule_id": normalized_id,
+                "rule": None,
+                "error": f"Wazuh Manager trả về HTTP {response.status_code}",
+            }
+
+        try:
+            payload = response.json() or {}
+            items = (payload.get("data") or {}).get("affected_items") or []
+        except (ValueError, AttributeError):
+            return {
+                "status": "unavailable",
+                "rule_id": normalized_id,
+                "rule": None,
+                "error": "Phản hồi ruleset từ Wazuh Manager không hợp lệ",
+            }
+
+        if not items:
+            return {"status": "not_found", "rule_id": normalized_id, "rule": None, "error": None}
+        return {"status": "found", "rule_id": normalized_id, "rule": items[0], "error": None}
+
     def get_alert_stats_aggregated(self, hours_back: int = 720, tz_offset_hours: int = 7) -> dict:
         """Lấy thống kê alert qua OpenSearch Aggregation (port 443)."""
         if not self.host:

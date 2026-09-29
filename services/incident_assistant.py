@@ -117,7 +117,8 @@ class IncidentAssistant:
         query: str,
         system_context: Optional[Dict[str, Any]],
         recent_alerts: Optional[List[Dict[str, Any]]] = None,
-        alert_data: Optional[Dict[str, Any]] = None
+        alert_data: Optional[Dict[str, Any]] = None,
+        rule_lookup: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """
         Xử lý và phản hồi tất định (Deterministic Ground-Truth) 100% dữ liệu thực tế từ Wazuh Server.
@@ -245,6 +246,40 @@ class IncidentAssistant:
         if rule_match:
             rid = rule_match.group(1)
             info = self.lookup_static_rule(rid)
+            lookup_status = str((rule_lookup or {}).get("status") or "").lower()
+            if lookup_status == "found":
+                rule = (rule_lookup or {}).get("rule") or {}
+                description = rule.get("description") or "Chưa có mô tả từ Wazuh Manager"
+                level = rule.get("level", "N/A")
+                filename = rule.get("filename") or "N/A"
+                groups = ", ".join(str(item) for item in (rule.get("groups") or [])) or "N/A"
+                mitre = rule.get("mitre") or []
+                mitre_text = json.dumps(mitre, ensure_ascii=False) if mitre else "N/A"
+                return f"""### 📜 THÔNG TIN RULESET WAZUH MANAGER: RULE `{rid}`
+
+- **Mã quy tắc**: `{rid}`
+- **Mô tả hành vi**: **{description}**
+- **Mức độ**: `{level}`
+- **Tệp ruleset**: `{filename}`
+- **Nhóm**: `{groups}`
+- **MITRE ATT&CK**: `{mitre_text}`
+
+_Nguồn xác minh: Wazuh Manager API `GET /rules?rule_ids={rid}`._
+"""
+            if lookup_status == "not_found":
+                return f"""### ❌ KHÔNG TÌM THẤY RULE `{rid}`
+
+Wazuh Manager đã trả về **0 kết quả** khi tra cứu Rule `{rid}` trong ruleset đang hoạt động. Không suy đoán nguồn gốc của mã Rule khi không có bản ghi xác thực.
+
+- **Nguồn xác minh**: Wazuh Manager API `GET /rules?rule_ids={rid}`
+- **Khuyến nghị**: Kiểm tra lại Rule ID, trạng thái ruleset và `local_rules.xml` trên Manager.
+"""
+            if lookup_status in {"unavailable", "invalid"}:
+                lookup_error = (rule_lookup or {}).get("error") or "không rõ nguyên nhân"
+                return f"""### ⚠️ CHƯA THỂ XÁC MINH RULE `{rid}`
+
+Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager: `{lookup_error}`. Tạm thời không đưa ra kết luận về Rule khi nguồn xác minh chưa sẵn sàng.
+"""
             if info:
                 desc = info.get("description", f"Quy tắc cảnh báo {rid}")
                 lvl = info.get("severity", "Medium")
@@ -266,12 +301,9 @@ class IncidentAssistant:
 2. **Bước 2**: Đối chiếu địa chỉ IP nguồn phát sinh sự kiện trên tường lửa FortiGate.
 3. **Bước 3**: Kích hoạt quy tắc chặn IP nếu phát hiện dấu hiệu dò quét lặp lại bất thường.
 """
-            else:
-                return f"""### 📜 TRA CỨU QUY TẮC CẢNH BÁO: RULE `{rid}`
+            return f"""### ⚠️ CHƯA THỂ XÁC MINH RULE `{rid}`
 
-- **Mã quy tắc (Rule ID)**: `{rid}`
-- **Tình trạng**: Quy tắc an ninh nội bộ hoặc quy tắc tùy biến (Custom Rule) chưa ánh xạ trong từ điển MITRE mặc định.
-- **Khuyến nghị**: Sử dụng chức năng **Wazuh XML Rule Builder** trên Dashboard để kiểm tra cấu trúc cú pháp chi tiết của Rule `{rid}`.
+Ánh xạ cục bộ hiện có chưa đủ để khẳng định Rule `{rid}` tồn tại trên Wazuh Manager. Cần truy vấn thành công ruleset Manager trước khi đưa ra kết luận.
 """
 
         # 5. Danh sách thiết bị giám sát (Monitored Devices)
@@ -815,6 +847,7 @@ graph TD
         solpi_receipt: Optional[str] = None,
         incident_group: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        rule_lookup: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
@@ -859,7 +892,9 @@ graph TD
         # contains the literal "Rule <ID>". Static rule lookup is supplemental
         # evidence, never a replacement for the requested incident analysis.
         if not scope_filter and not alert_data and self._is_direct_wazuh_factual_query(query):
-            factual_ans = self.resolve_wazuh_server_factual_query(query, system_context, recent_alerts, alert_data)
+            factual_ans = self.resolve_wazuh_server_factual_query(
+                query, system_context, recent_alerts, alert_data, rule_lookup=rule_lookup
+            )
             if factual_ans:
                 return {
                     "summary": factual_ans,

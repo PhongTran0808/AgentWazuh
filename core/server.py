@@ -1235,6 +1235,9 @@ async def import_alerts(req: ImportAlertsRequest, session: str = Depends(require
         GLOBAL_ALERTS_CACHE[:] = (new_items + list(GLOBAL_ALERTS_CACHE))[:500]
 
         GLOBAL_SYSTEM_STATUS_CACHE["alert_stats"] = compute_alert_stats(GLOBAL_ALERTS_CACHE)
+        # Keep manual/demo imports on the same realtime path as webhook and
+        # polling ingestion so Dashboard and Security Map refresh immediately.
+        _broadcast_alerts(new_items)
 
         return {
             "status": "success",
@@ -1572,6 +1575,70 @@ def _get_top_alert_for_device(ip: str, agent_id: str, agent_name: str, alerts: L
     }
 
 
+def _alert_matches_device(alert: Dict[str, Any], ip: str, agent_id: str, agent_name: str) -> bool:
+    """Return whether an alert belongs to a device shown on the security map."""
+    agent = alert.get("agent") or {}
+    data = alert.get("data") or {}
+    clean_name = str(agent_name or "").strip().lower()
+    alert_name = str(agent.get("name") or "").strip().lower()
+    alert_id = str(agent.get("id") or "")
+    device_id = str(agent_id or "")
+    device_ip = str(ip or "").strip()
+    related_ips = {
+        str(data.get(key) or "").strip()
+        for key in ("srcip", "src_ip", "dstip", "dst_ip", "source.ip", "destination.ip")
+    }
+    related_ips.add(str(agent.get("ip") or "").strip())
+    return bool(
+        (device_id and device_id != "000" and device_id == alert_id)
+        or (clean_name and clean_name == alert_name)
+        or (device_ip and device_ip in related_ips)
+    )
+
+
+def _get_device_incident(
+    ip: str,
+    agent_id: str,
+    agent_name: str,
+    incident_groups: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Select the highest-priority correlated incident affecting one device."""
+    matching = [
+        group for group in incident_groups
+        if any(_alert_matches_device(alert, ip, agent_id, agent_name)
+               for alert in group.get("alerts", []))
+    ]
+    if not matching:
+        return None
+    return max(
+        matching,
+        key=lambda group: (
+            int(group.get("priority_score") or group.get("risk_score") or 0),
+            int(group.get("correlation_confidence") or group.get("confidence_score") or 0),
+            group.get("time_span", {}).get("end", 0),
+        ),
+    )
+
+
+def _incident_map_summary(group: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Expose a compact, explainable incident summary to the topology UI."""
+    if not group:
+        return None
+    return {
+        "incident_id": group.get("incident_id") or group.get("group_id"),
+        "priority_score": group.get("priority_score", group.get("risk_score", 0)),
+        "confidence_score": group.get("confidence_score", 0),
+        "correlation_confidence": group.get("correlation_confidence", 0),
+        "correlation_type": group.get("correlation_type", ""),
+        "correlation_reason": group.get("correlation_reason", ""),
+        "correlation_reasons": group.get("correlation_reasons", []),
+        "alert_count": group.get("alert_count", len(group.get("alerts", []))),
+        "mitre_techniques": group.get("mitre_techniques", []),
+        "first_seen": group.get("first_seen", ""),
+        "last_seen": group.get("last_seen", ""),
+    }
+
+
 def _get_security_map_devices() -> List[Dict[str, Any]]:
     """
     Nguồn BẮT BUỘC VÀ DUY NHẤT: Trực tiếp từ Wazuh Server REST API 55000 (Agent Registry).
@@ -1579,6 +1646,10 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
     """
     active_agents: List[Dict[str, Any]] = GLOBAL_SYSTEM_STATUS_CACHE.get("agents", [])
     alerts: List[Dict[str, Any]] = GLOBAL_ALERTS_CACHE
+    # Use the exact same deterministic correlation/scoring pipeline as the
+    # Dashboard. This prevents the topology from showing a different risk
+    # level for the same device and incident.
+    incident_groups = build_correlated_groups(alerts) if alerts else []
     known_devices_dict = {d.get("name", "").lower(): d for d in load_known_devices_dict().values()}
     known_devices_ip_dict = {d.get("ip", ""): d for d in load_known_devices_dict().values()}
 
@@ -1589,6 +1660,11 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
     wazuh_host = SYSTEM_SETTINGS.get("wazuh_host", "172.16.175.145")
     wazuh_health = {"status": "online", "score": 100, "last_seen_seconds": 0}
     wazuh_risk = _compute_risk_score(wazuh_host, "000", "wazuh-server", alerts, 10)
+    wazuh_incident = _get_device_incident(wazuh_host, "000", "wazuh-server", incident_groups)
+    if wazuh_incident:
+        wazuh_risk["risk"] = wazuh_incident.get("priority_score", wazuh_risk.get("risk", 0))
+        wazuh_risk["alert_count"] = wazuh_incident.get("alert_count", wazuh_risk.get("alert_count", 0))
+        wazuh_risk["breakdown"] = wazuh_incident.get("breakdown", wazuh_risk.get("breakdown", {}))
     wazuh_badge = _get_device_badge(wazuh_health, wazuh_risk)
     wazuh_top_alert = _get_top_alert_for_device(wazuh_host, "000", "wazuh-server", alerts)
 
@@ -1602,6 +1678,7 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
         "agent_status": "active",
         "health": wazuh_health,
         "risk": wazuh_risk,
+        "incident": _incident_map_summary(wazuh_incident),
         "badge": wazuh_badge,
         "top_alert": wazuh_top_alert,
         "verified": True,
@@ -1632,6 +1709,14 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
 
         health = _compute_health_score(agent)
         risk = _compute_risk_score(display_ip, agent_id, display_name, alerts, criticality)
+        incident = _get_device_incident(display_ip, agent_id, display_name, incident_groups)
+        if incident:
+            # Priority Score is the shared, explainable score shown by the
+            # Dashboard. Keep the raw-device score in the breakdown for audit.
+            risk["raw_device_risk"] = risk.get("risk", 0)
+            risk["risk"] = incident.get("priority_score", risk.get("risk", 0))
+            risk["alert_count"] = incident.get("alert_count", risk.get("alert_count", 0))
+            risk["breakdown"] = incident.get("breakdown", risk.get("breakdown", {}))
         badge = _get_device_badge(health, risk)
         top_alert = _get_top_alert_for_device(display_ip, agent_id, display_name, alerts)
 
@@ -1645,6 +1730,7 @@ def _get_security_map_devices() -> List[Dict[str, Any]]:
             "agent_status": agent.get("status", "unknown"),
             "health": health,
             "risk": risk,
+            "incident": _incident_map_summary(incident),
             "badge": badge,
             "top_alert": top_alert,
             "verified": True,

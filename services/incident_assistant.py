@@ -1074,7 +1074,7 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
             payload = item.get("data") or {}
             normalized_alerts.append({
                 "alert_id": item.get("id"),
-                "timestamp": item.get("timestamp"),
+                "timestamp": item.get("timestamp") or item.get("@timestamp"),
                 "rule_id": rule.get("id"),
                 "rule_level": rule.get("level"),
                 "description": rule.get("description"),

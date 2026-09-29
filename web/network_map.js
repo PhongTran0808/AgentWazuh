@@ -402,7 +402,11 @@ function renderVisNetwork(devices, wazuhHost) {
             "OFFLINE":      "⚫"
         }[dev.badge] || "⚫";
 
-        const label = `${badgeEmoji} ${dev.name}\n${dev.ip}`;
+        const incidentScore = dev.incident?.priority_score ?? riskVal;
+        const scoreLine = dev.badge === "UNDER_ATTACK" || dev.incident
+            ? `\nRisk ${incidentScore}/100`
+            : "";
+        const label = `${badgeEmoji} ${dev.name}\n${dev.ip}${scoreLine}`;
 
         // Restore saved position if available
         const pos = savedPositions[dev.id];
@@ -440,6 +444,8 @@ function renderVisNetwork(devices, wazuhHost) {
             from: serverNodeId,
             to: dev.id,
             color: { color: edgeColor, highlight: edgeColor },
+            width: dev.badge === "UNDER_ATTACK" ? 3 : dev.badge === "WARNING" ? 2 : 1,
+            dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
             smooth: false,
             font: { size: 0 },
             arrows: { to: { enabled: false } }
@@ -590,7 +596,15 @@ function updateNodeCalloutBubbles(devices) {
         let titleLine = "🚨 Đang bị tấn công";
         let detailLine = `${dev.ip} → ${dev.name}`;
 
-        if (dev.top_alert) {
+        if (dev.incident) {
+            const incidentScore = dev.incident.priority_score ?? dev.risk?.risk ?? 0;
+            const incidentId = dev.incident.incident_id || "Incident tương quan";
+            const alertCount = dev.incident.alert_count ?? 0;
+            titleLine = `🚨 ${incidentId} · ${incidentScore}/100`;
+            detailLine = dev.top_alert
+                ? `${dev.top_alert.description} · ${alertCount} cảnh báo`
+                : `${alertCount} cảnh báo tương quan trên ${dev.name}`;
+        } else if (dev.top_alert) {
             titleLine = dev.top_alert.summary_line1 || `🚨 ${dev.top_alert.description}`;
             detailLine = dev.top_alert.summary_line2 || `${dev.top_alert.src_ip || dev.ip} → ${dev.name}`;
         } else if (dev.badge === "OFFLINE") {
@@ -628,6 +642,7 @@ function renderDeviceDetail(dev) {
 
     const health     = dev.health   || {};
     const risk       = dev.risk     || {};
+    const incident   = dev.incident || null;
     const healthPct  = health.score  ?? 0;
     const riskVal    = risk.risk     ?? 0;
     const badge      = dev.badge || "OFFLINE";
@@ -670,6 +685,17 @@ function renderDeviceDetail(dev) {
                 &nbsp;·&nbsp; Lần cuối thấy: <span class="kv">${lastSeenStr}</span>
             </p>
         </section>
+
+        ${incident ? `
+        <section class="evidence-section incident-map-summary">
+            <h3><i class="fa-solid fa-triangle-exclamation"></i> Sự cố đang ảnh hưởng</h3>
+            <p class="metric-note"><span class="ref">${escHtml(incident.incident_id || "Incident")}</span>
+                · ${incident.alert_count ?? 0} cảnh báo
+                · Độ tin cậy tương quan: <b>${incident.correlation_confidence ?? incident.confidence_score ?? 0}%</b>
+            </p>
+            <p class="metric-note">${escHtml(incident.correlation_reason || incident.correlation_type || "Tương quan theo chuỗi sự kiện")}</p>
+            ${incident.mitre_techniques?.length ? `<p class="metric-note">MITRE: <span class="ref">${escHtml(incident.mitre_techniques.join(", "))}</span></p>` : ""}
+        </section>` : ""}
 
         <section class="evidence-section">
             <h3><i class="fa-solid fa-skull-crossbones"></i> Risk Score</h3>

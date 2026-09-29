@@ -320,6 +320,67 @@ def _alert_identity(alert: Dict[str, Any]) -> str:
 
 _cache_lock = threading.Lock()
 
+INCIDENT_SNAPSHOTS_DIR = BASE_DIR / "data" / "incident_snapshots"
+INCIDENT_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _incident_snapshot_path(incident_id: str) -> Optional[Path]:
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "", str(incident_id or ""))
+    return INCIDENT_SNAPSHOTS_DIR / f"{safe_id}.json" if safe_id else None
+
+
+def _incident_id_from_query(query: str) -> Optional[str]:
+    """Recover an incident reference when an analyst types it manually."""
+    match = re.search(r"\bINC-[A-Z0-9][A-Z0-9-]{5,}\b", query or "", re.IGNORECASE)
+    return match.group(0).upper() if match else None
+
+
+def _get_or_create_incident_snapshot(
+    incident_id: Optional[str], candidate: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
+    """Keep an incident's evidence stable across later live-alert refreshes.
+
+    Correlation groups are intentionally rebuilt from the live 24-hour window.
+    That is useful for the dashboard, but unsafe for replaying an analyst's
+    earlier investigation: new events can otherwise replace the original
+    representative alert while keeping the same incident ID.  Freeze the first
+    group explicitly submitted for analysis and reuse it thereafter.
+    """
+    path = _incident_snapshot_path(incident_id or "")
+    if not path:
+        return candidate
+    with _cache_lock:
+        if path.exists():
+            try:
+                stored = json.loads(path.read_text(encoding="utf-8"))
+                group = stored.get("group") if isinstance(stored, dict) else None
+                if isinstance(group, dict):
+                    group["snapshot_id"] = stored.get("snapshot_id", incident_id)
+                    group["snapshot_created_at"] = stored.get("created_at", "")
+                    return group
+            except (OSError, json.JSONDecodeError):
+                pass
+        if not isinstance(candidate, dict):
+            return None
+        snapshot = json.loads(json.dumps(candidate, ensure_ascii=False, default=str))
+        snapshot["incident_id"] = incident_id or snapshot.get("incident_id") or snapshot.get("group_id")
+        snapshot["group_id"] = snapshot.get("group_id") or snapshot["incident_id"]
+        snapshot_id = snapshot["incident_id"]
+        created_at = datetime.now(timezone.utc).isoformat()
+        payload = {"snapshot_id": snapshot_id, "created_at": created_at, "group": snapshot}
+        temp_path = path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp_path.replace(path)
+        except OSError:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        snapshot["snapshot_id"] = snapshot_id
+        snapshot["snapshot_created_at"] = created_at
+        return snapshot
+
 
 def _merge_alerts(alerts: List[Dict[str, Any]], limit: int = 1000) -> List[Dict[str, Any]]:
     """Insert only unseen alerts and return the newly inserted records."""
@@ -556,6 +617,8 @@ class InvestigateRequest(BaseModel):
     query: str
     alert_id: Optional[str] = None
     alert_data: Optional[Dict[str, Any]] = None
+    incident_id: Optional[str] = None
+    incident_group: Optional[Dict[str, Any]] = None
     is_global_chat: Optional[bool] = False
     scope_filter: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
@@ -1324,10 +1387,11 @@ async def analyze_correlated_incident(
 ):
     """Send one Python-correlated incident group to Gemini on analyst request."""
     groups = await retrieve_correlated_groups()
-    group = next(
+    live_group = next(
         (item for item in groups if item.get("incident_id") == req.incident_id or item.get("group_id") == req.incident_id),
         None,
     )
+    group = _get_or_create_incident_snapshot(req.incident_id, live_group)
     if not group:
         raise HTTPException(status_code=404, detail="Không tìm thấy incident group trong cửa sổ 24 giờ.")
 
@@ -2099,6 +2163,17 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
     global GLOBAL_SYSTEM_STATUS_CACHE
     alerts = GLOBAL_ALERTS_CACHE
     alert_to_use = req.alert_data
+    incident_group = None
+    analysis_alerts = alerts
+    requested_incident_id = req.incident_id or _incident_id_from_query(req.query)
+    if requested_incident_id:
+        incident_group = _get_or_create_incident_snapshot(requested_incident_id, req.incident_group)
+        if incident_group:
+            analysis_alerts = list(incident_group.get("alerts") or [])
+            # The frozen group's first chronologically correlated alert is the
+            # representative evidence for every later replay of this incident.
+            if analysis_alerts:
+                alert_to_use = analysis_alerts[0]
     if not alert_to_use and req.alert_id:
         alert_to_use = next((a for a in alerts if a.get("id") == req.alert_id), None)
     
@@ -2170,7 +2245,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             "sandbox_result": None,
             "awaiting_approval": False,
             "status": "collecting",
-            "sample_alerts": (alerts or [])[:200]
+            "sample_alerts": (analysis_alerts or [])[:200]
         }
 
         # Handle intervening chat questions if form is active
@@ -2188,7 +2263,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             
             # Answer intervening question via PI while preserving LangGraph State
             solpi_receipt = solpi_wazuh.build_investigation_package(
-                session, req.query, alert_to_use, alerts, system_status
+                session, req.query, alert_to_use, analysis_alerts, system_status
             )
             result = assistant.investigate_incident(
                 req.query,
@@ -2196,8 +2271,9 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 system_context=system_status,
                 is_global_chat=bool(req.is_global_chat),
                 scope_filter=req.scope_filter,
-                recent_alerts=alerts,
+                recent_alerts=analysis_alerts,
                 solpi_receipt=solpi_receipt.to_prompt_context(),
+                incident_group=incident_group,
             )
             result["solpi"] = {
                 "observation_handle": solpi_receipt.handle,
@@ -2240,7 +2316,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
 
     # Nếu câu hỏi dạng phân tích/hỏi đáp thường -> PI Engine xử lý (Conversational Layer)
     solpi_receipt = solpi_wazuh.build_investigation_package(
-        session, req.query, alert_to_use, alerts, system_status
+        session, req.query, alert_to_use, analysis_alerts, system_status
     )
     result = assistant.investigate_incident(
         req.query,
@@ -2248,9 +2324,10 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         system_context=system_status,
         is_global_chat=bool(req.is_global_chat),
         scope_filter=req.scope_filter,
-        recent_alerts=alerts,
+        recent_alerts=analysis_alerts,
         model_override=req.model,
         solpi_receipt=solpi_receipt.to_prompt_context(),
+        incident_group=incident_group,
     )
     result["solpi"] = {
         "observation_handle": solpi_receipt.handle,

@@ -802,6 +802,7 @@ graph TD
         recent_alerts: Optional[List[Dict[str, Any]]] = None,
         model_override: Optional[str] = None,
         solpi_receipt: Optional[str] = None,
+        incident_group: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
@@ -875,6 +876,12 @@ graph TD
         threat_class = self._classify_threat(alert_data, static_info)
 
         context_lines = [f"- Nguồn Máy Chủ Wazuh Server: {current_host}"]
+        if incident_group:
+            snapshot_id = incident_group.get("snapshot_id") or incident_group.get("incident_id") or incident_group.get("group_id")
+            snapshot_created_at = incident_group.get("snapshot_created_at") or "không rõ"
+            context_lines.append(
+                f"- INCIDENT SNAPSHOT: {snapshot_id} | Được đóng băng lúc {snapshot_created_at}. Chỉ sử dụng các alert trong snapshot này; tuyệt đối không trộn alert mới ngoài snapshot."
+            )
         context_lines.append(
             f"- CHAT INTENT ROUTER: intent={chat_intent['intent']}; format={chat_intent['format']}"
         )
@@ -1100,6 +1107,12 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
 
         pipeline_evidence = {
             "source": "Wazuh REST API / local alert cache",
+            "incident_snapshot": {
+                "incident_id": incident_group.get("incident_id") if incident_group else None,
+                "snapshot_id": incident_group.get("snapshot_id") if incident_group else None,
+                "created_at": incident_group.get("snapshot_created_at") if incident_group else None,
+                "alert_ids": [item.get("id") for item in (incident_group.get("alerts", []) if incident_group else []) if item.get("id")],
+            },
             "raw_wazuh": evidence_alerts,
             "normalized_by_python": normalized_alerts,
             "ai_analysis": {

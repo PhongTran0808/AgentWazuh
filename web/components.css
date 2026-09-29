@@ -1329,6 +1329,52 @@ pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--
 .msg-text img + em,
 .msg-text img + p { display: block; color: var(--ink-3); text-align: center; font-size: var(--text-xs); }
 
+/* Attack graph viewer: keep Mermaid at its native size and provide explicit
+   zoom/pan controls instead of forcing a wide graph into a tiny thumbnail. */
+.attack-graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2xs);
+  padding: var(--space-3xs);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  background: var(--paper-sunk);
+}
+.attack-graph-toolbar .btn { min-width: 34px; font-family: var(--font-mono); }
+.attack-graph-toolbar .btn[data-graph-action="zoom-fit"] { font-family: var(--font-ui); }
+.attack-graph-hint { margin-left: auto; color: var(--ink-3); font-size: var(--text-2xs); }
+.attack-graph-viewport {
+  position: relative;
+  display: block;
+  min-height: min(58vh, 520px);
+  max-height: 68vh;
+  padding: var(--space-sm);
+  overflow: auto;
+  cursor: grab;
+  overscroll-behavior: contain;
+  user-select: none;
+}
+.attack-graph-viewport.is-dragging { cursor: grabbing; }
+.attack-graph-stage {
+  display: inline-block;
+  min-width: 100%;
+  min-height: 100%;
+  transform-origin: top left;
+  transition: transform 120ms ease-out;
+}
+.attack-graph-stage svg {
+  display: block;
+  width: auto !important;
+  min-width: 760px;
+  max-width: none !important;
+  height: auto !important;
+  margin: 0 auto;
+}
+.attack-graph-viewport pre.mermaid { min-width: 760px; user-select: text; }
+.attack-graph-zoom-label { min-width: 48px; text-align: center; color: var(--accent); font-family: var(--font-mono); font-size: var(--text-xs); }
+
 @media (max-width: 700px) {
   .chat-bubble.system,
   .chat-bubble.user { width: 100%; }

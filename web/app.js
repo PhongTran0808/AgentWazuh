@@ -980,7 +980,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const repAlert = group.alerts && group.alerts.length > 0 ? group.alerts[0] : null;
                 const queryMsg = `Phân tích nhóm sự cố ${group.group_id} (Điểm: ${score}/100)`;
                 appendUserBubble(queryMsg);
-                investigateAlert(queryMsg, repAlert);
+                investigateAlert(queryMsg, repAlert, group);
             });
 
             alertsList.appendChild(card);
@@ -1042,7 +1042,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return ({ incident: "Incident Report", playbook: "Playbook", metrics: "Metrics", rule: "Rule Draft", answer: "AI Answer" })[type] || "AI Answer";
     }
 
-    async function investigateAlert(query, alertObj = null) {
+    async function investigateAlert(query, alertObj = null, incidentGroup = null) {
         const loadingId = appendChatBot(processingStepsHtml());
         setProcessingStep(loadingId, 1, "Lấy dữ liệu");
 
@@ -1057,6 +1057,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     query: query,
                     alert_id: alertObj ? alertObj.id : null,
                     alert_data: alertObj,
+                    incident_id: incidentGroup?.incident_id || incidentGroup?.group_id || null,
+                    incident_group: incidentGroup,
                     is_global_chat: true,
                     model: selectedModel
                 }),
@@ -1725,13 +1727,14 @@ window.applyXmlRule = async function() {
 };
 
 // --- INCIDENT ATTACK GRAPH MODAL LOGIC ---
-window.openAttackGraphModal = function(group) {
+        window.openAttackGraphModal = function(group) {
     const modal = document.getElementById("incident-graph-modal");
     if (!modal) return;
     const title = document.getElementById("incident-graph-title");
     const meta = document.getElementById("incident-graph-meta");
-    const canvas = document.getElementById("incident-graph-canvas");
-    const copyBtn = document.getElementById("btn-export-graph-mermaid");
+            const canvas = document.getElementById("incident-graph-canvas");
+            const copyBtn = document.getElementById("btn-export-graph-mermaid");
+            const graphModal = document.getElementById("incident-graph-modal");
 
     const incId = group.incident_id || group.group_id || "INC-UNKNOWN";
     if (title) title.innerHTML = `<i class="fa-solid fa-diagram-project"></i> Sơ đồ chuỗi tấn công: <b>${String(incId).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</b>`;
@@ -1752,7 +1755,64 @@ window.openAttackGraphModal = function(group) {
         `;
     }
 
-    const mermaidCode = group.attack_graph_mermaid || `graph LR\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
+            const mermaidCode = group.attack_graph_mermaid || `graph LR\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
+
+            if (canvas && !canvas.dataset.controlsBound) {
+                const state = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 };
+                const zoomLabel = graphModal?.querySelector("[data-graph-action=zoom-reset]");
+                const applyTransform = () => {
+                    const stage = canvas.querySelector(".attack-graph-stage");
+                    if (!stage) return;
+                    stage.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+                    if (zoomLabel) zoomLabel.textContent = `${Math.round(state.scale * 100)}%`;
+                };
+                const setZoom = (scale) => {
+                    state.scale = Math.max(0.35, Math.min(3.5, scale));
+                    applyTransform();
+                };
+                graphModal?.querySelectorAll("[data-graph-action]").forEach(button => {
+                    button.addEventListener("click", () => {
+                        const action = button.dataset.graphAction;
+                        if (action === "zoom-in") setZoom(state.scale + 0.15);
+                        if (action === "zoom-out") setZoom(state.scale - 0.15);
+                        if (action === "zoom-reset") { state.scale = 1; state.x = 0; state.y = 0; applyTransform(); }
+                        if (action === "zoom-fit") {
+                            const svg = canvas.querySelector("svg");
+                            const width = svg?.viewBox?.baseVal?.width || svg?.getBoundingClientRect().width || 1;
+                            setZoom(Math.max(0.65, Math.min(1.15, (canvas.clientWidth - 36) / width)));
+                            state.x = 0; state.y = 0; applyTransform();
+                        }
+                    });
+                });
+                canvas.addEventListener("wheel", event => {
+                    event.preventDefault();
+                    setZoom(state.scale + (event.deltaY < 0 ? 0.12 : -0.12));
+                }, { passive: false });
+                canvas.addEventListener("pointerdown", event => {
+                    if (event.target.closest("button, a")) return;
+                    state.dragging = true;
+                    state.startX = event.clientX - state.x;
+                    state.startY = event.clientY - state.y;
+                    canvas.classList.add("is-dragging");
+                    canvas.setPointerCapture(event.pointerId);
+                });
+                canvas.addEventListener("pointermove", event => {
+                    if (!state.dragging) return;
+                    state.x = event.clientX - state.startX;
+                    state.y = event.clientY - state.startY;
+                    applyTransform();
+                });
+                const stopDragging = event => {
+                    state.dragging = false;
+                    canvas.classList.remove("is-dragging");
+                    if (event.pointerId !== undefined && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+                };
+                canvas.addEventListener("pointerup", stopDragging);
+                canvas.addEventListener("pointercancel", stopDragging);
+                canvas._graphState = state;
+                canvas._applyGraphTransform = applyTransform;
+                canvas.dataset.controlsBound = "true";
+            }
 
     if (copyBtn) {
         copyBtn.onclick = () => {
@@ -1772,15 +1832,16 @@ window.openAttackGraphModal = function(group) {
         if (window.mermaid) {
             try {
                 window.mermaid.render(renderId, mermaidCode).then(res => {
-                    canvas.innerHTML = res.svg;
+                        canvas.innerHTML = `<div class="attack-graph-stage">${res.svg}</div>`;
+                        canvas._applyGraphTransform?.();
                 }).catch(err => {
-                    canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div>`;
+                            canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div></div>`;
                 });
             } catch (err) {
-                canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre>`;
+                        canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
             }
         } else {
-            canvas.innerHTML = `<pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre>`;
+                    canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
         }
     }
 };

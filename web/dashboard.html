@@ -12,7 +12,7 @@
 
     <link rel="stylesheet" href="/static/tokens.css">
     <link rel="stylesheet" href="/static/shell.css?v=3.2">
-    <link rel="stylesheet" href="/static/components.css?v=3.4">
+    <link rel="stylesheet" href="/static/components.css?v=3.5">
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
@@ -354,9 +354,16 @@
             </div>
             <div class="modal-body">
                 <div id="incident-graph-meta" style="margin-bottom:12px; display:flex; gap:10px; flex-wrap:wrap; font-size:13px;"></div>
-                <div id="incident-graph-canvas" class="mermaid-container" style="background:var(--paper-sunk); padding:16px; border-radius:8px; overflow-x:auto; min-height:180px; display:flex; align-items:center; justify-content:center;">
-                    <span style="color:var(--ink-3);">Đang khởi tạo biểu đồ...</span>
-                </div>
+                        <div class="attack-graph-toolbar" aria-label="Điều khiển sơ đồ">
+                            <button type="button" class="btn btn--sm btn--ghost" data-graph-action="zoom-out" title="Thu nhỏ">−</button>
+                            <button type="button" class="btn btn--sm btn--ghost" data-graph-action="zoom-reset" title="Đặt lại">100%</button>
+                            <button type="button" class="btn btn--sm btn--ghost" data-graph-action="zoom-in" title="Phóng to">+</button>
+                            <button type="button" class="btn btn--sm btn--ghost" data-graph-action="zoom-fit" title="Vừa khung">Vừa khung</button>
+                            <span class="attack-graph-hint"><i class="fa-solid fa-hand-pointer"></i> Cuộn để zoom · kéo để di chuyển</span>
+                        </div>
+                        <div id="incident-graph-canvas" class="mermaid-container attack-graph-viewport">
+                            <span style="color:var(--ink-3);">Đang khởi tạo biểu đồ...</span>
+                        </div>
                 <div class="builder-actions" style="margin-top:16px;">
                     <button type="button" class="btn btn--ghost" onclick="window.closeAttackGraphModal()">Đóng</button>
                     <button type="button" id="btn-export-graph-mermaid" class="btn btn--secondary">
@@ -368,6 +375,6 @@
     </div>
 
     <script src="/static/settings_drawer.js?v=3.2"></script>
-    <script src="/static/app.js?v=3.4"></script>
+    <script src="/static/app.js?v=3.6"></script>
 </body>
 </html>

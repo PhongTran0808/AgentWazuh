@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import shutil
 import requests
-from services.chat_intent import classify_chat_intent
+from services.chat_intent import classify_chat_intent, is_contextual_security_followup, is_security_related_query
 
 logger = logging.getLogger("IncidentAssistant")
 
@@ -90,15 +90,25 @@ class IncidentAssistant:
         if any(kw in q for kw in ["phân tích sự cố", "phân tích nhóm sự cố", "tạo rule", "thêm rule", "sửa rule", "cấu hình rule", "mở form", "dry-run"]):
             return False
 
+        # Phrases such as "trong Wazuh server, mục ... là gì" are conceptual
+        # questions about a Wazuh feature, not requests for Manager status.
+        # Keep explicit Rule-ID lookups and concrete status/metrics questions
+        # on the deterministic path.
+        has_rule_id = bool(re.search(r"\b(?:rule|quy tắc)\s+\d+\b", q))
+        conceptual_markers = ["có nghĩa là gì", "nghĩa là gì", "là gì", "ý nghĩa", "giải thích", "what is"]
+        factual_concrete_markers = ["trạng thái", "phiên bản", "version", "bao nhiêu", "danh sách", "thống kê", "kết nối", "cổng"]
+        if any(marker in q for marker in conceptual_markers) and not has_rule_id and not any(marker in q for marker in factual_concrete_markers):
+            return False
+
         factual_keywords = [
             "bao nhiêu agent", "danh sách agent", "agent nào", "trạng thái agent", "thông tin agent", "agent đang hoạt động",
-            "phiên bản", "version", "trạng thái server", "trạng thái wazuh", "kết nối wazuh", "thông tin wazuh", "wazuh server", "wazuh manager",
+            "phiên bản", "version", "trạng thái server", "trạng thái wazuh", "kết nối wazuh", "thông tin wazuh",
             "thống kê cảnh báo", "thống kê alert", "bao nhiêu alert", "tổng số cảnh báo", "alert 24h",
             "danh sách thiết bị", "thiết bị giám sát"
         ]
         if any(k in q for k in factual_keywords):
             return True
-        if re.search(r"\b(?:rule|quy tắc)\s+\d+\b", q):
+        if has_rule_id:
             return True
         return False
 
@@ -174,7 +184,7 @@ class IncidentAssistant:
 """
 
         # 2. Truy vấn Trạng thái Máy chủ & Phiên bản (Server Status & Version)
-        server_keywords = ["trạng thái server", "trạng thái wazuh", "phiên bản", "version", "kết nối wazuh", "thông tin server", "wazuh server", "wazuh manager"]
+        server_keywords = ["trạng thái server", "trạng thái wazuh", "phiên bản", "version", "kết nối wazuh", "thông tin server"]
         if any(k in q for k in server_keywords) and not any(k in q for k in ["hướng dẫn", "cài đặt", "khởi động"]):
             status_text = "🟢 ONLINE (Hoạt động ổn định - Sẵn sàng nhận lệnh)" if is_connected else "🔴 OFFLINE (Mất kết nối hoặc kiểm tra cấu hình)"
             err_line = f"\n- **Thông báo lỗi API**: `{error}`" if (not is_connected and error) else ""
@@ -305,7 +315,7 @@ class IncidentAssistant:
 
         return None
 
-    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool, system_context: Optional[Dict[str, Any]] = None, model_override: Optional[str] = None) -> str:
+    def _call_pi_agent(self, system_prompt: str, user_prompt: str, alert_count: int, has_internal_ip: bool, system_context: Optional[Dict[str, Any]] = None, model_override: Optional[str] = None, allow_static_lookup: bool = True) -> str:
         """
         Offload request to PI Agent CLI and log audit.
         """
@@ -492,11 +502,11 @@ class IncidentAssistant:
                 pass
 
             # 3. Dynamic Local SOC Rule-Based Engine
-            return self._generate_truthful_fallback(user_prompt, system_context)
+            return self._generate_truthful_fallback(user_prompt, system_context, allow_static_lookup=allow_static_lookup)
                 
         except Exception as e:
             logger.error(f"⚠️ LLM Exception: {e}")
-            return self._generate_truthful_fallback(user_prompt, system_context)
+            return self._generate_truthful_fallback(user_prompt, system_context, allow_static_lookup=allow_static_lookup)
         finally:
             if temp_prompt_path and os.path.exists(temp_prompt_path):
                 try:
@@ -504,12 +514,13 @@ class IncidentAssistant:
                 except Exception:
                     pass
 
-    def _generate_truthful_fallback(self, user_prompt: str, system_context: Optional[Dict[str, Any]]) -> str:
+    def _generate_truthful_fallback(self, user_prompt: str, system_context: Optional[Dict[str, Any]], allow_static_lookup: bool = True) -> str:
         """Answer locally without inventing alerts, agents, IPs or actions."""
         # Ưu tiên giải đáp ngay bằng dữ liệu thực tế chuẩn xác 100% từ Wazuh Server
-        factual_ans = self.resolve_wazuh_server_factual_query(user_prompt, system_context, None, None)
-        if factual_ans:
-            return factual_ans
+        if allow_static_lookup:
+            factual_ans = self.resolve_wazuh_server_factual_query(user_prompt, system_context, None, None)
+            if factual_ans:
+                return factual_ans
 
         context = system_context or {}
         host = context.get("wazuh_host") or context.get("host") or os.getenv("WAZUH_HOST", "chưa xác định")
@@ -803,6 +814,7 @@ graph TD
         model_override: Optional[str] = None,
         solpi_receipt: Optional[str] = None,
         incident_group: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
@@ -810,8 +822,43 @@ graph TD
         current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["", "N/A", "admin", "none", "null"]) else os.getenv("WAZUH_HOST", "127.0.0.1")
         chat_intent = classify_chat_intent(query)
 
+        # AgentWazuh is a SOC assistant, not a general-purpose chatbot. A
+        # selected alert/scope is already security context; otherwise reject
+        # unrelated prompts before they can reach PI/LLM or local fallbacks.
+        has_security_history = any(
+            is_security_related_query(str(item.get("content") or ""))
+            for item in (conversation_history or [])[-12:]
+        )
+        if (
+            query.strip()
+            and not is_security_related_query(query)
+            and chat_intent.get("intent") != "greeting"
+            and not alert_data
+            and not scope_filter
+            and not (has_security_history and is_contextual_security_followup(query))
+        ):
+            scope_message = (
+                "Mình là AgentWazuh SOC Assistant và chỉ hỗ trợ các nội dung liên quan đến "
+                "an ninh mạng, SIEM, Wazuh, log/alert, điều tra sự cố, giám sát và vận hành bảo mật. "
+                "Câu hỏi hiện tại nằm ngoài phạm vi đó nên mình không thể trả lời. "
+                "Bạn có thể hỏi về Rule, Agent, File Integrity Monitoring, cảnh báo hoặc sự cố Wazuh."
+            )
+            return {
+                "summary": scope_message,
+                "layer_2_llm_reasoning": "OUT_OF_SCOPE",
+                "reasoning_steps": [
+                    {"step": 1, "title": "Domain Scope Check", "status": "COMPLETED", "detail": "Query is outside AgentWazuh security/SIEM scope"},
+                    {"step": 2, "title": "LLM Routing", "status": "SKIPPED", "detail": "No external model call was made"},
+                ],
+                "evidence": {"source": "AgentWazuh domain policy", "raw_wazuh": [], "normalized_by_python": [], "ai_analysis": {"intent": "out_of_scope"}},
+                "pipeline_evidence": {"source": "AgentWazuh domain policy", "model_used": "None (blocked before LLM)"},
+            }
+
         # Nếu là câu hỏi trực tiếp về dữ liệu thực tế Wazuh Server, trả lời ngay bằng Ground-Truth chuẩn xác 100%
-        if self._is_direct_wazuh_factual_query(query):
+        # A scoped/selected alert query is an investigation even when it
+        # contains the literal "Rule <ID>". Static rule lookup is supplemental
+        # evidence, never a replacement for the requested incident analysis.
+        if not scope_filter and not alert_data and self._is_direct_wazuh_factual_query(query):
             factual_ans = self.resolve_wazuh_server_factual_query(query, system_context, recent_alerts, alert_data)
             if factual_ans:
                 return {
@@ -890,6 +937,14 @@ graph TD
         )
         if scope_filter:
             context_lines.append(f"- Phạm Vi Phân Vùng Log (Scoped Context): {json.dumps(scope_filter)}")
+            context_lines.append("- STATIC RULE LOOKUP POLICY: Nếu có Rule ID, chỉ dùng tra cứu tĩnh như dữ liệu bổ sung; tuyệt đối không thay thế phân tích nội dung log và chuỗi sự kiện.")
+
+        if conversation_history:
+            context_lines.append("\nLỊCH SỬ HỘI THOẠI GẦN NHẤT (chỉ dùng để hiểu đại từ như 'cảnh báo trên'; không coi lịch sử là bằng chứng mới):")
+            for item in conversation_history[-12:]:
+                role = "Analyst" if item.get("role") == "user" else "AgentWazuh AI"
+                content = str(item.get("content") or "").replace("\n", " ")[:1800]
+                context_lines.append(f"- {role}: {content}")
 
         alert_count = 0
         
@@ -925,10 +980,11 @@ graph TD
                 context_lines.append(f"- Registered Active Agents Count: {len(agents)}")
                 context_lines.append(f"- Last 24h Alerts: Total {stats.get('total_24h', 0)} [[DRILLDOWN:severity:total]], Critical {stats.get('critical', 0)} [[DRILLDOWN:severity:critical]], High {stats.get('high', 0)} [[DRILLDOWN:severity:high]], Medium {stats.get('medium', 0)} [[DRILLDOWN:severity:medium]], Low {stats.get('low', 0)} [[DRILLDOWN:severity:low]]")
 
-        if is_global_chat and recent_alerts:
-            alert_count = len(recent_alerts[:10])
-            context_lines.append(f"- Thông tin {alert_count} Cảnh báo thực tế gần đây nhất:")
-            for a in recent_alerts[:10]:
+        if recent_alerts and (is_global_chat or scope_filter or alert_data):
+            alert_count = len(recent_alerts)
+            evidence_label = "cảnh báo trong phân vùng hiện tại" if scope_filter else "cảnh báo thực tế liên quan"
+            context_lines.append(f"- Thông tin {alert_count} {evidence_label}; danh sách đã được lọc theo scope, ưu tiên severity và tương quan thời gian:")
+            for a in recent_alerts[:80]:
                 source_ts = a.get("@timestamp") or a.get("timestamp")
                 context_lines.append(f"  + Alert {a.get('id')} (Rule {a.get('rule', {}).get('id')} - Lvl {a.get('rule', {}).get('level')}): {a.get('rule', {}).get('description')} | Timestamp local Asia/Ho_Chi_Minh: {format_report_timestamp(source_ts)} | Agent: {a.get('agent', {}).get('name')} | Payload: {json.dumps(a.get('data', {}))}")
 
@@ -1065,7 +1121,21 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 
         # Thực thi qua PI Agent
-        llm_response = self._call_pi_agent(system_prompt, user_prompt, alert_count, has_internal, system_context, model_override=model_override)
+        if scope_filter:
+            system_prompt += """
+\n8. **Scoped incident analysis**: Đây là phân tích trong một phân vùng log cụ thể. Khi câu hỏi chứa "Rule <ID>", hãy phân tích alert tương ứng, nội dung mô tả, mức độ, bằng chứng và chuỗi sự kiện lân cận. Không được trả về biểu mẫu "TRA CỨU QUY TẮC CẢNH BÁO" thay cho câu trả lời. Với câu hỏi nối tiếp như "cảnh báo trên", phải nối vào lịch sử hội thoại và các alert trong scope hiện tại.
+9. **Event correlation**: Ưu tiên mô tả chuỗi sự kiện theo timestamp thực tế; với alert neo, xem xét tối đa 7 giây trước và 1 giây sau, đồng thời giữ lại các alert level cao dù chúng không phải log mới nhất.
+"""
+
+        llm_response = self._call_pi_agent(
+            system_prompt,
+            user_prompt,
+            alert_count,
+            has_internal,
+            system_context,
+            model_override=model_override,
+            allow_static_lookup=not bool(scope_filter or alert_data),
+        )
 
         formatted_response = self._parse_drilldown_placeholders(llm_response)
 
@@ -1086,7 +1156,9 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
         # Audit-friendly evidence for the UI: preserve the source event, expose
         # the deterministic fields used by the pipeline, and keep the final AI
         # prose in the main chat instead of duplicating it in the evidence pane.
-        evidence_alerts = ([alert_data] if alert_data else (recent_alerts or [])[:10])
+        evidence_alerts = list(recent_alerts or [])[:10]
+        if alert_data and not any(str(item.get("id")) == str(alert_data.get("id")) for item in evidence_alerts):
+            evidence_alerts.insert(0, alert_data)
         normalized_alerts = []
         for item in evidence_alerts:
             rule = item.get("rule") or {}

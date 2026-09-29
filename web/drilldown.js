@@ -29,14 +29,51 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatInput = document.getElementById("chat-input");
     const chatModelSelect = document.getElementById("chat-model-select");
     const presetChips = document.querySelectorAll(".chip-btn");
-    const drilldownChatKey = "agentwazuh.drilldownChatSessionId";
+    const drilldownChatKey = `agentwazuh.drilldownChatSessionId:${filterType}:${filterVal}`;
     let currentChatSessionId = localStorage.getItem(drilldownChatKey) || null;
     let chatWriteQueue = Promise.resolve();
+    let selectedLogForChat = null;
 
     const logModal = document.getElementById("log-modal");
     const modalLogJson = document.getElementById("modal-log-json");
 
     let currentLogs = [];
+
+    // Keep the drill-down model picker in sync with the dashboard. The dashboard
+    // gets this list from the locally installed Pi CLI; this page does not load
+    // app.js, so it must populate its own selector.
+    async function loadPiModels() {
+        if (!chatModelSelect) return;
+
+        try {
+            const res = await fetch("/api/ai/pi-models", { credentials: "same-origin" });
+            const data = await res.json();
+            if (!res.ok || data.status !== "success" || !Array.isArray(data.models) || !data.models.length) return;
+
+            const current = chatModelSelect.value || "auto";
+            chatModelSelect.innerHTML = "";
+
+            const auto = document.createElement("option");
+            auto.value = "auto";
+            auto.textContent = "Auto (CLI model)";
+            chatModelSelect.appendChild(auto);
+
+            data.models.forEach((model) => {
+                if (!model?.id) return;
+                const option = document.createElement("option");
+                option.value = model.id;
+                option.textContent = `${model.provider || "Pi"} · ${model.name || model.id}`;
+                chatModelSelect.appendChild(option);
+            });
+
+            if ([...chatModelSelect.options].some((option) => option.value === current)) {
+                chatModelSelect.value = current;
+            }
+        } catch (err) {
+            // Keep the server-rendered fallback options when Pi is unavailable.
+            console.warn("Không tải được danh sách model Pi cho drill-down:", err);
+        }
+    }
 
     if (drilldownTitle) {
         drilldownTitle.innerHTML = isDeviceScope
@@ -63,6 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.askAboutLogByIndex = function(idx) {
         const logObj = currentLogs[idx];
         if (logObj && chatInput) {
+            selectedLogForChat = logObj;
             const ruleId = logObj.rule?.id || "";
             const desc = logObj.rule?.description || "";
             chatInput.value = `Phân tích cụ thể nguy cơ từ log Rule ${ruleId}: "${desc}"`;
@@ -146,6 +184,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const loadingId = appendChatBot("Đang suy luận AI trong phạm vi phân vùng Scoped Context...");
 
         try {
+            // Create/resolve the persisted conversation before dispatching the
+            // investigation so the backend can load prior turns in this scope.
+            await chatWriteQueue;
+            const chatSessionId = await ensureChatSession(query);
             const res = await fetch("/api/wazuh/investigate/scoped", {
                 method: "POST",
                 credentials: "same-origin",
@@ -153,7 +195,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({
                     query: query,
                     scope_filter: { type: filterType, value: filterVal },
-                    model: chatModelSelect?.value || "auto"
+                    model: chatModelSelect?.value || "auto",
+                    alert_data: selectedLogForChat,
+                    chat_session_id: chatSessionId
                 })
             });
 
@@ -214,6 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
         chip.addEventListener("click", () => {
             const query = chip.getAttribute("data-query");
             if (query) {
+                selectedLogForChat = null;
                 sendScopedInvestigate(query);
             }
         });
@@ -327,6 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     loadDrilldownChatSession();
+    loadPiModels();
 
     fetchFilteredLogs();
 });

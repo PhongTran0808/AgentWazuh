@@ -5,6 +5,38 @@ from __future__ import annotations
 import re
 from typing import Dict
 
+SECURITY_SCOPE_MARKERS = (
+    # Wazuh/SIEM and SOC vocabulary
+    "wazuh", "siem", "soc", "opensearch", "elasticsearch", "agent", "rule", "alert",
+    "log", "rest api", "mitre", "ioc", "incident", "security", "cyber", "cybersecurity",
+    "firewall", "ids", "ips", "endpoint", "edr", "xdr", "threat", "malware", "ransomware",
+    "phishing", "brute force", "vulnerability", "cve", "file integrity", "fim",
+    # Vietnamese security vocabulary
+    "an ninh", "bảo mật", "an toàn thông tin", "tấn công", "sự cố", "cảnh báo", "nhật ký",
+    "mã độc", "virus", "lỗ hổng", "xác thực", "phân quyền", "đặc quyền", "giám sát",
+    "điều tra", "truy vết", "phát hiện xâm nhập", "máy chủ", "thiết bị", "mạng máy tính",
+)
+
+CONTEXTUAL_FOLLOWUP_MARKERS = (
+    "cảnh báo trên", "log trên", "alert trên", "rule trên", "sự cố trên", "điều này", "cái này",
+    "nó là gì", "nó có nghĩa", "vừa nói", "vừa rồi", "ở trên", "this", "that", "above",
+)
+
+
+def is_security_related_query(query: str) -> bool:
+    """Return whether the current query is within AgentWazuh's security scope."""
+    text = (query or "").strip().lower()
+    return bool(text) and any(
+        re.search(rf"(?<!\w){re.escape(marker)}(?!\w)", text, re.IGNORECASE)
+        for marker in SECURITY_SCOPE_MARKERS
+    )
+
+
+def is_contextual_security_followup(query: str) -> bool:
+    """Allow short references to an already selected alert/security topic."""
+    text = (query or "").strip().lower()
+    return len(text) <= 120 and any(marker in text for marker in CONTEXTUAL_FOLLOWUP_MARKERS)
+
 
 def classify_chat_intent(query: str) -> Dict[str, str]:
     text = (query or "").strip().lower()
@@ -42,4 +74,3 @@ def classify_chat_intent(query: str) -> Dict[str, str]:
         return {"intent": "wazuh_explanation", "format": "concept_then_example"}
 
     return {"intent": "general", "format": "direct_answer"}
-

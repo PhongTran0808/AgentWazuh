@@ -318,6 +318,137 @@ def _alert_identity(alert: Dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _alert_timestamp(alert: Dict[str, Any]) -> Optional[datetime]:
+    """Parse an alert timestamp without inventing a fallback time."""
+    value = alert.get("@timestamp") or alert.get("timestamp")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _alert_matches_scope(alert: Dict[str, Any], scope_filter: Optional[Dict[str, Any]]) -> bool:
+    """Use the same matching rules for the visible table and AI evidence."""
+    if not scope_filter:
+        return True
+
+    scope_type = str(scope_filter.get("type") or "").strip().lower()
+    scope_value = str(scope_filter.get("value") or "").strip()
+    value_lower = scope_value.lower()
+    rule = alert.get("rule") or {}
+    try:
+        level = int(rule.get("level") or 0)
+    except (TypeError, ValueError):
+        level = 0
+    rule_id = str(rule.get("id") or "")
+
+    if scope_type == "severity":
+        if value_lower == "critical":
+            return level >= 15
+        if value_lower == "high":
+            return 12 <= level < 15
+        if value_lower == "medium":
+            return 7 <= level < 12
+        if value_lower == "low":
+            return level < 7
+        if value_lower == "total":
+            return True
+        return False
+
+    if scope_type == "rule":
+        return rule_id == scope_value
+
+    if scope_type == "agent":
+        return True
+
+    if scope_type == "device":
+        agent = alert.get("agent") or {}
+        data = alert.get("data") or {}
+        candidates = {
+            str(agent.get("id") or "").lower(),
+            str(agent.get("ip") or "").lower(),
+            str(agent.get("name") or "").lower(),
+            str(data.get("srcip") or data.get("src_ip") or "").lower(),
+            str(data.get("dstip") or data.get("dst_ip") or "").lower(),
+        }
+        candidates.discard("")
+        value_clean = value_lower.replace("agent_", "")
+        return (
+            value_lower in candidates
+            or value_clean in candidates
+            or (agent.get("id") and value_clean == str(agent.get("id")).lower())
+            or (value_lower == "wazuh_manager_node" and str(agent.get("id")) in {"000", ""})
+        )
+
+    return True
+
+
+def _select_analysis_alerts(
+    alerts: List[Dict[str, Any]],
+    scope_filter: Optional[Dict[str, Any]] = None,
+    anchor_alert: Optional[Dict[str, Any]] = None,
+    limit: int = 120,
+) -> List[Dict[str, Any]]:
+    """Build bounded evidence with severity priority and local event context.
+
+    A selected alert gets a seven-second look-back and one-second look-ahead.
+    Remaining scoped evidence is filled by the highest-severity alerts first so
+    routine low-level noise cannot evict critical events from the prompt.
+    """
+    scoped = [item for item in alerts if isinstance(item, dict) and _alert_matches_scope(item, scope_filter)]
+    if anchor_alert and isinstance(anchor_alert, dict):
+        anchor_id = _alert_identity(anchor_alert)
+        if not any(_alert_identity(item) == anchor_id for item in scoped):
+            if not scope_filter or _alert_matches_scope(anchor_alert, scope_filter):
+                scoped.append(anchor_alert)
+
+    if not scoped:
+        return []
+
+    anchor_time = _alert_timestamp(anchor_alert) if anchor_alert else None
+    correlated = []
+    if anchor_time:
+        for item in scoped:
+            item_time = _alert_timestamp(item)
+            if item_time is None:
+                continue
+            delta = (item_time - anchor_time).total_seconds()
+            if -7 <= delta <= 1:
+                correlated.append(item)
+
+    def severity_key(item: Dict[str, Any]) -> tuple:
+        rule = item.get("rule") or {}
+        item_time = _alert_timestamp(item)
+        try:
+            level = int(rule.get("level") or 0)
+        except (TypeError, ValueError):
+            level = 0
+        return (level, item_time.timestamp() if item_time else float("-inf"))
+
+    selected: List[Dict[str, Any]] = []
+    seen = set()
+    for item in correlated:
+        identity = _alert_identity(item)
+        if identity not in seen:
+            selected.append(item)
+            seen.add(identity)
+
+    for item in sorted(scoped, key=severity_key, reverse=True):
+        identity = _alert_identity(item)
+        if identity not in seen:
+            selected.append(item)
+            seen.add(identity)
+        if len(selected) >= limit:
+            break
+
+    # Present the chosen chain chronologically so the model can narrate it.
+    selected.sort(key=lambda item: _alert_timestamp(item) or datetime.min.replace(tzinfo=timezone.utc))
+    return selected[:limit]
+
+
 _cache_lock = threading.Lock()
 
 INCIDENT_SNAPSHOTS_DIR = BASE_DIR / "data" / "incident_snapshots"
@@ -622,6 +753,7 @@ class InvestigateRequest(BaseModel):
     is_global_chat: Optional[bool] = False
     scope_filter: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
+    chat_session_id: Optional[str] = None
 
 class CorrelationRequest(BaseModel):
     target_ip: str
@@ -1411,49 +1543,19 @@ async def analyze_correlated_incident(
 @app.get("/api/wazuh/alerts/filter")
 async def get_filtered_alerts(type: str = "severity", value: str = "low", limit: int = 200, session: str = Depends(require_authenticated_session)):
     all_alerts = GLOBAL_ALERTS_CACHE
-    filtered = []
-    val_lower = value.lower()
-    for a in all_alerts:
-        level = a.get("rule", {}).get("level", 0)
-        rule_id = str(a.get("rule", {}).get("id"))
-        
-        if type == "severity":
-            if val_lower == "critical" and level >= 15: filtered.append(a)
-            elif val_lower == "high" and 12 <= level < 15: filtered.append(a)
-            elif val_lower == "medium" and 7 <= level < 12: filtered.append(a)
-            elif val_lower == "low" and level < 7: filtered.append(a)
-            elif val_lower == "total": filtered.append(a)
-        elif type == "rule" and rule_id == value:
-            filtered.append(a)
-        elif type == "agent":
-            filtered.append(a)
-        elif type == "device":
-            # Scoped drill-down for one device: match agent id/name/ip or the alert srcip/dstip.
-            agent = a.get("agent", {}) or {}
-            src = str((a.get("data", {}) or {}).get("srcip", ""))
-            dst = str((a.get("data", {}) or {}).get("dstip", ""))
-            ag_id = str(agent.get("id", ""))
-            ag_ip = str(agent.get("ip", ""))
-            ag_name = str(agent.get("name", "")).lower()
-
-            val_lower = value.lower().strip()
-            val_clean = val_lower.replace("agent_", "")
-
-            candidates = {ag_id, ag_ip, ag_name, src.lower(), dst.lower()}
-            candidates.discard("")
-
-            if (val_lower in candidates or
-                val_clean in candidates or
-                (ag_id and val_clean == ag_id) or
-                (val_lower == "wazuh_manager_node" and (ag_id == "000" or val_clean in ["000", "wazuh"]))):
-                filtered.append(a)
+    filtered = [a for a in all_alerts if _alert_matches_scope(a, {"type": type, "value": value})]
+    filtered = filtered[:max(1, min(limit, 1000))]
 
     # Legacy filter types fall back to the full cache so the UI never renders empty;
     # a device-scoped view must stay truthful, so it returns only real matches.
     if type == "device":
         return {"status": "success", "filter": {"type": type, "value": value}, "count": len(filtered), "alerts": filtered}
 
-    return {"status": "success", "filter": {"type": type, "value": value}, "count": len(filtered), "alerts": filtered if filtered else all_alerts}
+    # Preserve legacy fallback behavior for severity/rule/agent consumers. A
+    # device-scoped view is the exception: it must stay truthful and may be
+    # empty instead of leaking unrelated global alerts.
+    visible_alerts = filtered if filtered or type == "device" else all_alerts
+    return {"status": "success", "filter": {"type": type, "value": value}, "count": len(filtered), "alerts": visible_alerts}
 
 @app.get("/api/wazuh/topology")
 async def get_topology(session: str = Depends(require_authenticated_session)):
@@ -1939,6 +2041,28 @@ class BulkDeleteSessionsRequest(BaseModel):
     session_ids: List[str] = Field(default_factory=list)
     delete_all: bool = False
 
+
+def _load_chat_messages_for_investigation(session_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Load only the bounded, local history needed for conversational context."""
+    if not session_id or Path(session_id).name != str(session_id):
+        return []
+    file_path = CHAT_SESSIONS_DIR / f"{session_id}.json"
+    try:
+        with file_path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+        messages = _normalize_chat_messages(data.get("messages", []))
+        return [
+            {
+                "role": str(item.get("role") or "user"),
+                "content": str(item.get("content") or "")[:4000],
+                "timestamp": item.get("timestamp", ""),
+            }
+            for item in messages[-12:]
+            if str(item.get("content") or "").strip()
+        ]
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+
 @app.get("/api/chat/history")
 async def get_chat_history(session: str = Depends(require_authenticated_session)):
     files = glob.glob(os.path.join(CHAT_SESSIONS_DIR, "*.json"))
@@ -2176,6 +2300,16 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 alert_to_use = analysis_alerts[0]
     if not alert_to_use and req.alert_id:
         alert_to_use = next((a for a in alerts if a.get("id") == req.alert_id), None)
+
+    # The drill-down table and the assistant must receive the same evidence
+    # set. Do not let the global newest-alert cache leak into a device scope.
+    if req.scope_filter or alert_to_use:
+        analysis_alerts = _select_analysis_alerts(
+            analysis_alerts,
+            scope_filter=req.scope_filter,
+            anchor_alert=alert_to_use,
+        )
+    conversation_history = _load_chat_messages_for_investigation(req.chat_session_id)
     
     if not alert_to_use and not req.query:
         raise HTTPException(status_code=400, detail="Cần cung cấp câu hỏi hoặc Alert ID.")
@@ -2272,6 +2406,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 is_global_chat=bool(req.is_global_chat),
                 scope_filter=req.scope_filter,
                 recent_alerts=analysis_alerts,
+                conversation_history=conversation_history,
                 solpi_receipt=solpi_receipt.to_prompt_context(),
                 incident_group=incident_group,
             )
@@ -2326,6 +2461,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         scope_filter=req.scope_filter,
         recent_alerts=analysis_alerts,
         model_override=req.model,
+        conversation_history=conversation_history,
         solpi_receipt=solpi_receipt.to_prompt_context(),
         incident_group=incident_group,
     )

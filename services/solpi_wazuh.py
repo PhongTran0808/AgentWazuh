@@ -148,7 +148,13 @@ class WazuhSoLPi:
         system_status: Optional[Dict[str, Any]],
     ) -> ObservationReceipt:
         """Action Fusion: archive, reduce, and compact context in one local operation."""
-        alerts = [alert_data] if alert_data else list(recent_alerts or [])
+        alerts = list(recent_alerts or [])
+        if alert_data:
+            anchor_id = str(alert_data.get("id") or "")
+            if not any(str(item.get("id") or "") == anchor_id for item in alerts):
+                alerts.insert(0, alert_data)
+        if not alerts and alert_data:
+            alerts = [alert_data]
         source = {
             "schema": "agentwazuh.solpi.observation.v1",
             "captured_at": datetime.now(timezone.utc).isoformat(),

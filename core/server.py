@@ -46,6 +46,7 @@ for env_file in [BASE_DIR / "pass.env", BASE_DIR / ".env"]:
 
 from services.wazuh_client import WazuhClient, record_live_api_log
 from services.incident_assistant import IncidentAssistant, IncidentAssistantService
+from services.ollama_client import OllamaClient, OllamaError
 from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
 from services.correlation_engine import (
@@ -883,6 +884,8 @@ class AIConfigRequest(BaseModel):
     cloud_api_url: Optional[str] = "https://api.openai.com/v1/chat/completions"
     ollama_url: Optional[str] = "http://localhost:11434/api/generate"
     ollama_model: Optional[str] = "qwen2.5:3b"
+    ollama_timeout_seconds: Optional[int] = 120
+    ollama_num_predict: Optional[int] = 256
     multi_api_enabled: Optional[bool] = False
 
 
@@ -1137,6 +1140,8 @@ async def get_ai_config(session: str = Depends(require_authenticated_session)):
         "cloud_api_url": "https://api.openai.com/v1/chat/completions",
         "ollama_url": "http://localhost:11434/api/generate",
         "ollama_model": "qwen2.5:3b",
+        "ollama_timeout_seconds": 120,
+        "ollama_num_predict": 256,
         "multi_api_enabled": False
     }
 
@@ -1165,6 +1170,37 @@ async def get_pi_models(session: str = Depends(require_authenticated_session)):
         return {"status": "success", "models": models, "source": pi_bin}
     except Exception as exc:
         return {"status": "unavailable", "models": [], "message": f"Không đọc được danh sách model Pi: {exc}"}
+
+@app.get("/api/ai/ollama/models")
+async def get_ollama_models(session: str = Depends(require_authenticated_session)):
+    """Return models available from the native local Ollama daemon."""
+    config = {}
+    if AI_CONFIG_PATH.exists():
+        try:
+            config = json.loads(AI_CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            config = {}
+    client = OllamaClient(
+        str(config.get("ollama_url") or os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/generate"),
+        float(config.get("ollama_timeout_seconds") or 10),
+    )
+    try:
+        models = await asyncio.get_event_loop().run_in_executor(None, client.list_models)
+        return {
+            "status": "success",
+            "models": [
+                {
+                    "id": f"ollama/{item.get('name')}",
+                    "provider": "ollama",
+                    "name": item.get("name"),
+                    "size": item.get("size"),
+                    "parameter_size": (item.get("details") or {}).get("parameter_size"),
+                }
+                for item in models
+            ],
+        }
+    except OllamaError as exc:
+        return {"status": "unavailable", "models": [], "message": str(exc)}
 
 @app.post("/api/ai/config")
 async def update_ai_config(req: AIConfigRequest, session: str = Depends(require_authenticated_session)):

@@ -176,6 +176,9 @@
                                 <button type="button" id="engine-mode-pi" class="mode-btn active">
                                     <i class="fa-solid fa-terminal"></i> PI.dev Agent CLI (mặc định)
                                 </button>
+                                <button type="button" id="engine-mode-ollama" class="mode-btn">
+                                    <i class="fa-solid fa-microchip"></i> Ollama Local
+                                </button>
                             </div>
                         </div>
 
@@ -258,10 +261,45 @@
                                     </optgroup>
                                 </select>
                             </div>
+                            </div>
+
+                        <div id="panel-ollama-api" class="engine-panel hidden">
+                            <div id="ollama-status-badge" class="interactive-chip chip-low" role="status">
+                                <i class="fa-solid fa-circle-question"></i> Đang kiểm tra Ollama…
+                            </div>
+                            <div class="field-note">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <div>Model local được gọi trực tiếp qua Ollama HTTP; không đi vòng qua PI CLI. Lần chạy đầu có thể mất thêm thời gian để nạp model vào RAM/VRAM.</div>
+                            </div>
+                            <div class="setting-box-card">
+                                <div class="setting-row-label">
+                                    <strong>Model Ollama mặc định</strong>
+                                    <span>Model local dùng cho chat và phân tích SOC.</span>
+                                </div>
+                                <select id="select-ollama-model-drawer" class="input-setting-control">
+                                    <option value="qwen2.5:7b">qwen2.5:7b</option>
+                                    <option value="qwen2.5:3b">qwen2.5:3b</option>
+                                    <option value="OpenNix/wazuh-llama-3.1-8B-v1:latest">OpenNix/wazuh-llama-3.1-8B-v1:latest</option>
+                                </select>
+                            </div>
+                            <div class="setting-box-card">
+                                <div class="setting-row-label">
+                                    <strong>Ollama API URL</strong>
+                                    <span>Mặc định: <code>http://localhost:11434/api/generate</code></span>
+                                </div>
+                                <input type="url" id="input-ollama-url" class="input-setting-control" value="http://localhost:11434/api/generate">
+                            </div>
+                            <div class="setting-box-card">
+                                <div class="setting-row-label">
+                                    <strong>Timeout nạp model (giây)</strong>
+                                    <span>Cho phép model lớn có thời gian khởi động.</span>
+                                </div>
+                                <input type="number" id="input-ollama-timeout" class="input-setting-control" value="120" min="10" max="600">
+                            </div>
                         </div>
                     </div>
 
-                    <div id="tab-vault" class="settings-tab-content hidden">
+                        <div id="tab-vault" class="settings-tab-content hidden">
                         <div class="setting-card-title">
                             <h2>AES-256 Fernet Vault</h2>
                             <p>Mã hoá thông tin đăng nhập thiết bị mạng nội bộ bằng AES-256-GCM.</p>

@@ -15,6 +15,8 @@ SECURITY_SCOPE_MARKERS = (
     "an ninh", "bảo mật", "an toàn thông tin", "tấn công", "sự cố", "cảnh báo", "nhật ký",
     "mã độc", "virus", "lỗ hổng", "xác thực", "phân quyền", "đặc quyền", "giám sát",
     "điều tra", "truy vết", "phát hiện xâm nhập", "máy chủ", "thiết bị", "mạng máy tính",
+    # Dashboard-wide SOC reports may omit the words "Wazuh" and "alert".
+    "báo cáo", "24h", "24 giờ", "24 giờ qua",
 )
 
 CONTEXTUAL_FOLLOWUP_MARKERS = (
@@ -59,7 +61,7 @@ def classify_chat_intent(query: str) -> Dict[str, str]:
         return {"intent": "wazuh_explanation", "format": "concept_then_example"}
 
     # 5. Metrics, statistics, and charts
-    if any(k in text for k in ("thống kê", "bao nhiêu", "số lượng", "tổng số", "tỷ lệ", "phân bố", "top", "biểu đồ")):
+    if any(k in text for k in ("thống kê", "bao nhiêu", "số lượng", "tổng số", "tỷ lệ", "phân bố", "top", "biểu đồ", "báo cáo", "24h", "24 giờ")):
         return {"intent": "metrics", "format": "compact_table_or_chart"}
 
     # 6. Specific investigation / Incident triage

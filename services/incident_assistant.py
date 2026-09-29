@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import shutil
 import requests
 from services.chat_intent import classify_chat_intent, is_contextual_security_followup, is_security_related_query
+from services.ollama_client import OllamaClient, OllamaError, model_name_from_selection
 
 logger = logging.getLogger("IncidentAssistant")
 
@@ -106,7 +107,7 @@ class IncidentAssistant:
             "thống kê cảnh báo", "thống kê alert", "bao nhiêu alert", "tổng số cảnh báo", "alert 24h",
             "danh sách thiết bị", "thiết bị giám sát"
         ]
-        if any(k in q for k in factual_keywords):
+        if any(k in q for k in factual_keywords) or any(k in q for k in ("báo cáo 24h", "báo cáo 24 giờ", "24 giờ qua", "24h qua")):
             return True
         if has_rule_id:
             return True
@@ -209,7 +210,11 @@ class IncidentAssistant:
 """
 
         # 3. Truy vấn Thống kê Cảnh báo (Alert Statistics 24h)
-        stat_keywords = ["thống kê", "bao nhiêu alert", "bao nhiêu cảnh báo", "cảnh báo 24h", "tổng số alert", "tổng số cảnh báo", "alert critical", "mức độ nghiêm trọng"]
+        stat_keywords = [
+            "thống kê", "bao nhiêu alert", "bao nhiêu cảnh báo", "cảnh báo 24h",
+            "tổng số alert", "tổng số cảnh báo", "alert critical", "mức độ nghiêm trọng",
+            "báo cáo 24h", "báo cáo 24 giờ", "24 giờ qua", "24h qua",
+        ]
         if any(k in q for k in stat_keywords):
             total = stats.get("total_24h", 0)
             crit = stats.get("critical", 0)
@@ -432,6 +437,69 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
 
             if model_override and model_override.strip() and model_override.lower() != "auto":
                 target_model = model_override.strip()
+
+            ollama_url = str(
+                cfg.get("ollama_url")
+                or env.get("OLLAMA_URL")
+                or "http://127.0.0.1:11434/api/generate"
+            ).strip()
+            configured_ollama_model = str(
+                cfg.get("ollama_model")
+                or env.get("OLLAMA_MODEL")
+                or "qwen2.5:3b"
+            ).strip()
+            try:
+                ollama_timeout = float(
+                    cfg.get("ollama_timeout_seconds")
+                    or env.get("OLLAMA_TIMEOUT_SECONDS")
+                    or 120
+                )
+            except (TypeError, ValueError):
+                ollama_timeout = 120.0
+            try:
+                ollama_num_predict = int(
+                    cfg.get("ollama_num_predict")
+                    or env.get("OLLAMA_NUM_PREDICT")
+                    or 256
+            )
+            except (TypeError, ValueError):
+                ollama_num_predict = 256
+
+            # A model chosen as `ollama/<name>` from the dashboard must bypass
+            # PI CLI. PI can list these models, but its local provider path can
+            # stall on long prompts and hides the useful Ollama error. The
+            # explicit Ollama engine also uses this route with its configured
+            # model even when an old pi_model value is still present.
+            selected_ollama_model = None
+            if model_override and model_override.strip().lower().startswith("ollama/"):
+                selected_ollama_model = model_name_from_selection(model_override)
+            elif engine_mode == "ollama":
+                selected_ollama_model = configured_ollama_model
+
+            if selected_ollama_model:
+                try:
+                    return OllamaClient(ollama_url, ollama_timeout).generate(
+                        system_prompt,
+                        user_prompt,
+                        selected_ollama_model,
+                        num_predict=max(128, min(ollama_num_predict, 4096)),
+                    )
+                except OllamaError as ollama_err:
+                    logger.warning(
+                        "Ollama request failed for %s at %s: %s",
+                        selected_ollama_model,
+                        ollama_url,
+                        ollama_err,
+                    )
+                    # Do not silently switch an explicitly selected local
+                    # model to a cloud provider. Keep the answer grounded and
+                    # let the UI remain responsive with the deterministic
+                    # local fallback.
+                    return self._generate_truthful_fallback(
+                        user_prompt,
+                        system_context,
+                        allow_static_lookup=allow_static_lookup,
+                    )
 
             model_flag = ["--model", target_model] if target_model else []
 
@@ -939,13 +1007,23 @@ graph TD
                     }
                 }
 
-        model_label = "AgentWazuh AI (Gemini nếu đã cấu hình)"
+        model_label = "AgentWazuh AI (PI.dev / cloud)"
+        selected_model = str(model_override or "").strip()
+        if selected_model.lower().startswith("ollama/"):
+            model_label = f"Ollama · {model_name_from_selection(selected_model)}"
+        else:
+            try:
+                ai_cfg = json.loads((self.base_dir / "config" / "ai_config.json").read_text(encoding="utf-8"))
+                if str(ai_cfg.get("mode") or "").lower() == "ollama":
+                    model_label = f"Ollama · {ai_cfg.get('ollama_model') or 'model mặc định'}"
+            except Exception:
+                pass
 
         reasoning_steps = [
             {"step": 1, "title": "Wazuh Log Extraction", "status": "COMPLETED", "detail": f"Target Host: {current_host} | Alert ID: {alert_data.get('id') if alert_data else 'System Wide'}"},
             {"step": 2, "title": "Layer 1 Ground-Truth MITRE Lookup", "status": "COMPLETED", "detail": f"Technique: {static_info['technique_id'] if static_info else 'Dynamic RAG'}"},
             {"step": 3, "title": "Threat Classification", "status": "COMPLETED", "detail": self._classify_threat(alert_data, static_info)},
-            {"step": 4, "title": f"AI Synthesis ({model_label})", "status": "COMPLETED", "detail": "Mode: PI CLI OFFLOAD"}
+            {"step": 4, "title": f"AI Synthesis ({model_label})", "status": "COMPLETED", "detail": "Mode: Native Ollama HTTP" if model_label.startswith("Ollama") else "Mode: PI CLI / cloud offload"}
         ]
         if solpi_receipt:
             reasoning_steps.insert(1, {

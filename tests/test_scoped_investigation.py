@@ -1,7 +1,7 @@
 import unittest
 
 from core.server import _alert_matches_scope, _select_analysis_alerts
-from services.chat_intent import is_security_related_query
+from services.chat_intent import classify_chat_intent, is_security_related_query
 from services.incident_assistant import IncidentAssistant
 
 
@@ -124,6 +124,25 @@ class ScopedInvestigationTests(unittest.TestCase):
         self.assertIn("Phân tích Rule 100050", captured["user_prompt"])
         self.assertIn("cảnh báo trên", captured["system_prompt"])
         self.assertIn("7 giây", captured["system_prompt"])
+
+    def test_24_hour_report_is_in_soc_scope_and_metrics_intent(self):
+        query = "báo cáo 24h qua"
+        self.assertTrue(is_security_related_query(query))
+        self.assertEqual(classify_chat_intent(query)["intent"], "metrics")
+        self.assertTrue(IncidentAssistant()._is_direct_wazuh_factual_query(query))
+
+        assistant = IncidentAssistant()
+        assistant._call_pi_agent = lambda *args, **kwargs: self.fail("24h report should use deterministic Wazuh metrics")
+        result = assistant.investigate_incident(
+            query,
+            system_context={
+                "status": "online",
+                "host": "127.0.0.1",
+                "agents": [],
+                "alert_stats": {"total_24h": 12, "critical": 1, "high": 2, "medium": 5, "low": 4},
+            },
+        )
+        self.assertIn("12", result["summary"])
 
 
 if __name__ == "__main__":

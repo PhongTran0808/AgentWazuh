@@ -401,6 +401,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnConfirmStartOllama = document.getElementById("btn-confirm-start-ollama");
     const selectPiModel = document.getElementById("select-pi-model");
     const selectOllamaModelDrawer = document.getElementById("select-ollama-model-drawer");
+    const inputOllamaUrl = document.getElementById("input-ollama-url");
+    const inputOllamaTimeout = document.getElementById("input-ollama-timeout");
 
     let currentAIMode = "pi_dev";
 
@@ -520,12 +522,32 @@ document.addEventListener("DOMContentLoaded", () => {
     const engineModePi = document.getElementById("engine-mode-pi");
     const panelPiDev = document.getElementById("panel-pi-dev");
     const piStatusBadge = document.getElementById("pi-status-badge");
+    const setEngineMode = (mode) => {
+        currentAIMode = mode;
+        [engineModePi, engineModeOllama].filter(Boolean).forEach((button) => {
+            button.classList.toggle("active", button.id === `engine-mode-${mode === "pi_dev" ? "pi" : "ollama"}`);
+        });
+        if (panelPiDev) panelPiDev.classList.toggle("hidden", mode !== "pi_dev");
+        if (panelOllamaApi) panelOllamaApi.classList.toggle("hidden", mode !== "ollama");
+    };
 
     if (engineModePi) {
-        engineModePi.addEventListener("click", () => {
-            currentAIMode = "pi_dev";
-            engineModePi.classList.add("active");
-            if (panelPiDev) panelPiDev.classList.remove("hidden");
+        engineModePi.addEventListener("click", () => setEngineMode("pi_dev"));
+    }
+    if (engineModeOllama) {
+        engineModeOllama.addEventListener("click", async () => {
+            setEngineMode("ollama");
+            if (ollamaStatusBadge) {
+                try {
+                    const res = await fetch("/api/ai/ollama/status", { credentials: "same-origin" });
+                    const data = await res.json();
+                    ollamaStatusBadge.innerHTML = data.running
+                        ? '<i class="fa-solid fa-circle-check"></i> Ollama đang chạy'
+                        : '<i class="fa-solid fa-triangle-exclamation"></i> Ollama chưa chạy';
+                } catch (err) {
+                    ollamaStatusBadge.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> Không kiểm tra được Ollama';
+                }
+            }
         });
     }
 
@@ -559,11 +581,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const config = await res.json();
             currentAIMode = config.mode || "cloud_api";
             
-            if (currentAIMode === "ollama") {
-                if (engineModeOllama) engineModeOllama.click();
-            } else {
-                if (engineModeCloud) engineModeCloud.click();
-            }
+            if (currentAIMode === "ollama") setEngineMode("ollama");
+            else setEngineMode("pi_dev");
 
             const activeProvs = config.active_providers || ["gemini"];
             if (chkGemini) chkGemini.checked = activeProvs.includes("gemini");
@@ -593,6 +612,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (config.anthropic_api_key && inputAnthropicKey) inputAnthropicKey.value = config.anthropic_api_key;
 
             if (config.ollama_model && selectOllamaModelDrawer) selectOllamaModelDrawer.value = config.ollama_model;
+            if (config.ollama_url && inputOllamaUrl) inputOllamaUrl.value = config.ollama_url;
+            if (config.ollama_timeout_seconds && inputOllamaTimeout) inputOllamaTimeout.value = config.ollama_timeout_seconds;
         } catch (err) {
             console.error("Failed to load AI config:", err);
         }
@@ -619,6 +640,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
                 if ([...select.options].some((option) => option.value === current)) select.value = current;
             });
+            const localSelect = selectOllamaModelDrawer;
+            if (localSelect) {
+                const current = localSelect.value;
+                const localModels = data.models.filter((model) => model.provider === "ollama");
+                localModels.forEach((model) => {
+                    if ([...localSelect.options].some((option) => option.value === model.name)) return;
+                    const option = document.createElement("option");
+                    option.value = model.name;
+                    option.textContent = `${model.name}${model.context ? ` · ${model.context}` : ""}`;
+                    localSelect.appendChild(option);
+                });
+                if ([...localSelect.options].some((option) => option.value === current)) localSelect.value = current;
+            }
         } catch (err) {
             console.warn("Không tải được danh sách model Pi:", err);
         }
@@ -663,8 +697,12 @@ document.addEventListener("DOMContentLoaded", () => {
             gemini_api_key: geminiKeyVal,
             openai_api_key: openaiKeyVal,
             anthropic_api_key: anthropicKeyVal,
-            ollama_url: "http://localhost:11434/api/generate",
+            ollama_url: inputOllamaUrl && inputOllamaUrl.value.trim()
+                ? inputOllamaUrl.value.trim()
+                : "http://localhost:11434/api/generate",
             ollama_model: selectOllamaModelDrawer ? selectOllamaModelDrawer.value : "qwen2.5:3b",
+            ollama_timeout_seconds: parseInt(inputOllamaTimeout ? inputOllamaTimeout.value : 120) || 120,
+            ollama_num_predict: 256,
             multi_api_enabled: activeProvs.length > 1
         };
 

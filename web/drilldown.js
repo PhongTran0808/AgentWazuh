@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
             else if (level >= 12) levelClass = "level-high";
             else if (level >= 7) levelClass = "level-medium";
 
-            let tsStr = log.timestamp || "";
+            let tsStr = (log["@timestamp"] || log.timestamp || "").trim().replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
             if (!tsStr.endsWith("Z") && !tsStr.includes("+") && !tsStr.includes("-", 10)) tsStr += "Z";
             let formattedTs = tsStr.substring(11, 19);
             try {

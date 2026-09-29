@@ -12,7 +12,7 @@ import re
 import requests
 import uvicorn
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, status
 from fastapi.staticfiles import StaticFiles
@@ -1738,6 +1738,38 @@ class ChatMessage(BaseModel):
     content: str
     timestamp: str
 
+
+def _chat_timestamp(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_chat_messages(messages: Any) -> List[Dict[str, Any]]:
+    """Repair the old user/AI write race without reordering real turns.
+
+    The old client fired both PUT requests concurrently, producing an adjacent
+    ``ai, user`` pair whose timestamps differ by only a few milliseconds. Such
+    a pair is the unmistakable signature of that race; normal turns are kept in
+    their stored order. New messages receive a monotonic sequence below.
+    """
+    normalized = [item for item in (messages or []) if isinstance(item, dict)]
+    for index in range(len(normalized) - 1):
+        first, second = normalized[index:index + 2]
+        if first.get("role") != "ai" or second.get("role") != "user":
+            continue
+        first_ts = _chat_timestamp(first.get("timestamp"))
+        second_ts = _chat_timestamp(second.get("timestamp"))
+        if first_ts and second_ts:
+            delta_ms = (second_ts - first_ts).total_seconds() * 1000
+            if 0 <= delta_ms <= 1000:
+                normalized[index], normalized[index + 1] = second, first
+    return normalized
+
 class CreateSessionRequest(BaseModel):
     title: str = "New Conversation"
     project_name: str = "Default Project"
@@ -1796,6 +1828,7 @@ async def get_chat_session(session_id: str, session: str = Depends(require_authe
         raise HTTPException(status_code=404, detail="Session not found")
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    data["messages"] = _normalize_chat_messages(data.get("messages", []))
     return {"status": "success", "session": data}
 
 @app.put("/api/chat/history/{session_id}/rename")
@@ -1858,11 +1891,18 @@ async def add_chat_message(session_id: str, msg: ChatMessage, session: str = Dep
     with open(file_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     
-    data["messages"].append({
+    messages = _normalize_chat_messages(data.get("messages", []))
+    next_sequence = max(
+        (int(item.get("sequence", -1)) for item in messages if str(item.get("sequence", "")).lstrip("-").isdigit()),
+        default=len(messages) - 1,
+    ) + 1
+    messages.append({
         "role": msg.role,
         "content": msg.content,
-        "timestamp": msg.timestamp
+        "timestamp": msg.timestamp,
+        "sequence": next_sequence,
     })
+    data["messages"] = messages
     data["updated_at"] = datetime.now().isoformat()
     
     with open(file_path, "w", encoding="utf-8") as f:

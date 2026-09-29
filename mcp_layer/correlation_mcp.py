@@ -3,7 +3,7 @@ import json
 import ssl
 import urllib.request
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Union, Optional
 
 class OpenSearchCorrelationTool:
@@ -36,21 +36,25 @@ class OpenSearchCorrelationTool:
             "%Y-%m-%dT%H:%M:%S",
         ]
         
-        # Clean trailing Z if needed
         clean_ts = ts_str.strip()
         
         for fmt in formats:
             try:
-                return datetime.strptime(clean_ts, fmt)
+                parsed = datetime.strptime(clean_ts, fmt)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc)
             except ValueError:
                 continue
                 
         # Try handling ISO format via datetime.fromisoformat for python 3.7+
         try:
-            return datetime.fromisoformat(clean_ts.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(clean_ts.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
         except Exception:
-            # Fallback to current UTC time if unparseable
-            return datetime.utcnow()
+            raise ValueError(f"Invalid event timestamp: {ts_str!r}")
 
     def _format_iso(self, dt: datetime) -> str:
         """Formats datetime to ISO 8601 string for OpenSearch range query."""
@@ -147,7 +151,11 @@ class OpenSearchCorrelationTool:
         if not target_ip or not target_ip.strip():
             return graceful_fallback
 
-        base_dt = self._parse_timestamp(base_timestamp)
+        try:
+            base_dt = self._parse_timestamp(base_timestamp)
+        except ValueError as exc:
+            print(f"⚠️ [Correlation MCP Tool] Skipping correlation: {exc}")
+            return "Không thể tương quan: alert không có timestamp hợp lệ từ nguồn dữ liệu."
         start_dt = base_dt - timedelta(minutes=time_window_minutes)
         end_dt = base_dt + timedelta(minutes=time_window_minutes)
 
@@ -163,7 +171,7 @@ class OpenSearchCorrelationTool:
         concise_events = []
         for hit in raw_hits:
             src = hit.get("_source", {})
-            event_ts = src.get("@timestamp") or src.get("timestamp") or "N/A"
+            event_ts = src.get("@timestamp") or src.get("timestamp") or "UNKNOWN (nguồn không cung cấp timestamp)"
             agent_info = src.get("agent", {})
             agent_name = agent_info.get("name") or agent_info.get("id") or "unknown-agent"
             agent_ip = agent_info.get("ip", "")

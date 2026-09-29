@@ -1108,6 +1108,200 @@ pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--
 .field-label { display: block; margin-bottom: 2px; font-size: var(--text-xs); color: var(--ink-2); }
 .table-empty { padding: var(--space-sm); text-align: center; color: var(--ink-3); }
 
+/* ================================================= assistant response layout
+   Markdown from the AI is content, not a plain text paragraph.  Keep each
+   semantic block visually separated so incident reports remain scannable. */
+.chat-bubble.system { width: min(100%, 980px); }
+.chat-bubble.user { width: min(82%, 760px); }
+.chat-bubble.system .bubble-content {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(145deg, var(--paper-3), oklch(0.235 0.008 260));
+  line-height: 1.72;
+}
+.chat-bubble.user .bubble-content {
+  padding: var(--space-xs) var(--space-sm);
+  line-height: 1.6;
+}
+
+.msg-text {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.78;
+  letter-spacing: 0.005em;
+}
+.msg-text h1,
+.msg-text h2,
+.msg-text h3,
+.msg-text h4 {
+  color: var(--ink);
+  line-height: 1.32;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+.msg-text h1 {
+  margin: 0 0 var(--space-sm);
+  padding-bottom: var(--space-2xs);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-xl);
+}
+.msg-text h2 {
+  margin: var(--space-md) 0 var(--space-2xs);
+  padding-left: var(--space-2xs);
+  border-left: 3px solid var(--accent);
+  color: var(--accent);
+  font-size: var(--text-lg);
+}
+.msg-text h3 {
+  margin: var(--space-sm) 0 var(--space-2xs);
+  color: var(--ink);
+  font-size: var(--text-md);
+}
+.msg-text h4 {
+  margin: var(--space-xs) 0 var(--space-3xs);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.msg-text p { margin: var(--space-2xs) 0 var(--space-xs); }
+.msg-text p:first-child { margin-top: 0; }
+.msg-text p:last-child { margin-bottom: 0; }
+.msg-text strong { color: var(--ink); font-weight: 700; }
+.msg-text em { color: var(--medium); }
+.msg-text ul,
+.msg-text ol {
+  margin: var(--space-2xs) 0 var(--space-sm);
+  padding-left: 1.45rem;
+}
+.msg-text li { padding-left: var(--space-3xs); }
+.msg-text li + li { margin-top: var(--space-3xs); }
+.msg-text li::marker { color: var(--accent); font-weight: 700; }
+.msg-text hr { margin: var(--space-md) 0; border: 0; border-top: 1px solid var(--rule); }
+.msg-text blockquote {
+  margin: var(--space-sm) 0;
+  padding: var(--space-2xs) var(--space-sm);
+  border-left: 3px solid var(--medium);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--medium-soft);
+  color: var(--ink-2);
+}
+
+/* Markdown tables are evidence blocks: align data to the top, emphasize the
+   header, and allow wide forensic fields to scroll without stretching chat. */
+.msg-text table {
+  display: block;
+  width: 100%;
+  min-width: 620px;
+  margin: var(--space-sm) 0 var(--space-md);
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  border-spacing: 0;
+  background: var(--paper-sunk);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+.msg-text thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper-2);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.msg-text th,
+.msg-text td {
+  min-width: 92px;
+  padding: var(--space-2xs) var(--space-xs);
+  border-right: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.msg-text th:last-child,
+.msg-text td:last-child { border-right: 0; }
+.msg-text tbody tr:last-child td { border-bottom: 0; }
+.msg-text tbody tr:nth-child(even) { background: oklch(0.20 0.006 260 / 0.72); }
+.msg-text tbody tr:hover { background: var(--accent-soft); }
+.msg-text td:first-child,
+.msg-text th:first-child { white-space: nowrap; color: var(--ink); }
+.msg-text td code,
+.msg-text th code { white-space: nowrap; }
+
+.msg-text :not(pre) > code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.9em;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.msg-text pre {
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--paper-sunk);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+  overflow: auto;
+  white-space: pre;
+}
+.msg-text pre code { color: inherit; }
+.msg-text a { color: var(--accent); font-weight: 600; }
+.msg-text a:hover { color: var(--focus); }
+
+/* Visual artifacts get their own breathing room and never overflow the chat. */
+.msg-text .mermaid-container,
+.msg-text .chart-wrapper-card,
+.msg-text img {
+  display: block;
+  width: min(100%, 900px);
+  margin: var(--space-md) auto;
+}
+.msg-text .mermaid-container,
+.msg-text .chart-wrapper-card {
+  min-height: 150px;
+  padding: var(--space-sm);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-md);
+  background: linear-gradient(145deg, var(--paper-2), var(--paper-sunk));
+  box-shadow: 0 10px 24px oklch(0.08 0.01 260 / 0.22);
+  overflow: auto;
+}
+.msg-text .mermaid-container { display: flex; align-items: center; justify-content: center; }
+.msg-text .mermaid-container svg { max-width: 100%; height: auto; }
+.msg-text .chart-wrapper-card { min-height: 220px; }
+.msg-text .chart-wrapper-card canvas { max-width: 100%; max-height: 360px; }
+.msg-text img {
+  height: auto;
+  max-height: 520px;
+  padding: var(--space-3xs);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--paper-sunk);
+  object-fit: contain;
+}
+.msg-text img + em,
+.msg-text img + p { display: block; color: var(--ink-3); text-align: center; font-size: var(--text-xs); }
+
+@media (max-width: 700px) {
+  .chat-bubble.system,
+  .chat-bubble.user { width: 100%; }
+  .chat-bubble.system .bubble-content { padding: var(--space-xs); }
+  .msg-text h1 { font-size: var(--text-lg); }
+  .msg-text h2 { font-size: var(--text-md); }
+  .msg-text table { min-width: 560px; }
+}
+
 .status-pill.pill-secure { background: var(--ok-soft);   color: var(--ok);   border-color: transparent; }
 .status-pill.pill-online { background: var(--info-soft); color: var(--info); border-color: transparent; }
 

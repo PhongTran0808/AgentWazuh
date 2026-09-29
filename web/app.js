@@ -269,7 +269,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 const stream = chatStream || document.getElementById("chat-stream");
                 if (stream) {
                     stream.innerHTML = "";
-                    (data.session.messages || []).forEach(msg => {
+                    const storedMessages = data.session.messages || [];
+                    const hasSequence = storedMessages.some(msg => Number.isInteger(msg.sequence));
+                    const messages = hasSequence
+                        ? [...storedMessages].sort((a, b) => (a.sequence ?? Number.MAX_SAFE_INTEGER) - (b.sequence ?? Number.MAX_SAFE_INTEGER))
+                        : storedMessages;
+                    messages.forEach(msg => {
                         if (msg.role === "user") {
                             const div = document.createElement("div");
                             div.className = "chat-bubble user";
@@ -285,6 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             let parsedHtml = window.marked ? marked.parse(cleanContent || msg.content) : (cleanContent || msg.content).replace(/\n/g, "<br>");
                             div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI Master Advisor:</strong><div class="msg-text">${parsedHtml}</div></div>`;
                             stream.appendChild(div);
+                            renderAssistantArtifacts(div.querySelector(".msg-text"));
                         }
                     });
                     stream.scrollTop = stream.scrollHeight;
@@ -307,20 +313,27 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    async function appendMessageToSession(role, content) {
-        try {
-            const sid = await ensureChatSession(role === "user" ? content : "New Conversation");
-            if (!sid) return;
-            await fetch(`/api/chat/history/${sid}/message`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ role, content, timestamp: new Date().toISOString() }),
-                credentials: "same-origin"
-            });
-            await loadChatHistoryList();
-        } catch (e) {
-            console.error("Error appending message:", e);
-        }
+    let chatPersistenceQueue = Promise.resolve();
+
+    function appendMessageToSession(role, content) {
+        // Serialize writes: the previous implementation let the AI PUT race
+        // the user's PUT, so the file could permanently contain ai before user.
+        chatPersistenceQueue = chatPersistenceQueue.then(async () => {
+            try {
+                const sid = await ensureChatSession(role === "user" ? content : "New Conversation");
+                if (!sid) return;
+                await fetch(`/api/chat/history/${sid}/message`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ role, content, timestamp: new Date().toISOString() }),
+                    credentials: "same-origin"
+                });
+                await loadChatHistoryList();
+            } catch (e) {
+                console.error("Error appending message:", e);
+            }
+        });
+        return chatPersistenceQueue;
     }
 
     function resetGlobalState() {
@@ -789,7 +802,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (typeof tsVal === "number") {
                 d = new Date(tsVal > 1e11 ? tsVal : tsVal * 1000);
             } else {
-                let str = String(tsVal).trim();
+                let str = String(tsVal).trim().replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
                 if (!str.endsWith("Z") && !str.includes("+") && !str.includes("-", 10)) {
                     str += "Z";
                 }
@@ -1079,6 +1092,50 @@ document.addEventListener("DOMContentLoaded", () => {
         return id;
     }
 
+    function renderAssistantArtifacts(root) {
+        if (!root) return;
+
+        root.querySelectorAll("pre code.language-mermaid").forEach((codeBlock, idx) => {
+            const mermaidContent = codeBlock.textContent;
+            const containerId = `mermaid_diag_${Date.now()}_${idx}`;
+            const mermaidDiv = document.createElement("div");
+            mermaidDiv.className = "mermaid-container";
+            mermaidDiv.id = containerId;
+            codeBlock.parentNode.replaceWith(mermaidDiv);
+
+            if (!window.mermaid) {
+                mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
+                return;
+            }
+            try {
+                mermaid.render(containerId + "_svg", mermaidContent).then(renderResult => {
+                    mermaidDiv.innerHTML = renderResult.svg;
+                }).catch(() => {
+                    mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
+                });
+            } catch (e) {
+                mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
+            }
+        });
+
+        root.querySelectorAll("code.language-chart, code.language-chartjs, code.language-json").forEach((codeBlock, idx) => {
+            const chartContent = codeBlock.textContent.trim();
+            if (!chartContent.includes('"type"') || !chartContent.includes('"data"') || !window.Chart) return;
+            try {
+                const chartConfig = JSON.parse(chartContent);
+                const wrapper = document.createElement("div");
+                wrapper.className = "chart-wrapper-card artifact-block";
+                const canvas = document.createElement("canvas");
+                canvas.id = `chart_canvas_${Date.now()}_${idx}`;
+                wrapper.appendChild(canvas);
+                codeBlock.parentNode.replaceWith(wrapper);
+                new Chart(canvas.getContext("2d"), chartConfig);
+            } catch (e) {
+                // Leave invalid/non-chart JSON as a normal code block.
+            }
+        });
+    }
+
     function updateChatBot(id, markdownText, steps = [], configForm = null, intent = "general") {
         if (!markdownText) markdownText = "";
 
@@ -1183,50 +1240,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         content.innerHTML = parsedHtml;
 
-        const mermaidBlocks = content.querySelectorAll("pre code.language-mermaid");
-        mermaidBlocks.forEach((codeBlock, idx) => {
-            const mermaidContent = codeBlock.textContent;
-            const containerId = `mermaid_diag_${Date.now()}_${idx}`;
-            const mermaidDiv = document.createElement("div");
-            mermaidDiv.className = "mermaid-container";
-            mermaidDiv.id = containerId;
-            codeBlock.parentNode.replaceWith(mermaidDiv);
-
-            try {
-                mermaid.render(containerId + "_svg", mermaidContent).then(renderResult => {
-                    mermaidDiv.innerHTML = renderResult.svg;
-                });
-            } catch (e) {
-                mermaidDiv.innerHTML = `<pre class="mermaid">${mermaidContent}</pre>`;
-            }
-        });
-
-        // Render Chart.js dynamic blocks if present
-        const chartBlocks = div.querySelectorAll("code.language-chart, code.language-chartjs, code.language-json");
-        chartBlocks.forEach((codeBlock, idx) => {
-            const chartContent = codeBlock.textContent.trim();
-            if (!chartContent.includes('"type"') || !chartContent.includes('"data"')) return;
-            
-            try {
-                const chartConfig = JSON.parse(chartContent);
-                const chartContainerId = "chart_canvas_" + Date.now() + "_" + idx;
-                
-                const wrapper = document.createElement("div");
-                wrapper.className = "chart-wrapper-card artifact-block";
-                
-                const canvas = document.createElement("canvas");
-                canvas.id = chartContainerId;
-                wrapper.appendChild(canvas);
-                
-                codeBlock.parentNode.replaceWith(wrapper);
-                
-                if (window.Chart) {
-                    new Chart(canvas.getContext("2d"), chartConfig);
-                }
-            } catch (e) {
-                // Ignore non-chart json blocks
-            }
-        });
+        renderAssistantArtifacts(content);
 
         if (configForm && configForm.form_data) {
             const f = configForm.form_data;

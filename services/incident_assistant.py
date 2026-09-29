@@ -6,12 +6,34 @@ import subprocess
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import shutil
 import requests
 from services.chat_intent import classify_chat_intent
 
 logger = logging.getLogger("IncidentAssistant")
+
+REPORT_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+def format_report_timestamp(value: Any) -> str:
+    """Render a Wazuh timestamp in the dashboard's local timezone.
+
+    Wazuh timestamps are UTC in practice.  Naive values are therefore treated
+    as UTC explicitly; malformed/missing values remain visibly unknown instead
+    of being replaced with the current time.
+    """
+    if not value:
+        return "UNKNOWN (nguồn không cung cấp timestamp)"
+    raw = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(REPORT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return f"UNKNOWN (timestamp không hợp lệ: {raw})"
 
 class IncidentAssistant:
     """
@@ -857,6 +879,8 @@ graph TD
             context_lines.append(f"- Rule ID: {rule_id} (Level {alert_data.get('rule', {}).get('level')})")
             context_lines.append(f"- Description: {alert_data.get('rule', {}).get('description')}")
             context_lines.append(f"- Agent: {alert_data.get('agent', {}).get('name')} ({alert_data.get('agent', {}).get('ip')})")
+            source_ts = alert_data.get("@timestamp") or alert_data.get("timestamp")
+            context_lines.append(f"- Timestamp nguồn: {source_ts or 'UNKNOWN'} | Hiển thị local Asia/Ho_Chi_Minh: {format_report_timestamp(source_ts)}")
             context_lines.append(f"- Data Payload: {json.dumps(alert_data.get('data', {}))}")
 
         if static_info:
@@ -885,7 +909,8 @@ graph TD
             alert_count = len(recent_alerts[:10])
             context_lines.append(f"- Thông tin {alert_count} Cảnh báo thực tế gần đây nhất:")
             for a in recent_alerts[:10]:
-                context_lines.append(f"  + Alert {a.get('id')} (Rule {a.get('rule', {}).get('id')} - Lvl {a.get('rule', {}).get('level')}): {a.get('rule', {}).get('description')} | Agent: {a.get('agent', {}).get('name')} | Payload: {json.dumps(a.get('data', {}))}")
+                source_ts = a.get("@timestamp") or a.get("timestamp")
+                context_lines.append(f"  + Alert {a.get('id')} (Rule {a.get('rule', {}).get('id')} - Lvl {a.get('rule', {}).get('level')}): {a.get('rule', {}).get('description')} | Timestamp local Asia/Ho_Chi_Minh: {format_report_timestamp(source_ts)} | Agent: {a.get('agent', {}).get('name')} | Payload: {json.dumps(a.get('data', {}))}")
 
         # --- SỐ LIỆU THIẾT BỊ & BIỂU ĐỒ BẰNG PYTHON THUẦN ---
         from services.correlation_engine import get_severity_distribution, get_top_rules_distribution, get_hourly_series_distribution, list_monitored_devices
@@ -1015,6 +1040,7 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
    - Sự cố/Alert/Incident: Quick Verdict ➔ Chi tiết kỹ thuật ➔ Hành động khắc phục.
    - Thống kê: Bảng tổng hợp hoặc biểu đồ Chart.js.
 6. **Ngôn ngữ bắt buộc**: BẮT BUỘC trả lời hoàn toàn bằng tiếng Việt có dấu đầy đủ, chuẩn chính tả và văn phong chuyên nghiệp của SOC Analyst. TUYỆT ĐỐI KHÔNG dùng tiếng Việt không dấu."""
+        system_prompt += "\n7. **Timestamp**: mọi timestamp trong báo cáo phải lấy đúng từ context và hiển thị theo Asia/Ho_Chi_Minh; không tự đổi sang thời điểm khác, không dùng ngày mặc định và không suy đoán khi nguồn thiếu timestamp."
 
         user_prompt = f"Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n{context_str}\n\nCâu hỏi Analyst: {query}"
 
@@ -1193,7 +1219,9 @@ class IncidentAssistantService:
         
         src_ip = data_info.get("srcip") or alert_data.get("srcip") or agent_info.get("ip") or "127.0.0.1"
         dst_ip = data_info.get("dstip") or alert_data.get("dstip") or "172.16.10.10"
-        timestamp = alert_data.get("@timestamp") or alert_data.get("timestamp") or "2026-09-07T16:00:00Z"
+        timestamp = alert_data.get("@timestamp") or alert_data.get("timestamp")
+        if not timestamp:
+            timestamp = "UNKNOWN (nguồn không cung cấp timestamp)"
         agent_name = agent_info.get("name", "Unknown-Agent")
 
         correlation_required = rule_level >= 10
@@ -1229,8 +1257,9 @@ class IncidentAssistantService:
                 report_sections.append("|---|---|---|---|---|---|---|")
                 
                 for ev in correlated_results:
+                    event_timestamp = ev.get("timestamp") or "UNKNOWN (nguồn không cung cấp timestamp)"
                     report_sections.append(
-                        f"| `{ev.get('timestamp')}` | `{ev.get('agent.name')}` | `{ev.get('rule.id')}` | Level {ev.get('rule.level', 0)} | {ev.get('rule.description')} | `{ev.get('srcip')}` | `{ev.get('dstip')}` |"
+                        f"| `{event_timestamp}` | `{ev.get('agent.name')}` | `{ev.get('rule.id')}` | Level {ev.get('rule.level', 0)} | {ev.get('rule.description')} | `{ev.get('srcip')}` | `{ev.get('dstip')}` |"
                     )
             else:
                 report_sections.append(fallback_message)

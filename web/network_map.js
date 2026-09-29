@@ -332,7 +332,10 @@ function applyConnStateToBus(state, host) {
 function updateSummaryStrip(summary) {
     const s = (id, val, suffix) => {
         const el = document.getElementById(id);
-        if (el) el.textContent = `${val} ${suffix}`;
+        if (el) {
+            el.textContent = `${val} ${suffix}`;
+            el.classList.toggle("is-live-alert", Number(val) > 0 && ["sum-warning", "sum-attack"].includes(id));
+        }
     };
     s("sum-total",   summary.total   ?? "—", "Tổng");
     s("sum-online",  summary.online  ?? "—", "Online");
@@ -403,8 +406,11 @@ function renderVisNetwork(devices, wazuhHost) {
         }[dev.badge] || "⚫";
 
         const incidentScore = dev.incident?.priority_score ?? riskVal;
+        const badgeText = dev.badge === "UNDER_ATTACK" ? " · NGUY HIỂM"
+                        : dev.badge === "WARNING" ? " · CẢNH BÁO"
+                        : "";
         const scoreLine = dev.badge === "UNDER_ATTACK" || dev.incident
-            ? `\nRisk ${incidentScore}/100`
+            ? `\nRisk ${incidentScore}/100${badgeText}`
             : "";
         const label = `${badgeEmoji} ${dev.name}\n${dev.ip}${scoreLine}`;
 
@@ -417,7 +423,7 @@ function renderVisNetwork(devices, wazuhHost) {
             shape: "image",
             image: iconSrc,
             size: NODE_ICON_SIZE,
-            borderWidth: dev.badge === "UNDER_ATTACK" ? 4 : 2,
+            borderWidth: dev.badge === "UNDER_ATTACK" ? 5 : dev.badge === "WARNING" ? 3 : 2,
             borderWidthSelected: 3,
             color: {
                 border: border,
@@ -425,7 +431,7 @@ function renderVisNetwork(devices, wazuhHost) {
                 highlight: { border: border }
             },
             font: { color: "#f8fafc", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: glow, size: dev.badge === "UNDER_ATTACK" ? 20 : 10 },
+            shadow: { enabled: true, color: glow, size: dev.badge === "UNDER_ATTACK" ? 28 : dev.badge === "WARNING" ? 18 : 10 },
             // Store raw device data for click handler
             _device: dev
         };
@@ -569,6 +575,24 @@ function updateNodeCalloutBubbles(devices) {
     }
 
     const activeBubbleIds = new Set();
+    const threatDevices = (devices || []).filter(dev => ["WARNING", "UNDER_ATTACK"].includes(dev.badge));
+
+    let threatBanner = document.getElementById("secmap-threat-banner");
+    if (!threatBanner) {
+        threatBanner = document.createElement("div");
+        threatBanner.id = "secmap-threat-banner";
+        overlayContainer.appendChild(threatBanner);
+    }
+    if (threatDevices.length > 0) {
+        const attackCount = threatDevices.filter(dev => dev.badge === "UNDER_ATTACK").length;
+        const warningCount = threatDevices.filter(dev => dev.badge === "WARNING").length;
+        const names = threatDevices.slice(0, 2).map(dev => `${dev.name} (${dev.risk?.risk ?? 0})`).join(" · ");
+        threatBanner.className = attackCount > 0 ? "secmap-threat-banner is-attack" : "secmap-threat-banner is-warning";
+        threatBanner.innerHTML = `<strong>${attackCount > 0 ? "🚨 NGUY HIỂM ĐANG HOẠT ĐỘNG" : "⚠ CẢNH BÁO AN NINH"}</strong><span>${attackCount} Attack · ${warningCount} Warning · ${escHtml(names)}</span>`;
+    } else {
+        threatBanner.className = "secmap-threat-banner is-hidden";
+        threatBanner.innerHTML = "";
+    }
 
     (devices || []).forEach(dev => {
         // Hide bubble for NORMAL status
@@ -580,6 +604,16 @@ function updateNodeCalloutBubbles(devices) {
 
         const domPos = network.canvasToDOM(pos);
         activeBubbleIds.add(nodeId);
+
+        let beaconEl = document.getElementById(`beacon-${nodeId}`);
+        if (!beaconEl) {
+            beaconEl = document.createElement("div");
+            beaconEl.id = `beacon-${nodeId}`;
+            overlayContainer.appendChild(beaconEl);
+        }
+        beaconEl.className = `node-alert-beacon ${dev.badge === "UNDER_ATTACK" ? "is-attack" : "is-warning"}`;
+        beaconEl.style.left = `${domPos.x}px`;
+        beaconEl.style.top = `${domPos.y}px`;
 
         let bubbleEl = document.getElementById(`bubble-${nodeId}`);
         if (!bubbleEl) {
@@ -626,8 +660,10 @@ function updateNodeCalloutBubbles(devices) {
     });
 
     Array.from(overlayContainer.children).forEach(child => {
+        if (child.id === "secmap-threat-banner") return;
         const id = child.id.replace("bubble-", "");
-        if (!activeBubbleIds.has(id)) {
+        const beaconId = child.id.replace("beacon-", "");
+        if (!activeBubbleIds.has(id) && !activeBubbleIds.has(beaconId)) {
             child.remove();
         }
     });

@@ -27,7 +27,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const chatStream = document.getElementById("chat-stream");
     const chatForm = document.getElementById("chat-form");
     const chatInput = document.getElementById("chat-input");
+    const chatModelSelect = document.getElementById("chat-model-select");
     const presetChips = document.querySelectorAll(".chip-btn");
+    const drilldownChatKey = "agentwazuh.drilldownChatSessionId";
+    let currentChatSessionId = localStorage.getItem(drilldownChatKey) || null;
+    let chatWriteQueue = Promise.resolve();
 
     const logModal = document.getElementById("log-modal");
     const modalLogJson = document.getElementById("modal-log-json");
@@ -148,16 +152,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     query: query,
-                    scope_filter: { type: filterType, value: filterVal }
+                    scope_filter: { type: filterType, value: filterVal },
+                    model: chatModelSelect?.value || "auto"
                 })
             });
 
             const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || data.message || `HTTP ${res.status}`);
             const inv = data.investigation || {};
-            updateChatBot(loadingId, inv.layer_2_llm_reasoning || data.message || "Không nhận được nội dung phân tích.", inv.reasoning_steps);
+            const answer = inv.layer_2_llm_reasoning || inv.summary || inv.answer || data.message;
+            updateChatBot(loadingId, answer || "Chưa có nội dung phân tích. Hãy kiểm tra dữ liệu log và cấu hình model AI.");
         } catch (err) {
             console.error("Scoped investigate failed:", err);
-            updateChatBot(loadingId, "Lỗi kết nối Scoped AI Engine.");
+            updateChatBot(loadingId, `Không thể phân tích: ${err.message || "Lỗi kết nối AI Engine."}`);
         }
     }
 
@@ -168,6 +175,7 @@ document.addEventListener("DOMContentLoaded", () => {
         div.innerHTML = `<i class="fa-solid fa-user avatar"></i><div class="bubble-content"><strong>Analyst:</strong><p>${escapeHtml(msg)}</p></div>`;
         chatStream.appendChild(div);
         chatStream.scrollTop = chatStream.scrollHeight;
+        persistChatMessage("user", msg);
     }
 
     function appendChatBot(msg) {
@@ -176,30 +184,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const div = document.createElement("div");
         div.className = "chat-bubble system";
         div.id = id;
-        div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh Scoped Inspector:</strong><div class="msg-text">${msg}</div></div>`;
+        div.innerHTML = `<i class="fa-solid fa-robot avatar"></i><div class="bubble-content"><strong>AgentWazuh AI:</strong><div class="msg-text">${msg}</div></div>`;
         chatStream.appendChild(div);
         chatStream.scrollTop = chatStream.scrollHeight;
         return id;
     }
 
-    function updateChatBot(id, markdownText, steps = []) {
+    function updateChatBot(id, markdownText) {
         const div = document.getElementById(id);
         if (!div) return;
         const content = div.querySelector(".msg-text");
         if (!content) return;
-        let stepperHtml = "";
-        if (steps && steps.length > 0) {
-            stepperHtml = '<div class="reasoning-stepper">';
-            steps.forEach(s => {
-                stepperHtml += `<div class="step-item completed"><i class="fa-solid fa-circle-check step-icon"></i> <strong>Step ${escapeHtml(s.step)}: ${escapeHtml(s.title)}</strong> — ${escapeHtml(s.detail)}</div>`;
-            });
-            stepperHtml += '</div>';
-        }
-
         const text = String(markdownText ?? "");
         const parsedHtml = window.marked ? marked.parse(text) : escapeHtml(text).replace(/\n/g, "<br>");
-        content.innerHTML = stepperHtml + parsedHtml;
+        content.innerHTML = parsedHtml;
         if (chatStream) chatStream.scrollTop = chatStream.scrollHeight;
+        persistChatMessage("ai", text);
     }
 
     function escapeHtml(text) {
@@ -226,6 +226,107 @@ document.addEventListener("DOMContentLoaded", () => {
         chatInput.value = "";
         sendScopedInvestigate(query);
     });
+
+    async function ensureChatSession(title = "Scoped Wazuh Investigation") {
+        if (currentChatSessionId) return currentChatSessionId;
+        const res = await fetch("/api/chat/history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ title, project_name: "Scoped Investigation" })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.session?.id) throw new Error(data.detail || "Không tạo được phiên chat.");
+        currentChatSessionId = data.session.id;
+        localStorage.setItem(drilldownChatKey, currentChatSessionId);
+        return currentChatSessionId;
+    }
+
+    function persistChatMessage(role, content) {
+        if (!content || content === "Đang suy luận AI trong phạm vi phân vùng Scoped Context...") return;
+        chatWriteQueue = chatWriteQueue.then(async () => {
+            const id = await ensureChatSession(role === "user" ? content : "Scoped Wazuh Investigation");
+            await fetch(`/api/chat/history/${encodeURIComponent(id)}/message`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ role, content, timestamp: new Date().toISOString() })
+            });
+        }).catch(err => console.error("Không lưu được hội thoại scoped:", err));
+    }
+
+    async function loadDrilldownChatSession() {
+        if (!currentChatSessionId) return;
+        try {
+            const res = await fetch(`/api/chat/history/${encodeURIComponent(currentChatSessionId)}`, { credentials: "same-origin" });
+            const data = await res.json();
+            if (!res.ok || !data.session) {
+                currentChatSessionId = null;
+                localStorage.removeItem(drilldownChatKey);
+                return;
+            }
+            const messages = data.session.messages || [];
+            if (!messages.length || !chatStream) return;
+            chatStream.innerHTML = "";
+            messages.forEach(msg => {
+                const div = document.createElement("div");
+                div.className = `chat-bubble ${msg.role === "user" ? "user" : "system"}`;
+                const content = msg.role === "user" ? escapeHtml(msg.content) : (window.marked ? marked.parse(msg.content || "") : escapeHtml(msg.content || "").replace(/\n/g, "<br>"));
+                div.innerHTML = `<i class="fa-solid ${msg.role === "user" ? "fa-user" : "fa-robot"} avatar"></i><div class="bubble-content"><strong>${msg.role === "user" ? "Analyst" : "AgentWazuh AI"}:</strong><div class="msg-text">${content}</div></div>`;
+                chatStream.appendChild(div);
+            });
+            chatStream.scrollTop = chatStream.scrollHeight;
+        } catch (err) {
+            console.warn("Không khôi phục được hội thoại scoped:", err);
+        }
+    }
+
+    async function openChatManager() {
+        const modal = document.getElementById("chat-manager-modal");
+        const list = document.getElementById("chat-manager-list");
+        if (!modal || !list) return;
+        modal.classList.remove("hidden");
+        list.innerHTML = '<div class="loading-state">Đang tải lịch sử hội thoại…</div>';
+        try {
+            const res = await fetch("/api/chat/history", { credentials: "same-origin" });
+            const data = await res.json();
+            const sessions = data.sessions || [];
+            list.innerHTML = sessions.length ? sessions.map(item => `
+                <label class="chat-manager-item">
+                    <input type="checkbox" class="chat-session-check" value="${escapeHtml(item.id)}">
+                    <span class="chat-manager-item__body">
+                        <span class="chat-manager-item__title">${escapeHtml(item.title || "Không tiêu đề")}</span><br>
+                        <span class="chat-manager-item__meta">${escapeHtml(item.project_name || "Scoped Investigation")} · ${escapeHtml(item.updated_at || item.created_at || "")}</span>
+                    </span>
+                </label>`).join("") : '<div class="loading-state">Chưa có hội thoại được lưu.</div>';
+            document.getElementById("chat-manager-select-all").checked = false;
+        } catch (err) {
+            list.innerHTML = `<div class="inline-alert danger">Không tải được lịch sử: ${escapeHtml(err.message)}</div>`;
+        }
+    }
+
+    document.getElementById("btn-manage-drilldown-chats")?.addEventListener("click", openChatManager);
+    document.getElementById("btn-close-chat-manager")?.addEventListener("click", () => document.getElementById("chat-manager-modal")?.classList.add("hidden"));
+    document.getElementById("chat-manager-select-all")?.addEventListener("change", event => {
+        document.querySelectorAll(".chat-session-check").forEach(box => { box.checked = event.target.checked; });
+    });
+    document.getElementById("btn-delete-selected-chats")?.addEventListener("click", async () => {
+        const ids = [...document.querySelectorAll(".chat-session-check:checked")].map(box => box.value);
+        if (!ids.length) return alert("Hãy chọn ít nhất một hội thoại.");
+        if (!confirm(`Xóa vĩnh viễn ${ids.length} hội thoại đã chọn?`)) return;
+        await fetch("/api/chat/history/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ session_ids: ids }) });
+        if (ids.includes(currentChatSessionId)) { currentChatSessionId = null; localStorage.removeItem(drilldownChatKey); }
+        openChatManager();
+    });
+    document.getElementById("btn-delete-all-chats")?.addEventListener("click", async () => {
+        if (!confirm("Xóa vĩnh viễn toàn bộ hội thoại đã lưu?")) return;
+        await fetch("/api/chat/history/bulk-delete", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ delete_all: true }) });
+        currentChatSessionId = null;
+        localStorage.removeItem(drilldownChatKey);
+        openChatManager();
+    });
+
+    loadDrilldownChatSession();
 
     fetchFilteredLogs();
 });

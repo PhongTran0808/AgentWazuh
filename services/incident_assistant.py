@@ -815,6 +815,7 @@ graph TD
             if factual_ans:
                 return {
                     "summary": factual_ans,
+                    "layer_2_llm_reasoning": factual_ans,
                     "reasoning_steps": [
                         {"step": 1, "title": "Wazuh API Query", "status": "COMPLETED", "detail": f"Target Host: {current_host}"},
                         {"step": 2, "title": "Ground-Truth Verification", "status": "COMPLETED", "detail": "Extracted with 100% accuracy from live Wazuh REST API"},
@@ -840,6 +841,18 @@ graph TD
                             "threat_classification": "INFO",
                             "static_lookup": static_info
                         }
+                    }
+                    ,
+                    "pipeline_evidence": {
+                        "source": "Wazuh REST API Ground-Truth",
+                        "raw_wazuh": ([alert_data] if alert_data else (recent_alerts or [])[:5]),
+                        "normalized_by_python": [],
+                        "ai_analysis": {
+                            "intent": chat_intent,
+                            "threat_classification": "INFO",
+                            "static_lookup": static_info,
+                            "model_used": "Deterministic Wazuh lookup",
+                        },
                     }
                 }
 

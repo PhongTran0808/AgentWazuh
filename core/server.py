@@ -1768,7 +1768,10 @@ async def get_security_map(session: str = Depends(require_authenticated_session)
     summary = {
         "total": len(devices),
         "online": sum(1 for d in devices if d["health"]["status"] == "online"),
-        "warning": sum(1 for d in devices if d["health"]["status"] == "warning"),
+        # Warning/Attack are security states; Online/Offline are connectivity
+        # states. Do not mix the two or a healthy-but-threatened agent shows
+        # as 0 Warning in the summary strip.
+        "warning": sum(1 for d in devices if d["badge"] == "WARNING"),
         "offline": sum(1 for d in devices if d["health"]["status"] == "offline"),
         "under_attack": sum(1 for d in devices if d["badge"] == "UNDER_ATTACK"),
     }
@@ -1867,6 +1870,10 @@ class RenameSessionRequest(BaseModel):
 class RenameProjectRequest(BaseModel):
     old_project_name: str
     new_project_name: str
+
+class BulkDeleteSessionsRequest(BaseModel):
+    session_ids: List[str] = Field(default_factory=list)
+    delete_all: bool = False
 
 @app.get("/api/chat/history")
 async def get_chat_history(session: str = Depends(require_authenticated_session)):
@@ -1967,6 +1974,22 @@ async def delete_chat_session(session_id: str, session: str = Depends(require_au
         os.remove(file_path)
         return {"status": "success", "message": "Đã xóa cuộc hội thoại thành công."}
     raise HTTPException(status_code=404, detail="Session not found")
+
+@app.post("/api/chat/history/bulk-delete")
+async def bulk_delete_chat_sessions(req: BulkDeleteSessionsRequest, session: str = Depends(require_authenticated_session)):
+    """Permanently remove selected or all locally persisted chat sessions."""
+    files = glob.glob(os.path.join(CHAT_SESSIONS_DIR, "*.json"))
+    selected = {str(item).strip() for item in req.session_ids if str(item).strip()}
+    deleted = 0
+    for file_path in files:
+        session_id = Path(file_path).stem
+        if req.delete_all or session_id in selected:
+            try:
+                os.remove(file_path)
+                deleted += 1
+            except OSError:
+                pass
+    return {"status": "success", "deleted_count": deleted}
 
 @app.put("/api/chat/history/{session_id}/message")
 async def add_chat_message(session_id: str, msg: ChatMessage, session: str = Depends(require_authenticated_session)):

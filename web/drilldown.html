@@ -122,8 +122,11 @@
         <aside class="dock" aria-label="Trợ lý phân tích scoped">
             <div class="dock__head">
                 <div class="dock__tabs">
-                    <span class="dock__tab is-active"><i class="fa-solid fa-robot"></i> Scoped Inspector</span>
+                    <span class="dock__tab is-active"><i class="fa-solid fa-robot"></i> Trợ lý AI</span>
                 </div>
+                <button type="button" class="btn btn--ghost btn--sm" id="btn-manage-drilldown-chats" title="Quản lý lịch sử hội thoại">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Lịch sử
+                </button>
                 <button type="button" class="btn btn--icon" data-dock-toggle aria-label="Đóng trợ lý" title="Đóng">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
@@ -135,7 +138,7 @@
                         <div class="chat-bubble system">
                             <i class="fa-solid fa-robot avatar"></i>
                             <div class="bubble-content">
-                                <strong>AgentWazuh · Scoped Inspector</strong>
+                                <strong>AgentWazuh · Trợ lý AI</strong>
                                 <p>Câu hỏi tại đây chỉ được trả lời trong phạm vi phân vùng log đang mở. Chọn một dòng log rồi bấm <strong>Hỏi AI</strong> để phân tích sâu.</p>
                             </div>
                         </div>
@@ -149,6 +152,19 @@
                     </div>
 
                     <form id="chat-form" class="composer">
+                        <div class="composer__row">
+                            <div class="chat-model-selector-container">
+                                <i class="fa-solid fa-microchip"></i>
+                                <select id="chat-model-select" aria-label="Chọn model AI">
+                                    <option value="auto" selected>Auto (CLI model)</option>
+                                    <option value="gemini/gemini-2.5-flash">Gemini · 2.5 Flash</option>
+                                    <option value="gemini/gemini-2.5-pro">Gemini · 2.5 Pro</option>
+                                    <option value="gemini/gemini-2.0-flash">Gemini · 2.0 Flash</option>
+                                    <option value="openrouter/free">OpenRouter Free</option>
+                                    <option value="github-copilot/gpt-4.1">Copilot · GPT-4.1</option>
+                                </select>
+                            </div>
+                        </div>
                         <div class="composer__row">
                             <input type="text" id="chat-input" class="composer__input"
                                    placeholder="Hỏi trong phạm vi phân vùng…" autocomplete="off">
@@ -172,6 +188,31 @@
             </div>
             <div class="modal-body">
                 <pre><code id="modal-log-json">Đang tải…</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-manager-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card--wide chat-manager-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-clock-rotate-left"></i> Quản lý hội thoại</h3>
+                <button type="button" class="btn-close" id="btn-close-chat-manager" aria-label="Đóng">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="chat-manager-toolbar">
+                    <label><input type="checkbox" id="chat-manager-select-all"> Chọn tất cả</label>
+                    <button type="button" class="btn btn--danger btn--sm" id="btn-delete-selected-chats">
+                        <i class="fa-solid fa-trash-can"></i> Xóa đã chọn
+                    </button>
+                    <button type="button" class="btn btn--ghost btn--sm" id="btn-delete-all-chats">
+                        Xóa toàn bộ
+                    </button>
+                </div>
+                <div id="chat-manager-list" class="chat-manager-list">
+                    <div class="loading-state">Đang tải lịch sử hội thoại…</div>
+                </div>
             </div>
         </div>
     </div>

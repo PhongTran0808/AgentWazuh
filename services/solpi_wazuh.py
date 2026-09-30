@@ -117,6 +117,10 @@ class WazuhSoLPi:
             "agent": _safe_text(agent.get("name")),
             "source_ip": _safe_text(data.get("srcip") or data.get("src_ip") or alert.get("srcip")),
             "destination_ip": _safe_text(data.get("dstip") or data.get("dst_ip") or alert.get("dstip")),
+            "location": _safe_text(alert.get("location")),
+            "full_log": _safe_text(alert.get("full_log"), 800),
+            "occurrence_count": alert.get("occurrence_count", 1),
+            "evidence_ids": list(alert.get("evidence_ids") or [])[:50],
         }
 
     def _context_path(self, session_id: str) -> Path:

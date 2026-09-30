@@ -10,25 +10,52 @@ Tests GET /api/settings and POST /api/settings endpoints to ensure:
 import sys
 import json
 from pathlib import Path
+import pytest
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from fastapi.testclient import TestClient
+import core.server as server
 from core.server import app
 
 client = TestClient(app)
+cookies = {}
 
-# Create a valid session cookie for auth
-auth_res = client.post("/api/auth/login", json={
-    "username": "admin",
-    "password": "admin123",
-    "wazuh_host": "172.16.175.145",
-    "wazuh_port": 55000
-})
-assert auth_res.status_code == 200, f"Login failed: {auth_res.text}"
-cookies = auth_res.cookies
+
+class _OfflineTestClient:
+    def __init__(self, host):
+        self.host = host
+
+    def get_system_status(self):
+        return {"status": "offline", "wazuh_host": self.host, "agents": []}
+
+    def get_alert_stats_aggregated(self, hours_back=24):
+        return {"total_24h": 0}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def authenticated_test_module():
+    server.app.dependency_overrides[server.require_authenticated_session] = lambda: "settings-test"
+    yield
+    server.app.dependency_overrides.pop(server.require_authenticated_session, None)
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch, tmp_path):
+    original_settings = dict(server.SYSTEM_SETTINGS)
+    original_client = server.wazuh_client
+    monkeypatch.setattr(server, "SETTINGS_PATH", tmp_path / "system_settings.json")
+    monkeypatch.setattr(server, "sync_pass_env_from_settings", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        server, "create_wazuh_client_from_settings",
+        lambda host, port: _OfflineTestClient(host),
+    )
+    yield
+    server.SYSTEM_SETTINGS.clear()
+    server.SYSTEM_SETTINGS.update(original_settings)
+    server.wazuh_client = original_client
 
 
 def test_get_settings():

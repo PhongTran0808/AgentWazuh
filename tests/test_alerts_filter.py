@@ -9,6 +9,7 @@ Kiểm tra GET /api/wazuh/alerts/filter:
 
 import sys
 from pathlib import Path
+import pytest
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -19,15 +20,21 @@ import core.server as server
 from core.server import app
 
 client = TestClient(app)
+cookies = {}
 
-auth_res = client.post("/api/auth/login", json={
-    "username": "admin",
-    "password": "admin123",
-    "wazuh_host": "172.16.175.145",
-    "wazuh_port": 55000
-})
-assert auth_res.status_code == 200, f"Login failed: {auth_res.text}"
-cookies = auth_res.cookies
+
+@pytest.fixture(scope="module", autouse=True)
+def authenticated_test_module():
+    server.app.dependency_overrides[server.require_authenticated_session] = lambda: "alerts-filter-test"
+    yield
+    server.app.dependency_overrides.pop(server.require_authenticated_session, None)
+
+
+@pytest.fixture(autouse=True)
+def restore_alert_cache():
+    original = server.GLOBAL_ALERTS_CACHE
+    yield
+    server.GLOBAL_ALERTS_CACHE = original
 
 SAMPLE_ALERTS = [
     {

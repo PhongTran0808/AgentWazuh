@@ -650,6 +650,23 @@ class WazuhClient:
         })
         return alerts[0] if alerts else None
 
+    def get_alerts_by_ids(self, alert_ids: List[str], limit: int = 200) -> list:
+        """Fetch exact raw alert documents for a deduplicated incident."""
+        unique_ids = list(dict.fromkeys(str(item) for item in alert_ids if item))[:limit]
+        if not self.host or not unique_ids:
+            return []
+        return self._fetch_alerts_opensearch({
+            "size": len(unique_ids),
+            "query": {"ids": {"values": unique_ids}},
+            "_source": [
+                "timestamp", "id",
+                "rule.id", "rule.level", "rule.description", "rule.groups",
+                "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
+                "agent.id", "agent.name", "agent.ip",
+                "data", "location", "full_log",
+            ],
+        }, timeout=10)
+
     def get_alerts_for_correlation(self, hours_back: int = 24, max_results: int = 1000,
                                    agent_id: Optional[str] = None,
                                    source_ip: Optional[str] = None) -> list:

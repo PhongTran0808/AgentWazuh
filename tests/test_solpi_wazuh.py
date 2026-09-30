@@ -11,6 +11,8 @@ def test_observation_pack_receipt_and_exact_paged_recall(tmp_path):
         "rule": {"id": "5710", "level": 10, "description": "SSH authentication failed"},
         "agent": {"name": "web-01"},
         "data": {"srcip": "10.10.1.50", "dstip": "10.10.1.10", "extra": "kept in archive"},
+        "location": "/var/log/portal_access.log",
+        "full_log": "[WEB_SCAN_DETECTED] Directory enumeration probe detected",
     }
 
     receipt = pack.build_investigation_package(
@@ -19,6 +21,8 @@ def test_observation_pack_receipt_and_exact_paged_recall(tmp_path):
 
     assert receipt.handle.startswith("wazuh-observation:sha256:")
     assert receipt.evidence[0]["rule_description"] == "SSH authentication failed"
+    assert receipt.evidence[0]["full_log"] == "[WEB_SCAN_DETECTED] Directory enumeration probe detected"
+    assert receipt.evidence[0]["location"] == "/var/log/portal_access.log"
     assert "extra" not in receipt.to_prompt_context()
 
     first_page = pack.read_observation(receipt.handle, offset=0, limit=80)

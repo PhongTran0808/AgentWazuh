@@ -125,6 +125,41 @@ class ScopedInvestigationTests(unittest.TestCase):
         self.assertIn("cảnh báo trên", captured["system_prompt"])
         self.assertIn("7 giây", captured["system_prompt"])
 
+    def test_full_log_scan_marker_reaches_prompt_and_normalized_evidence(self):
+        assistant = IncidentAssistant()
+        captured = {}
+
+        def fake_call(*args, **kwargs):
+            captured["system_prompt"] = args[0]
+            captured["user_prompt"] = args[1]
+            return "SCAN_ANALYSIS"
+
+        assistant._call_pi_agent = fake_call
+        scan = _alert("scan", "2026-09-30T17:16:37.469+0700", "2501", 5, "008", "WEB-01")
+        scan["location"] = "/var/log/portal_access.log"
+        scan["full_log"] = (
+            "[WEB_SCAN_DETECTED] User authentication failure from 127.0.0.1 "
+            "- Directory enumeration probe detected (10 reqs)"
+        )
+
+        result = assistant.investigate_incident(
+            "Phân tích nhóm sự cố scan",
+            alert_data=scan,
+            recent_alerts=[scan],
+            incident_group={"incident_id": "INC-SCAN", "alerts": [scan]},
+            system_context={
+                "status": "online", "host": "127.0.0.1", "agents": [],
+                "alert_stats": {"total_24h": 1},
+            },
+        )
+
+        self.assertIn("Directory enumeration probe detected", captured["user_prompt"])
+        self.assertIn("full_log", captured["system_prompt"])
+        normalized = result["pipeline_evidence"]["normalized_by_python"][0]
+        self.assertIn("WEB_SCAN_DETECTED", normalized["full_log"])
+        self.assertEqual(normalized["location"], "/var/log/portal_access.log")
+        self.assertIsNone(result["opensearch_payload"]["wazuh_ai_analysis"]["mitre_technique"])
+
     def test_24_hour_report_is_in_soc_scope_and_metrics_intent(self):
         query = "báo cáo 24h qua"
         self.assertTrue(is_security_related_query(query))

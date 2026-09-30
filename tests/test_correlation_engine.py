@@ -64,10 +64,15 @@ class CorrelationFallbackTests(unittest.TestCase):
         self.assertEqual(len(engine.deduplicate_alerts([first, second])), 2)
 
     def test_repeated_burst_is_actionable_but_singleton_is_not(self):
-        repeated = engine.deduplicate_alerts([
-            detailed_alert("one", "2026-09-15T00:00:00Z", "5710", "web-01"),
-            detailed_alert("two", "2026-09-15T00:00:10Z", "5710", "web-01"),
-        ])
+        first = detailed_alert("one", "2026-09-15T00:00:00Z", "5710", "web-01")
+        second = detailed_alert("two", "2026-09-15T00:00:10Z", "5710", "web-01")
+        first["full_log"] = "authentication failure"
+        second["full_log"] = "[WEB_SCAN_DETECTED] Directory enumeration probe detected"
+        repeated = engine.deduplicate_alerts([first, second])
+        self.assertEqual(
+            [event["full_log"] for event in repeated[0]["evidence_events"]],
+            ["authentication failure", "[WEB_SCAN_DETECTED] Directory enumeration probe detected"],
+        )
         repeated_group = engine.correlate_alerts(repeated)[0]
         self.assertTrue(repeated_group["is_correlated"])
         self.assertIn("repeated_activity", repeated_group["correlation_reasons"])
@@ -222,6 +227,35 @@ class MultiEntityAndGraphUpgradeTests(unittest.TestCase):
         self.assertIn("Rule 40704 ×6", mermaid)
         self.assertIn("6 cảnh báo tương tự được gom", mermaid)
         self.assertNotIn('step_1["Bước 2:', mermaid)
+
+    def test_web_scan_full_log_overrides_generic_authentication_description(self):
+        scan = detailed_alert(
+            "scan-1", "2026-09-30T17:16:37.469+0700", "2501", "WEB-01",
+            level=5, description="syslog: User authentication failure.",
+        )
+        scan["full_log"] = (
+            "[WEB_SCAN_DETECTED] User authentication failure from 127.0.0.1 "
+            "- Directory enumeration probe detected (10 reqs)"
+        )
+        scan["occurrence_count"] = 6
+        scan["evidence_ids"] = [f"scan-{index}" for index in range(1, 7)]
+        group = {
+            "entity": "agent-WEB-01", "devices": ["WEB-01"], "alerts": [scan],
+            "alert_ids": scan["evidence_ids"], "priority_score": 24, "confidence_score": 49,
+        }
+
+        semantics = engine.derive_alert_semantics(scan)
+        analysis = engine.build_deterministic_incident_analysis(group)
+        mermaid = engine.generate_incident_attack_graph_mermaid(group)
+
+        self.assertEqual(semantics["category"], "web_scan")
+        self.assertEqual(semantics["source_ip"], "127.0.0.1")
+        self.assertIn("dò quét thư mục", analysis["summary"])
+        self.assertEqual(analysis["mitre_techniques"], ["T1595"])
+        self.assertIn("Web scan: dò quét thư mục", mermaid)
+        self.assertIn("Nguồn: 127.0.0.1", mermaid)
+        self.assertIn("Rule 2501 ×6", mermaid)
+        self.assertNotIn("<small>", mermaid)
 
 
 class WazuhFactualQueryTests(unittest.TestCase):

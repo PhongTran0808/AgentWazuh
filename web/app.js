@@ -352,6 +352,36 @@ document.addEventListener("DOMContentLoaded", () => {
         return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
+    window.normalizeMermaidDefinition = function(source) {
+        const quoteLabel = (value) => String(value || "")
+            .replace(/"/g, "'")
+            .replace(/[\r\n]+/g, " ")
+            .trim();
+        const lines = String(source || "").trim().split(/\r?\n/);
+        if (!lines.length || !/^\s*(?:graph|flowchart)\s+(?:TD|TB|BT|LR|RL)\b/i.test(lines[0])) {
+            lines.unshift("graph TD");
+        }
+        return lines.map((line, index) => {
+            if (index === 0 || /^\s*(?:classDef|class|style|linkStyle|subgraph|end)\b/.test(line)) return line;
+            // Repair the common model output: emoji[label] -->[action] emoji[target].
+            const legacy = line.match(/^\s*[^\[]*\[([^\]]+)\]\s*-->\s*\[([^\]]+)\]\s*[^\[]*\[([^\]]+)\]\s*$/u);
+            if (legacy) {
+                return `    source_node["${quoteLabel(legacy[1])}"] --> action_node["${quoteLabel(legacy[2])}"] --> target_node["${quoteLabel(legacy[3])}"]`;
+            }
+            return line;
+        }).join("\n");
+    };
+
+    window.mermaidIsValid = async function(source) {
+        if (!window.mermaid || typeof window.mermaid.parse !== "function") return false;
+        try {
+            await window.mermaid.parse(source, { suppressErrors: true });
+            return true;
+        } catch (_) {
+            return false;
+        }
+    };
+
     const btnBackLogin = document.getElementById("btn-back-login");
     const btnOpenNetmap = document.getElementById("btn-open-netmap");
     const btnOpenSettings = document.getElementById("btn-open-settings");
@@ -1139,7 +1169,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!root) return;
 
         root.querySelectorAll("pre code.language-mermaid").forEach((codeBlock, idx) => {
-            const mermaidContent = codeBlock.textContent;
+            const mermaidContent = window.normalizeMermaidDefinition(codeBlock.textContent);
             const containerId = `mermaid_diag_${Date.now()}_${idx}`;
             const mermaidDiv = document.createElement("div");
             mermaidDiv.className = "mermaid-container";
@@ -1150,15 +1180,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
                 return;
             }
-            try {
-                mermaid.render(containerId + "_svg", mermaidContent).then(renderResult => {
+            window.mermaidIsValid(mermaidContent).then(valid => {
+                if (!valid) throw new Error("Invalid Mermaid syntax");
+                return mermaid.render(containerId + "_svg", mermaidContent);
+            }).then(renderResult => {
                     mermaidDiv.innerHTML = renderResult.svg;
-                }).catch(() => {
-                    mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
-                });
-            } catch (e) {
+            }).catch(() => {
                 mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
-            }
+            });
         });
 
         root.querySelectorAll("code.language-chart, code.language-chartjs, code.language-json").forEach((codeBlock, idx) => {
@@ -1796,7 +1825,7 @@ window.applyXmlRule = async function() {
         `;
     }
 
-            const mermaidCode = group.attack_graph_mermaid || `graph TD\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
+            const mermaidCode = window.normalizeMermaidDefinition(group.attack_graph_mermaid || `graph TD\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`);
 
             if (canvas && !canvas.dataset.controlsBound) {
                 const state = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 };
@@ -1871,16 +1900,15 @@ window.applyXmlRule = async function() {
         canvas.innerHTML = '<div style="padding:24px; text-align:center; color:var(--ink-3);"><i class="fa-solid fa-spinner fa-spin"></i> Đang vẽ sơ đồ...</div>';
         const renderId = `attack_graph_svg_${Date.now()}`;
         if (window.mermaid) {
-            try {
-                window.mermaid.render(renderId, mermaidCode).then(res => {
+            window.mermaidIsValid(mermaidCode).then(valid => {
+                if (!valid) throw new Error("Invalid Mermaid syntax");
+                return window.mermaid.render(renderId, mermaidCode);
+            }).then(res => {
                         canvas.innerHTML = `<div class="attack-graph-stage">${res.svg}</div>`;
                         canvas._applyGraphTransform?.();
-                }).catch(err => {
+            }).catch(err => {
                             canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div></div>`;
-                });
-            } catch (err) {
-                        canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
-            }
+            });
         } else {
                     canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
         }

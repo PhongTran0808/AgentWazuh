@@ -56,10 +56,10 @@ from services.correlation_engine import (
     dry_run_rule,
     generate_config_diff,
     generate_incident_attack_graph_mermaid,
+    build_deterministic_incident_analysis,
     calculate_incident_confidence,
     extract_alert_entities,
 )
-from ai.gemini_analyzer import gemini_analyzer
 from ai_topology_parser import DynamicAITopologyParser
 from langgraph_engine.graphs.config_form_graph import config_form_graph
 try:
@@ -561,6 +561,19 @@ def _resolve_investigation_evidence(
         return incident_group, analysis_alerts, cached, "global_cache" if cached else "unresolved"
 
     return incident_group, analysis_alerts, None, "query_only"
+
+
+def _incident_raw_alert_ids(incident_group: Optional[Dict[str, Any]]) -> List[str]:
+    """Return every original OpenSearch ID represented by an incident."""
+    if not isinstance(incident_group, dict):
+        return []
+    values: List[Any] = list(incident_group.get("alert_ids") or [])
+    for alert in incident_group.get("alerts") or []:
+        if not isinstance(alert, dict):
+            continue
+        values.append(alert.get("id"))
+        values.extend(alert.get("evidence_ids") or [])
+    return list(dict.fromkeys(str(value) for value in values if value))
 
 
 def _merge_alerts(alerts: List[Dict[str, Any]], limit: int = 1000) -> List[Dict[str, Any]]:
@@ -1602,22 +1615,41 @@ async def analyze_correlated_incident(
     req: IncidentAnalyzeRequest,
     session: str = Depends(require_authenticated_session),
 ):
-    """Send one Python-correlated incident group to Gemini on analyst request."""
-    groups = await retrieve_correlated_groups()
-    live_group = next(
-        (item for item in groups if item.get("incident_id") == req.incident_id or item.get("group_id") == req.incident_id),
-        None,
-    )
-    group = _get_or_create_incident_snapshot(req.incident_id, live_group)
+    """Return a fast, evidence-grounded report for one correlated incident."""
+    # The analyst clicked an incident already rendered by the dashboard. Reuse
+    # its frozen snapshot first instead of downloading and regrouping 1,000
+    # alerts on every click.
+    group = _get_or_create_incident_snapshot(req.incident_id, None)
+    if not group:
+        groups = await retrieve_correlated_groups()
+        live_group = next(
+            (item for item in groups if item.get("incident_id") == req.incident_id or item.get("group_id") == req.incident_id),
+            None,
+        )
+        group = _get_or_create_incident_snapshot(req.incident_id, live_group)
     if not group:
         raise HTTPException(status_code=404, detail="Không tìm thấy incident group trong cửa sổ 24 giờ.")
 
-    loop = asyncio.get_event_loop()
-    ai_result = await loop.run_in_executor(None, gemini_analyzer.analyze_group, group)
+    raw_ids = _incident_raw_alert_ids(group)
+    if raw_ids:
+        loop = asyncio.get_event_loop()
+        hydrated = await loop.run_in_executor(None, lambda: wazuh_client.get_alerts_by_ids(raw_ids))
+        if hydrated:
+            by_id = {str(item.get("id")): item for item in hydrated if item.get("id")}
+            group = dict(group)
+            group["alerts"] = [by_id[item] for item in raw_ids if item in by_id]
+
+    group["attack_graph_mermaid"] = generate_incident_attack_graph_mermaid(group)
+    ai_result = {
+        "status": "success",
+        "provider": "agentwazuh-deterministic",
+        "model": "full-log-semantic-v1",
+        "analysis": build_deterministic_incident_analysis(group),
+    }
     audit_logger.log_ai_engine(
         action="ANALYZE_INCIDENT_GROUP",
-        status="SUCCESS" if ai_result.get("status") == "success" else "WARNING",
-        message=f"Gemini analysis requested for {req.incident_id}",
+        status="SUCCESS",
+        message=f"Deterministic full-log analysis requested for {req.incident_id}",
         payload={"incident_id": req.incident_id, "provider": ai_result.get("provider"), "status": ai_result.get("status")},
     )
     group["ai_analysis_status"] = ai_result.get("status")
@@ -2375,6 +2407,28 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
     incident_group, analysis_alerts, alert_to_use, evidence_source = _resolve_investigation_evidence(
         alerts, req.alert_id, requested_incident_id, req.incident_group
     )
+
+    # Correlation deduplication represents a burst with one aggregate record.
+    # Rehydrate its original documents so variant full_log values (for example
+    # scan markers and probed paths) reach normalization and the model prompt.
+    raw_incident_ids = _incident_raw_alert_ids(incident_group)
+    if incident_group and raw_incident_ids:
+        _hydrate_loop = asyncio.get_event_loop()
+        hydrated_alerts = await _hydrate_loop.run_in_executor(
+            None, lambda: wazuh_client.get_alerts_by_ids(raw_incident_ids)
+        )
+        if hydrated_alerts:
+            hydrated_by_id = {
+                str(item.get("id")): item for item in hydrated_alerts if isinstance(item, dict) and item.get("id")
+            }
+            analysis_alerts = [
+                hydrated_by_id[alert_id] for alert_id in raw_incident_ids if alert_id in hydrated_by_id
+            ]
+            if req.alert_id and str(req.alert_id) in hydrated_by_id:
+                alert_to_use = hydrated_by_id[str(req.alert_id)]
+            elif analysis_alerts:
+                alert_to_use = analysis_alerts[0]
+            evidence_source = "incident_snapshot+opensearch_ids"
 
     # Standalone alerts may legitimately leave the preview cache between render
     # and click. Query their immutable OpenSearch _id before returning 404.

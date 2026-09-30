@@ -378,7 +378,7 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     ]
 
     def clean_text(s: Any) -> str:
-        text = str(s or "").replace('"', "'").replace("[", "(").replace("]", ")").replace("<", "&lt;").replace(">", "&gt;")
+        text = str(s or "").replace('"', "'").replace("[", "(").replace("]", ")").replace("<", "(").replace(">", ")").replace("&", " và ")
         return re.sub(r'[\r\n]+', ' ', text).strip()
 
     src_ips = incident_group.get("source_ips", [])
@@ -386,15 +386,18 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     devices = incident_group.get("devices", [])
     primary_entity = incident_group.get("entity", "Unknown-Target")
 
+    semantics = [derive_alert_semantics(alert) for alert in sorted_alerts]
+    semantic_source_ips = [item.get("source_ip") for item in semantics if item.get("source_ip")]
     src_node_id = "src_node"
-    src_label = clean_text(src_ips[0] if src_ips else "External Attacker / Remote")
+    src_label = clean_text(src_ips[0] if src_ips else (semantic_source_ips[0] if semantic_source_ips else "Nguồn chưa xác định"))
     lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
 
     def alert_signature(alert: Dict[str, Any]) -> Tuple[str, str, str]:
         rule = alert.get("rule", {}) or {}
+        semantic = derive_alert_semantics(alert)
         return (
             clean_text(rule.get("id", "Rule")),
-            clean_text(rule.get("description", "Cảnh báo bảo mật")),
+            clean_text(semantic["label"]),
             clean_text(rule.get("level", 0)),
         )
 
@@ -417,10 +420,10 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
         step_id = f"step_{i}"
         r_id = a.get("rule", {}).get("id", "Rule")
         r_lvl = a.get("rule", {}).get("level", 0)
-        r_desc = clean_text(a.get("rule", {}).get("description", "Cảnh báo bảo mật"))[:50]
-        count = len(step["alerts"])
+        r_desc = clean_text(derive_alert_semantics(a)["label"])[:80]
+        count = sum(max(1, _safe_int(item.get("occurrence_count"), 1)) for item in step["alerts"])
         if count > 1:
-            step_label = f"Bước {i+1}: Rule {r_id} ×{count}<br/>{r_desc} (Lvl {r_lvl})<br/><small>{count} cảnh báo tương tự được gom</small>"
+            step_label = f"Bước {i+1}: Rule {r_id} ×{count}<br/>{r_desc} (Lvl {r_lvl})<br/>{count} cảnh báo tương tự được gom"
             node_class = "repeated"
         else:
             step_label = f"Bước {i+1}: Rule {r_id}<br/>{r_desc} (Lvl {r_lvl})"
@@ -455,6 +458,85 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     return "\n".join(lines)
 
 
+def derive_alert_semantics(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive a bounded, evidence-backed event meaning from raw Wazuh logs."""
+    events = [alert]
+    events.extend(item for item in (alert.get("evidence_events") or []) if isinstance(item, dict))
+    logs = [str(item.get("full_log") or "") for item in events if item.get("full_log")]
+    corpus = "\n".join(logs)
+    lowered = corpus.lower()
+    source_match = re.search(r"\bfrom\s+((?:\d{1,3}\.){3}\d{1,3})\b", corpus, flags=re.I)
+    paths = list(dict.fromkeys(
+        match.rstrip(".,;)") for match in re.findall(r"(?:resource|path):\s*([^\s]+)", corpus, flags=re.I)
+    ))
+    is_web_scan = any(marker in lowered for marker in (
+        "[web_scan_detected]", "directory enumeration", "probing restricted resource"
+    ))
+    if is_web_scan:
+        return {
+            "category": "web_scan",
+            "label": "Web scan: dò quét thư mục và tài nguyên web",
+            "incident_type": "Phát hiện dò quét thư mục và tài nguyên web",
+            "source_ip": source_match.group(1) if source_match else None,
+            "paths": paths,
+            "mitre_techniques": ["T1595"],
+            "mitre_tactics": ["Reconnaissance"],
+            "raw_log_count": len(logs),
+        }
+    rule = alert.get("rule") or {}
+    return {
+        "category": "rule_event",
+        "label": str(rule.get("description") or "Cảnh báo bảo mật").strip(),
+        "incident_type": str(rule.get("description") or "Cảnh báo bảo mật").strip(),
+        "source_ip": source_match.group(1) if source_match else None,
+        "paths": paths,
+        "mitre_techniques": [],
+        "mitre_tactics": [],
+        "raw_log_count": len(logs),
+    }
+
+
+def build_deterministic_incident_analysis(group: Dict[str, Any]) -> Dict[str, Any]:
+    """Create the fast incident-card report directly from verified evidence."""
+    alerts = [item for item in (group.get("alerts") or []) if isinstance(item, dict)]
+    semantics = [derive_alert_semantics(alert) for alert in alerts]
+    primary = next((item for item in semantics if item["category"] == "web_scan"), semantics[0] if semantics else None)
+    score = _safe_int(group.get("priority_score", group.get("risk_score")), 0)
+    priority = "CRITICAL" if score >= 80 else "HIGH" if score >= 50 else "MEDIUM" if score >= 30 else "LOW"
+    evidence_ids = list(dict.fromkeys(str(item) for item in (group.get("alert_ids") or []) if item))
+    devices = list(group.get("devices") or [])
+    device = str(devices[0] if devices else group.get("entity") or "thiết bị chưa xác định")
+
+    if primary and primary["category"] == "web_scan":
+        paths = list(dict.fromkeys(path for item in semantics for path in item.get("paths", [])))
+        sources = list(dict.fromkeys(item.get("source_ip") for item in semantics if item.get("source_ip")))
+        path_text = f" Các tài nguyên bị thăm dò: {', '.join(paths)}." if paths else ""
+        source_text = f" Log ghi nhận IP nguồn {sources[0]}." if sources else ""
+        summary = (
+            f"Thiết bị {device} ghi nhận {len(evidence_ids) or group.get('alert_count', len(alerts))} "
+            f"sự kiện có marker WEB_SCAN_DETECTED, thể hiện hành vi dò quét thư mục/tài nguyên web."
+            f"{source_text}{path_text}"
+        )
+        mitre = ["T1595"]
+    else:
+        description = primary["label"] if primary else "Cảnh báo bảo mật"
+        summary = f"Thiết bị {device} ghi nhận nhóm sự kiện: {description}."
+        mitre = list(group.get("mitre_techniques") or [])
+
+    confidence_value = group.get("confidence_score", group.get("correlation_confidence", 0))
+    return {
+        "incident_type": primary["incident_type"] if primary else "Sự cố bảo mật",
+        "priority": priority,
+        "risk_score": score,
+        "mitre_techniques": mitre,
+        "summary": summary,
+        "reasoning": summary,
+        "confidence": round(float(confidence_value or 0) / 100, 2),
+        "evidence_ids": evidence_ids,
+        "analysis_source": "deterministic_full_log",
+    }
+
+
 def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int = 60) -> List[Dict[str, Any]]:
     """
     Gộp các alert trùng fingerprint trong khoảng thời gian ngắn thành 1.
@@ -465,6 +547,7 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
       - first_seen:       timestamp của lần xuất hiện đầu tiên
       - last_seen:        timestamp của lần xuất hiện gần nhất
       - evidence_ids:     danh sách alert_id của các bản trùng
+      - evidence_events:  mẫu sự kiện gốc để không làm mất full_log khác biệt
     """
     if not alerts:
         return []
@@ -490,6 +573,9 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
                 existing["last_seen"] = current_ts_str or existing.get("last_seen", "")
                 if alert_id and alert_id not in existing.get("evidence_ids", []):
                     existing.setdefault("evidence_ids", []).append(alert_id)
+                samples = existing.setdefault("evidence_events", [])
+                if len(samples) < 12:
+                    samples.append(alert.copy())
                 merged = True
 
         if not merged:
@@ -501,6 +587,7 @@ def deduplicate_alerts(alerts: List[Dict[str, Any]], dedup_window_seconds: int =
             new_alert["first_seen"] = current_ts_str
             new_alert["last_seen"] = current_ts_str
             new_alert["evidence_ids"] = [alert_id] if alert_id else []
+            new_alert["evidence_events"] = [alert.copy()]
             deduped.append(new_alert)
             latest_by_fingerprint[fingerprint] = new_alert
 

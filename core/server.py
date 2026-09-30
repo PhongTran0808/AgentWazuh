@@ -529,6 +529,40 @@ def _get_or_create_incident_snapshot(
         return snapshot
 
 
+def _resolve_investigation_evidence(
+    alerts: List[Dict[str, Any]],
+    alert_id: Optional[str],
+    incident_id: Optional[str],
+    incident_candidate: Optional[Dict[str, Any]],
+) -> tuple[Optional[Dict[str, Any]], List[Dict[str, Any]], Optional[Dict[str, Any]], str]:
+    """Resolve evidence without coupling incidents to the short UI cache."""
+    incident_group = None
+    analysis_alerts = alerts
+    if incident_id:
+        incident_group = _get_or_create_incident_snapshot(incident_id, incident_candidate)
+        if incident_group:
+            analysis_alerts = [item for item in (incident_group.get("alerts") or []) if isinstance(item, dict)]
+            if analysis_alerts:
+                exact = next(
+                    (item for item in analysis_alerts if str(item.get("id")) == str(alert_id)),
+                    None,
+                ) if alert_id else None
+                # The incident is the requested object. A stale representative
+                # ID must not make the frozen incident impossible to open.
+                return (
+                    incident_group,
+                    analysis_alerts,
+                    exact or analysis_alerts[0],
+                    "incident_snapshot" if exact or not alert_id else "incident_snapshot_fallback",
+                )
+
+    if alert_id:
+        cached = next((item for item in alerts if str(item.get("id")) == str(alert_id)), None)
+        return incident_group, analysis_alerts, cached, "global_cache" if cached else "unresolved"
+
+    return incident_group, analysis_alerts, None, "query_only"
+
+
 def _merge_alerts(alerts: List[Dict[str, Any]], limit: int = 1000) -> List[Dict[str, Any]]:
     """Insert only unseen alerts and return the newly inserted records."""
     global GLOBAL_ALERTS_CACHE
@@ -2336,26 +2370,32 @@ async def update_active_form_session(req: UpdateFormSessionRequest, session: str
 @app.post("/api/wazuh/investigate/scoped")
 async def investigate(req: InvestigateRequest, session: str = Depends(require_authenticated_session)):
     global GLOBAL_SYSTEM_STATUS_CACHE
-    alerts = GLOBAL_ALERTS_CACHE
-    alert_to_use = req.alert_data
-    if req.alert_id:
-        alert_to_use = next((a for a in alerts if str(a.get("id")) == str(req.alert_id)), None)
-        if not alert_to_use:
+    alerts = list(GLOBAL_ALERTS_CACHE)
+    requested_incident_id = req.incident_id or _incident_id_from_query(req.query)
+    incident_group, analysis_alerts, alert_to_use, evidence_source = _resolve_investigation_evidence(
+        alerts, req.alert_id, requested_incident_id, req.incident_group
+    )
+
+    # Standalone alerts may legitimately leave the preview cache between render
+    # and click. Query their immutable OpenSearch _id before returning 404.
+    if req.alert_id and not alert_to_use and not incident_group:
+        _lookup_loop = asyncio.get_event_loop()
+        alert_to_use = await _lookup_loop.run_in_executor(
+            None, lambda: wazuh_client.get_alert_by_id(req.alert_id)
+        )
+        if alert_to_use:
+            analysis_alerts = [alert_to_use]
+            evidence_source = "opensearch_id"
+        else:
             raise HTTPException(
                 status_code=404,
-                detail=f"Không tìm thấy cảnh báo với ID '{req.alert_id}' trong bộ đệm hệ thống.",
+                detail=(f"Không tìm thấy cảnh báo với ID '{req.alert_id}' trong bộ đệm "
+                        "hoặc OpenSearch hiện tại."),
             )
-    incident_group = None
-    analysis_alerts = alerts
-    requested_incident_id = req.incident_id or _incident_id_from_query(req.query)
-    if requested_incident_id:
-        incident_group = _get_or_create_incident_snapshot(requested_incident_id, req.incident_group)
-        if incident_group:
-            analysis_alerts = list(incident_group.get("alerts") or [])
-            # The frozen group's first chronologically correlated alert is the
-            # representative evidence for every later replay of this incident.
-            if analysis_alerts:
-                alert_to_use = analysis_alerts[0]
+    elif not alert_to_use and not req.alert_id:
+        alert_to_use = req.alert_data
+        if alert_to_use:
+            evidence_source = "submitted_alert"
     # The drill-down table and the assistant must receive the same evidence
     # set. Do not let the global newest-alert cache leak into a device scope.
     if req.scope_filter or alert_to_use:
@@ -2537,6 +2577,13 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         "source_sha256": solpi_receipt.sha256,
         "source_bytes": solpi_receipt.source_bytes,
         "evidence_count": len(solpi_receipt.evidence),
+    }
+    result["evidence_resolution"] = {
+        "source": evidence_source,
+        "requested_alert_id": req.alert_id,
+        "resolved_alert_id": alert_to_use.get("id") if isinstance(alert_to_use, dict) else None,
+        "incident_id": requested_incident_id,
+        "scoped_alert_count": len(analysis_alerts),
     }
 
     if active_form:

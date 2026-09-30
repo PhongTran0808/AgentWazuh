@@ -1087,15 +1087,18 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const chatModelEl = document.getElementById("chat-model-select");
             const selectedModel = chatModelEl ? chatModelEl.value : "auto";
+            const incidentId = incidentGroup?.incident_id || incidentGroup?.group_id || null;
 
             const res = await fetch("/api/wazuh/investigate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     query: query,
-                    alert_id: alertObj ? alertObj.id : null,
+                    // The incident snapshot, not a refresh-sensitive preview ID,
+                    // is authoritative when opening a correlated group.
+                    alert_id: incidentId ? null : (alertObj ? alertObj.id : null),
                     alert_data: alertObj,
-                    incident_id: incidentGroup?.incident_id || incidentGroup?.group_id || null,
+                    incident_id: incidentId,
                     incident_group: incidentGroup,
                     is_global_chat: true,
                     model: selectedModel

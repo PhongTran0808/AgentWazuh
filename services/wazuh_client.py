@@ -634,6 +634,22 @@ class WazuhClient:
         }
         return self._fetch_alerts_opensearch(search_dsl)
 
+    def get_alert_by_id(self, alert_id: str) -> Optional[dict]:
+        """Fetch one alert by its immutable OpenSearch document ID."""
+        if not self.host or not alert_id:
+            return None
+        alerts = self._fetch_alerts_opensearch({
+            "size": 1,
+            "query": {"ids": {"values": [str(alert_id)]}},
+            "_source": [
+                "timestamp", "id",
+                "rule.id", "rule.level", "rule.description", "rule.groups",
+                "agent.id", "agent.name", "agent.ip",
+                "data", "location", "full_log",
+            ],
+        })
+        return alerts[0] if alerts else None
+
     def get_alerts_for_correlation(self, hours_back: int = 24, max_results: int = 1000,
                                    agent_id: Optional[str] = None,
                                    source_ip: Optional[str] = None) -> list:

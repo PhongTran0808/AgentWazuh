@@ -1367,12 +1367,12 @@ pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--
 .attack-graph-stage svg {
   display: block;
   width: auto !important;
-  min-width: 760px;
+  min-width: 520px;
   max-width: none !important;
   height: auto !important;
   margin: 0 auto;
 }
-.attack-graph-viewport pre.mermaid { min-width: 760px; user-select: text; }
+.attack-graph-viewport pre.mermaid { min-width: 520px; user-select: text; }
 .attack-graph-zoom-label { min-width: 48px; text-align: center; color: var(--accent); font-family: var(--font-mono); font-size: var(--text-xs); }
 
 @media (max-width: 700px) {

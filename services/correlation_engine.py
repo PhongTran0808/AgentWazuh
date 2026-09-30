@@ -357,19 +357,23 @@ def calculate_incident_confidence(
 
 def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> str:
     """
-    Sinh mã Mermaid đồ thị chuỗi tấn công có hướng (Directed Attack Graph):
-    Attacker / Source IP -> Bước 1 (Rule/Tactic) -> Bước 2 -> ... -> Target Entity / Asset
+    Sinh Mermaid attack graph theo chiều dọc.
+
+    Các cảnh báo liên tiếp có cùng rule và nội dung được gom thành một bước
+    ``N lần`` để sơ đồ giữ được thông tin nhưng không biến thành một chuỗi
+    ngang rất dài, khó đọc ở mức zoom mặc định.
     """
     alerts = incident_group.get("alerts", [])
     if not alerts:
-        return "graph LR\n    empty[\"Không có dữ liệu cảnh báo\"]"
+        return "graph TD\n    empty[\"Không có dữ liệu cảnh báo\"]"
 
     sorted_alerts = sorted(alerts, key=lambda a: parse_wazuh_time(a.get("timestamp", "")))
 
     lines = [
-        "graph LR",
+        "graph TD",
         "    classDef attacker fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fecaca;",
         "    classDef step fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#e2e8f0;",
+        "    classDef repeated fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;",
         "    classDef target fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#bbf7d0;"
     ]
 
@@ -386,23 +390,50 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     src_label = clean_text(src_ips[0] if src_ips else "External Attacker / Remote")
     lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
 
-    max_steps = 8
-    displayed_alerts = sorted_alerts[:max_steps]
+    def alert_signature(alert: Dict[str, Any]) -> Tuple[str, str, str]:
+        rule = alert.get("rule", {}) or {}
+        return (
+            clean_text(rule.get("id", "Rule")),
+            clean_text(rule.get("description", "Cảnh báo bảo mật")),
+            clean_text(rule.get("level", 0)),
+        )
+
+    # Collapse only consecutive events. This preserves meaningful stage order
+    # when the same rule appears again later in the incident.
+    grouped_steps: List[Dict[str, Any]] = []
+    for alert in sorted_alerts:
+        signature = alert_signature(alert)
+        if grouped_steps and grouped_steps[-1]["signature"] == signature:
+            grouped_steps[-1]["alerts"].append(alert)
+        else:
+            grouped_steps.append({"signature": signature, "alerts": [alert]})
+
+    max_steps = 10
+    displayed_steps = grouped_steps[:max_steps]
     prev_node_id = src_node_id
 
-    for i, a in enumerate(displayed_alerts):
+    for i, step in enumerate(displayed_steps):
+        a = step["alerts"][0]
         step_id = f"step_{i}"
         r_id = a.get("rule", {}).get("id", "Rule")
         r_lvl = a.get("rule", {}).get("level", 0)
         r_desc = clean_text(a.get("rule", {}).get("description", "Cảnh báo bảo mật"))[:50]
-        step_label = f"Bước {i+1}: Rule {r_id}<br/>{r_desc} (Lvl {r_lvl})"
-        lines.append(f'    {step_id}["{step_label}"]:::step')
+        count = len(step["alerts"])
+        if count > 1:
+            step_label = f"Bước {i+1}: Rule {r_id} ×{count}<br/>{r_desc} (Lvl {r_lvl})<br/><small>{count} cảnh báo tương tự được gom</small>"
+            node_class = "repeated"
+        else:
+            step_label = f"Bước {i+1}: Rule {r_id}<br/>{r_desc} (Lvl {r_lvl})"
+            node_class = "step"
+        lines.append(f'    {step_id}["{step_label}"]:::{node_class}')
         lines.append(f'    {prev_node_id} --> {step_id}')
         prev_node_id = step_id
 
-    if len(sorted_alerts) > max_steps:
+    omitted_steps = grouped_steps[max_steps:]
+    omitted_alerts = sum(len(step["alerts"]) for step in omitted_steps)
+    if omitted_alerts:
         more_id = "step_more"
-        lines.append(f'    {more_id}["... +{len(sorted_alerts) - max_steps} cảnh báo tiếp theo ..."]:::step')
+        lines.append(f'    {more_id}["… +{omitted_alerts} cảnh báo tiếp theo …"]:::step')
         lines.append(f'    {prev_node_id} --> {more_id}')
         prev_node_id = more_id
 

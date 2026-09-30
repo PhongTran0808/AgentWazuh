@@ -1793,7 +1793,7 @@ window.applyXmlRule = async function() {
         `;
     }
 
-            const mermaidCode = group.attack_graph_mermaid || `graph LR\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
+            const mermaidCode = group.attack_graph_mermaid || `graph TD\n    src["Nguồn: ${group.entity || "Attacker"}"] --> dst["Mục Tiêu: DMZ Server"]`;
 
             if (canvas && !canvas.dataset.controlsBound) {
                 const state = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 };

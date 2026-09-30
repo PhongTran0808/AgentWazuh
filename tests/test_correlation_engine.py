@@ -178,7 +178,7 @@ class MultiEntityAndGraphUpgradeTests(unittest.TestCase):
         self.assertGreaterEqual(group["confidence_score"], 40)
         self.assertLessEqual(group["confidence_score"], 98)
         self.assertIn("attack_graph_mermaid", group)
-        self.assertIn("graph LR", group["attack_graph_mermaid"])
+        self.assertIn("graph TD", group["attack_graph_mermaid"])
 
     def test_generate_incident_attack_graph_mermaid_structure(self):
         group = {
@@ -201,13 +201,27 @@ class MultiEntityAndGraphUpgradeTests(unittest.TestCase):
             ]
         }
         mermaid = engine.generate_incident_attack_graph_mermaid(group)
-        self.assertTrue(mermaid.startswith("graph LR"))
+        self.assertTrue(mermaid.startswith("graph TD"))
         self.assertIn("classDef attacker", mermaid)
         self.assertIn("classDef target", mermaid)
         self.assertIn("Nguồn:", mermaid)
         self.assertIn("Mục Tiêu:", mermaid)
         self.assertIn("Bước 1: Rule 5710", mermaid)
         self.assertIn("Bước 2: Rule 100104", mermaid)
+
+    def test_generate_incident_attack_graph_groups_consecutive_repeated_rules(self):
+        group = {
+            "entity": "WEB-01",
+            "alerts": [
+                {"timestamp": f"2026-09-28T09:0{i}:00Z", "rule": {"id": "40704", "level": 5, "description": "Service exited"}}
+                for i in range(6)
+            ]
+        }
+        mermaid = engine.generate_incident_attack_graph_mermaid(group)
+        self.assertIn("graph TD", mermaid)
+        self.assertIn("Rule 40704 ×6", mermaid)
+        self.assertIn("6 cảnh báo tương tự được gom", mermaid)
+        self.assertNotIn('step_1["Bước 2:', mermaid)
 
 
 class WazuhFactualQueryTests(unittest.TestCase):

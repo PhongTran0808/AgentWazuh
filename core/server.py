@@ -38,6 +38,8 @@ for env_file in [BASE_DIR / "pass.env", BASE_DIR / ".env"]:
             for line in env_file.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
+                    if line.startswith("export "):
+                        line = line[7:].lstrip()
                     k, v = line.split("=", 1)
                     os.environ[k.strip()] = v.strip().strip('"').strip("'")
         except Exception as e:

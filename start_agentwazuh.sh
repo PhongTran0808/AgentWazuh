@@ -11,6 +11,25 @@ set -Eeuo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$BASE_DIR"
 
+# Load secrets into this launcher process. Running `bash setup3.sh` in a
+# separate shell cannot export variables into the later `bash start...` call.
+# The path is configurable, with the user's existing PNETLAB bootstrap as the
+# default. pass.env is loaded last so local project values can override it.
+ENV_BOOTSTRAP_FILE="${AGENTWAZUH_ENV_BOOTSTRAP:-/home/xinloihuy/PNETLAB/setup3.sh}"
+if [[ -f "$ENV_BOOTSTRAP_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_BOOTSTRAP_FILE"
+  set +a
+fi
+if [[ -f "$BASE_DIR/pass.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$BASE_DIR/pass.env"
+  set +a
+  chmod 600 "$BASE_DIR/pass.env" 2>/dev/null || true
+fi
+
 PY_BIN=""
 for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
   if command -v "$PY_CANDIDATE" >/dev/null 2>&1 && \
@@ -47,13 +66,13 @@ if ! "$PY_BIN" -c 'import fastapi, uvicorn, telegram, cryptography, networkx' >/
   fi
 fi
 
-if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]] || { [[ -f "$BASE_DIR/pass.env" ]] && grep -q '^TELEGRAM_BOT_TOKEN=' "$BASE_DIR/pass.env"; }; then
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
   echo "✅ Telegram bridge sẽ được khởi động cùng AgentWazuh"
 else
   echo "⚠️ Chưa cấu hình TELEGRAM_BOT_TOKEN; web dashboard vẫn khởi động, Telegram bridge sẽ tắt"
 fi
 
-if [[ -n "${DISCORD_WEBHOOK_URL:-}" ]] || { [[ -f "$BASE_DIR/pass.env" ]] && grep -q '^DISCORD_WEBHOOK_URL=' "$BASE_DIR/pass.env"; }; then
+if [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
   echo "✅ Discord alert forwarding sẽ được khởi động cùng AgentWazuh"
 else
   echo "⚠️ Chưa cấu hình DISCORD_WEBHOOK_URL; Discord forwarding sẽ tắt"

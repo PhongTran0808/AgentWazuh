@@ -509,6 +509,10 @@ class WazuhClient:
 
             aggs_dsl = {
                 "size": 0,
+                # OpenSearch otherwise caps hits.total.value at 10,000. That
+                # made the severity buckets (which were exact) disagree with
+                # the displayed total in the 24-hour report.
+                "track_total_hits": True,
                 "query": {"range": {"timestamp": {"gte": f"now-{hours_back}h", "lte": "now"}}},
                 "aggs": {
                     "by_severity": {
@@ -528,25 +532,68 @@ class WazuhClient:
                             "fixed_interval": "1h",
                             "format": "HH"
                         }
+                    },
+                    "top_rules": {
+                        "terms": {"field": "rule.id", "size": 5, "order": {"_count": "desc"}},
+                        "aggs": {
+                            # top_hits reads one source document and does not
+                            # require fielddata on rule.description.
+                            "sample_alert": {
+                                "top_hits": {
+                                    "size": 1,
+                                    "_source": ["rule.description"]
+                                }
+                            }
+                        }
+                    },
+                    "top_agents": {
+                        "terms": {"field": "agent.name", "size": 5, "order": {"_count": "desc"}}
+                    },
+                    "top_source_ips": {
+                        "terms": {"field": "data.srcip", "size": 5, "order": {"_count": "desc"}}
                     }
                 }
             }
 
-            r = session.post(
-                f"https://{self.host}/api/console/proxy?path=wazuh-alerts-4.x-*%2F_search&method=GET",
-                json=aggs_dsl,
-                headers={"osd-xsrf": "true", "Content-Type": "application/json"},
-                timeout=6
-            )
+            proxy_url = f"https://{self.host}/api/console/proxy?path=wazuh-alerts-4.x-*%2F_search&method=GET"
+            request_headers = {"osd-xsrf": "true", "Content-Type": "application/json"}
+            r = session.post(proxy_url, json=aggs_dsl, headers=request_headers, timeout=6)
+
+            # Some Wazuh/OpenSearch mappings expose description as a text
+            # field without fielddata. A breakdown mapping issue must not
+            # discard the exact severity total, so retry the core aggregation
+            # without optional terms buckets.
+            if r.status_code != 200:
+                core_aggs = {key: aggs_dsl["aggs"][key] for key in ("by_severity", "hourly")}
+                r = session.post(
+                    proxy_url,
+                    json={**aggs_dsl, "aggs": core_aggs},
+                    headers=request_headers,
+                    timeout=6,
+                )
 
             if r.status_code != 200:
                 return {"total_24h": 0, "critical": 0, "high": 0, "medium": 0, "low": 0,
                         "error": f"HTTP {r.status_code}"}
 
             res_json = r.json()
-            total = res_json.get("hits", {}).get("total", {}).get("value", 0)
+            total_hits = res_json.get("hits", {}).get("total", 0)
+            total = total_hits.get("value", 0) if isinstance(total_hits, dict) else total_hits
+            total_relation = total_hits.get("relation") if isinstance(total_hits, dict) else "unknown"
+            try:
+                total = int(total or 0)
+            except (TypeError, ValueError):
+                total = 0
             buckets = res_json.get("aggregations", {}).get("by_severity", {}).get("buckets", [])
             sev_map = {b.get("key"): b.get("doc_count", 0) for b in buckets}
+            categorized_total = sum(int(value or 0) for value in sev_map.values())
+            total_is_exact = total_relation == "eq"
+            if total < categorized_total:
+                # A capped/lower-bound hit count cannot be smaller than its
+                # exact severity buckets. Keep the report internally coherent
+                # and expose the non-exact relation to the renderer.
+                total = categorized_total
+                total_is_exact = False
 
             hourly_buckets = res_json.get("aggregations", {}).get("hourly", {}).get("buckets", [])
             hourly_local = {f"{h:02d}:00": 0 for h in range(24)}
@@ -558,14 +605,41 @@ class WazuhClient:
 
             non_zero_hours = {k: v for k, v in hourly_local.items() if v > 0}
 
+            top_rules = []
+            for bucket in res_json.get("aggregations", {}).get("top_rules", {}).get("buckets", []):
+                sample_hits = bucket.get("sample_alert", {}).get("hits", {}).get("hits", [])
+                sample_source = sample_hits[0].get("_source", {}) if sample_hits else {}
+                sample_rule = sample_source.get("rule", {}) if isinstance(sample_source, dict) else {}
+                description_buckets = bucket.get("rule_description", {}).get("buckets", [])
+                top_rules.append({
+                    "rule_id": str(bucket.get("key", "UNKNOWN")),
+                    "count": int(bucket.get("doc_count", 0) or 0),
+                    "description": (
+                        sample_rule.get("description")
+                        or (description_buckets[0].get("key") if description_buckets else None)
+                        or "Chưa có mô tả"
+                    ),
+                })
+
+            def _top_terms(name: str, key_name: str) -> list:
+                return [
+                    {key_name: str(bucket.get("key", "UNKNOWN")), "count": int(bucket.get("doc_count", 0) or 0)}
+                    for bucket in res_json.get("aggregations", {}).get(name, {}).get("buckets", [])
+                ]
+
             return {
                 "total_24h": total,
+                "total_relation": total_relation,
+                "total_is_exact": total_is_exact,
                 "critical": sev_map.get("critical", 0),
                 "high": sev_map.get("high", 0),
                 "medium": sev_map.get("medium", 0),
                 "low": sev_map.get("low", 0),
                 "hourly_local": hourly_local,
                 "non_zero_hours": non_zero_hours,
+                "top_rules": top_rules,
+                "top_agents": _top_terms("top_agents", "agent"),
+                "top_source_ips": _top_terms("top_source_ips", "source_ip"),
                 "timezone": f"UTC+{tz_offset_hours} (Giờ Việt Nam)",
                 "error": None
             }

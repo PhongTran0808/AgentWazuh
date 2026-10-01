@@ -216,34 +216,125 @@ class IncidentAssistant:
             "báo cáo 24h", "báo cáo 24 giờ", "24 giờ qua", "24h qua",
         ]
         if any(k in q for k in stat_keywords):
-            total = stats.get("total_24h", 0)
-            crit = stats.get("critical", 0)
-            high = stats.get("high", 0)
-            med = stats.get("medium", 0)
-            low = stats.get("low", 0)
+            def _count(name: str) -> int:
+                try:
+                    return max(0, int(stats.get(name, 0) or 0))
+                except (TypeError, ValueError):
+                    return 0
 
-            pct_crit = f"{(crit / max(total, 1) * 100):.1f}%"
-            pct_high = f"{(high / max(total, 1) * 100):.1f}%"
-            pct_med = f"{(med / max(total, 1) * 100):.1f}%"
-            pct_low = f"{(low / max(total, 1) * 100):.1f}%"
+            reported_total = _count("total_24h")
+            crit = _count("critical")
+            high = _count("high")
+            med = _count("medium")
+            low = _count("low")
 
-            verdict = "Hệ thống an toàn, chưa ghi nhận cảnh báo mức độ cao trong 24 giờ qua." if (crit == 0 and high == 0) else f"Phát hiện {crit} cảnh báo Khẩn cấp và {high} cảnh báo mức độ Cao cần Analyst vào can thiệp."
+            # The denominator is the exact OpenSearch hit count. Keep an
+            # explicit unknown bucket when a document has no numeric rule
+            # level, so counts and percentages still reconcile visibly.
+            known_total = crit + high + med + low
+            total = max(reported_total, known_total)
+            total_reconciled = total != reported_total
+            unknown = max(0, total - known_total)
+            severity_rows = [
+                ("Khẩn cấp (Critical)", "Cấp độ 15 trở lên", crit),
+                ("Cao (High)", "Cấp độ 12 đến Cấp độ 14", high),
+                ("Trung bình (Medium)", "Cấp độ 7 đến Cấp độ 11", med),
+                ("Thấp (Low)", "Cấp độ 0 đến Cấp độ 6", low),
+            ]
+            if unknown:
+                severity_rows.append(("Chưa phân loại", "Thiếu Rule Level", unknown))
+
+            # Round for readability, then assign the remainder to the last
+            # row. This prevents 99.9% or 100.1% caused by one-decimal rounding.
+            percentages = []
+            if total == 0:
+                percentages = ["0.0%" for _ in severity_rows]
+            else:
+                rounded_so_far = 0.0
+                for index, (_, _, count) in enumerate(severity_rows):
+                    if index == len(severity_rows) - 1:
+                        percentage = max(0.0, round(100.0 - rounded_so_far, 1))
+                    else:
+                        percentage = round(count / total * 100.0, 1)
+                        rounded_so_far += percentage
+                    percentages.append(f"{percentage:.1f}%")
+
+            severity_table = "\n".join(
+                f"| {label} | {level_range} | `{count}` | {percentage} |"
+                for (label, level_range, count), percentage in zip(severity_rows, percentages)
+            )
+
+            high_risk = crit + high
+            high_risk_pct = f"{(high_risk / max(total, 1) * 100):.1f}%"
+            hourly = stats.get("hourly_local") or {}
+            peak_hour = max(hourly.items(), key=lambda item: item[1]) if hourly else None
+            peak_hour_text = f"`{peak_hour[0]}` với `{peak_hour[1]}` cảnh báo" if peak_hour and peak_hour[1] else "Chưa đủ dữ liệu"
+
+            def _format_breakdown(items: Any, label_key: str, empty: str = "Chưa có dữ liệu") -> str:
+                if not isinstance(items, list) or not items:
+                    return empty
+                lines = []
+                for item in items[:5]:
+                    if not isinstance(item, dict):
+                        continue
+                    label = str(item.get(label_key, "UNKNOWN"))
+                    count = _count_value(item.get("count", 0))
+                    description = item.get("description")
+                    suffix = f" — {description}" if description and label_key == "rule_id" else ""
+                    lines.append(f"  - `{label}`: `{count}` cảnh báo{suffix}")
+                return "\n".join(lines)
+
+            def _count_value(value: Any) -> int:
+                try:
+                    return max(0, int(value or 0))
+                except (TypeError, ValueError):
+                    return 0
+
+            top_rules_text = _format_breakdown(stats.get("top_rules"), "rule_id")
+            top_agents_text = _format_breakdown(stats.get("top_agents"), "agent")
+            top_ips_text = _format_breakdown(stats.get("top_source_ips"), "source_ip")
+            verdict = (
+                "Chưa ghi nhận cảnh báo mức độ Cao hoặc Khẩn cấp trong 24 giờ qua."
+                if high_risk == 0
+                else f"Phát hiện {crit} cảnh báo Khẩn cấp và {high} cảnh báo mức độ Cao; cần ưu tiên triage nhóm cảnh báo này."
+            )
+            stats_error = stats.get("error")
+            source_note = (
+                f"Không thể lấy đầy đủ aggregation: `{stats_error}`."
+                if stats_error else
+                (
+                    "Tổng hiển thị đã được nâng lên bằng tổng các bucket mức độ vì giá trị tổng backend thấp hơn (dấu hiệu hit-count bị cap)."
+                    if total_reconciled
+                    else
+                    "Tổng số là số hit chính xác từ OpenSearch (`track_total_hits=true`), không phải số bản ghi cache hiển thị."
+                    if stats.get("total_is_exact", True)
+                    else "OpenSearch chỉ trả về lower-bound; tổng hiển thị đã được nâng tối thiểu bằng tổng các bucket mức độ và cần kiểm tra lại mapping."
+                )
+            )
 
             return f"""### 📊 BÁO CÁO THỐNG KÊ CẢNH BÁO AN NINH (24 GIỜ QUA)
 
 - **Máy chủ giám sát**: `{host}`
+- **Phạm vi thời gian**: 24 giờ gần nhất, múi giờ `Asia/Ho_Chi_Minh`
 - **Tổng số cảnh báo ghi nhận**: `{total}` cảnh báo
+- **Cảnh báo cần ưu tiên (High + Critical)**: `{high_risk}` cảnh báo ({high_risk_pct})
 
 | Phân Loại Mức Độ | Cấp Độ Cảnh Báo (Rule Level) | Số Lượng Cảnh Báo | Tỷ Lệ Chiếm |
 |---|---|---|---|
-| Khẩn cấp (Critical) | Cấp độ 12 đến Cấp độ 16 | `{crit}` | {pct_crit} |
-| Cao (High) | Cấp độ 10 đến Cấp độ 11 | `{high}` | {pct_high} |
-| Trung bình (Medium) | Cấp độ 7 đến Cấp độ 9 | `{med}` | {pct_med} |
-| Thấp (Low) | Cấp độ 1 đến Cấp độ 6 | `{low}` | {pct_low} |
+{severity_table}
+
+#### 🔎 Điểm đáng chú ý
+- **Khung giờ phát sinh nhiều nhất**: {peak_hour_text}
+- **Top Rule xuất hiện nhiều nhất**:
+{top_rules_text}
+- **Top Agent ghi nhận cảnh báo**:
+{top_agents_text}
+- **Top IP nguồn**:
+{top_ips_text}
 
 #### 📋 Đánh giá An ninh của SOC:
 - **Tình trạng tổng quan**: {verdict}
-- **Nguồn xác thực**: Dữ liệu tổng hợp trực tiếp từ OpenSearch Indexer và Wazuh REST API.
+- **Nguồn xác thực**: Dữ liệu tổng hợp trực tiếp từ OpenSearch Indexer và Wazuh REST API. {source_note}
 """
 
         # 4. Tra cứu Quy tắc (Rule Lookup)

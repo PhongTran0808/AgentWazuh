@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import shutil
 import requests
 from services.chat_intent import classify_chat_intent, is_contextual_security_followup, is_security_related_query
+from services.laya_intent_router import route_intent
 from services.ollama_client import OllamaClient, OllamaError, model_name_from_selection
 from services.wazuh_kb import get_compact_kb_context, render_wazuh_kb_answer
 
@@ -721,9 +722,14 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
             if kb_hit:
                 return kb_hit["markdown"]
         stats = context.get("alert_stats") or {}
-        intent = classify_chat_intent(user_prompt)
+        intent_info = route_intent(user_prompt)
+        intent = {
+            "intent": intent_info.get("legacy_intent", "general"),
+            "format": intent_info.get("format", "direct_answer"),
+            "laya_intent": intent_info.get("intent", "support"),
+        }
 
-        if intent["intent"] == "greeting":
+        if intent["intent"] == "greeting" or (intent["laya_intent"] == "support" and any(k in user_prompt.lower() for k in ("chào", "hello", "hi", "bạn là ai", "trợ giúp"))):
             return """### 👋 AgentWazuh SOC Assistant
 
 Mình có thể hỗ trợ giải thích Wazuh, phân tích alert/incident, hướng dẫn kiểm tra Agent/Manager/API, tương quan sự kiện, tạo bản nháp Rule XML và trình bày kết quả bằng bảng, timeline hoặc sơ đồ.
@@ -811,16 +817,16 @@ Bạn có thể hỏi: `hướng dẫn kiểm tra agent`, `giải thích Rule 57
 - **Ví dụ**: Khi có nhiều lần đăng nhập sai liên tiếp, Wazuh kích hoạt cảnh báo *Rule 100001 - Multiple SSH failed logins*.
 """
 
-        if intent["intent"] == "metrics" and stats:
+        if (intent["intent"] == "metrics" or intent["laya_intent"] == "stats") and stats:
             return self._generate_fallback_analysis(user_prompt, system_context)
 
         # If user asks for investigation, alerts, or incidents, use deterministic SOC engine
-        if intent["intent"] == "investigation" or any(k in q_lower for k in ("phân tích sự cố", "phân tích nhóm sự cố", "phân tích alert", "inc-", "điều tra", "sơ đồ", "playbook")):
+        if (intent["intent"] == "investigation" or intent["laya_intent"] == "investigate") or any(k in q_lower for k in ("phân tích sự cố", "phân tích nhóm sự cố", "phân tích alert", "inc-", "điều tra", "sơ đồ", "playbook")):
             return self._generate_fallback_analysis(user_prompt, system_context)
 
         return f"""### ℹ️ Chưa đủ dữ liệu để trả lời chắc chắn
 
-Mình nhận diện câu hỏi thuộc nhóm **{intent['intent']}** và nên trả lời theo dạng **{intent['format']}**.
+Mình nhận diện câu hỏi thuộc nhóm **{intent['laya_intent']}** và nên trả lời theo dạng **{intent['format']}**.
 
 - Wazuh Manager trong context: `{host}`
 - Cần truy vấn thêm Wazuh hoặc cần bạn cung cấp alert JSON/log cụ thể.
@@ -1012,12 +1018,23 @@ graph TD
         incident_group: Optional[Dict[str, Any]] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         rule_lookup: Optional[Dict[str, Any]] = None,
+        classified_intent: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         
         rule_id = str(alert_data.get("rule", {}).get("id")) if alert_data else None
         static_info = self.lookup_static_rule(rule_id) if rule_id else None
         current_host = system_context.get("host") if (system_context and system_context.get("host") not in ["", "N/A", "admin", "none", "null"]) else os.getenv("WAZUH_HOST", "127.0.0.1")
-        chat_intent = classify_chat_intent(query)
+        
+        # Route intent using Laya model with deterministic fallback
+        intent_info = classified_intent or route_intent(query)
+        laya_intent = intent_info.get("intent", "support")
+        chat_intent = {
+            "intent": intent_info.get("legacy_intent", "general"),
+            "format": intent_info.get("format", "direct_answer"),
+            "laya_intent": laya_intent,
+            "confidence": intent_info.get("confidence", 0.0),
+            "fallback_used": intent_info.get("fallback_used", False),
+        }
 
         # AgentWazuh is a SOC assistant, not a general-purpose chatbot. A
         # selected alert/scope is already security context; otherwise reject
@@ -1026,20 +1043,29 @@ graph TD
             is_security_related_query(str(item.get("content") or ""))
             for item in (conversation_history or [])[-12:]
         )
+        is_contextual_followup = has_security_history and is_contextual_security_followup(query)
+        has_security_context = bool(alert_data or scope_filter or incident_group or is_contextual_followup)
+
         kb_precheck = (
             render_wazuh_kb_answer(query, host=str(current_host))
-            if (not scope_filter and not alert_data and not incident_group)
+            if not has_security_context
             else None
         )
-        if (
-            query.strip()
-            and not is_security_related_query(query)
+
+        # Domain Scope Guard: only active when there is no established security context
+        is_outside_scope = (
+            not has_security_context
             and not kb_precheck
             and chat_intent.get("intent") != "greeting"
-            and not alert_data
-            and not scope_filter
-            and not (has_security_history and is_contextual_security_followup(query))
-        ):
+            and laya_intent != "support"
+            and not is_security_related_query(query)
+            and (
+                laya_intent == "out_of_scope"
+                or (query.strip() and laya_intent not in {"stats", "investigate", "create_rule", "configure", "wazuh_lookup", "case_management", "response_action"})
+            )
+        )
+
+        if is_outside_scope:
             scope_message = (
                 "Mình là AgentWazuh SOC Assistant và chỉ hỗ trợ các nội dung liên quan đến "
                 "an ninh mạng, SIEM, Wazuh, log/alert, điều tra sự cố, giám sát và vận hành bảo mật. "
@@ -1050,11 +1076,63 @@ graph TD
                 "summary": scope_message,
                 "layer_2_llm_reasoning": "OUT_OF_SCOPE",
                 "reasoning_steps": [
-                    {"step": 1, "title": "Domain Scope Check", "status": "COMPLETED", "detail": "Query is outside AgentWazuh security/SIEM scope"},
+                    {"step": 1, "title": "Domain Scope Check", "status": "COMPLETED", "detail": f"Query classified as out_of_scope ({intent_info.get('model_used', 'Laya')})"},
                     {"step": 2, "title": "LLM Routing", "status": "SKIPPED", "detail": "No external model call was made"},
                 ],
-                "evidence": {"source": "AgentWazuh domain policy", "raw_wazuh": [], "normalized_by_python": [], "ai_analysis": {"intent": "out_of_scope"}},
-                "pipeline_evidence": {"source": "AgentWazuh domain policy", "model_used": "None (blocked before LLM)"},
+                "evidence": {
+                    "source": "AgentWazuh domain policy",
+                    "raw_wazuh": [],
+                    "normalized_by_python": [],
+                    "ai_analysis": {
+                        "intent": "out_of_scope",
+                        "intent_classification": intent_info,
+                    },
+                },
+                "pipeline_evidence": {
+                    "source": "AgentWazuh domain policy",
+                    "model_used": "None (blocked before LLM)",
+                    "intent_classification": intent_info,
+                },
+                "chat_intent": chat_intent,
+                "intent_classification": intent_info,
+            }
+
+        # HITL Guard for response_action: Do not execute actions without operator approval
+        if laya_intent == "response_action" and not alert_data and not scope_filter:
+            action_guard_msg = (
+                f"### 🛡️ Yêu Cầu Phản Ứng Sự Cố (Active Response / HITL Guard)\n\n"
+                f"Yêu cầu được phân loại vào nhóm hành động phản ứng: `{query}`.\n\n"
+                f"Theo nguyên tắc an toàn SOC và kiểm soát HITL:\n"
+                f"- Các hành động có tác động lên hệ thống (block IP, cô lập máy trạm, restart dịch vụ, active-response) "
+                f"**không được phép thực thi tự động từ câu chat thô**.\n"
+                f"- Yêu cầu phải được kích hoạt từ giao diện **Phản ứng Sự cố (Active Response)** hoặc API có token phê duyệt (Approval ID) của Operator.\n"
+                f"- Độ tin cậy nhận diện: **{intent_info.get('confidence', 1.0) * 100:.1f}%** ({intent_info.get('model_used')})."
+            )
+            return {
+                "summary": action_guard_msg,
+                "layer_2_llm_reasoning": action_guard_msg,
+                "threat_classification": "CRITICAL",
+                "reasoning_steps": [
+                    {"step": 1, "title": "Intent Routing (Laya)", "status": "COMPLETED", "detail": f"Classified as response_action ({intent_info.get('confidence')})"},
+                    {"step": 2, "title": "HITL Authorization Guard", "status": "COMPLETED", "detail": "Execution halted; requires explicit operator approval token"},
+                ],
+                "evidence": {
+                    "source": "Laya Active Router + HITL Authorization Guard",
+                    "raw_wazuh": [],
+                    "normalized_by_python": [],
+                    "ai_analysis": {
+                        "intent": chat_intent,
+                        "threat_classification": "CRITICAL",
+                        "static_lookup": static_info,
+                    },
+                },
+                "pipeline_evidence": {
+                    "source": "Laya Active Router + HITL Authorization Guard",
+                    "model_used": intent_info.get("model_used", "Laya"),
+                    "intent_classification": intent_info,
+                },
+                "chat_intent": chat_intent,
+                "intent_classification": intent_info,
             }
 
         # Nếu là câu hỏi trực tiếp về dữ liệu thực tế Wazuh Server, trả lời ngay bằng Ground-Truth chuẩn xác 100%
@@ -1106,7 +1184,8 @@ graph TD
                             "static_lookup": static_info,
                             "model_used": "Deterministic Wazuh lookup",
                         },
-                    }
+                    },
+                    "intent_classification": intent_info,
                 }
 
         # Tra cứu tức thì Kho Tri Thức Cục Bộ Wazuh SIEM (0 Token, <1ms, kèm ảnh SVG minh họa)
@@ -1143,6 +1222,7 @@ graph TD
                         },
                     },
                     "chat_intent": chat_intent,
+                    "intent_classification": intent_info,
                 }
 
         model_label = "AgentWazuh AI (PI.dev / cloud)"
@@ -1471,6 +1551,7 @@ RÀNG BUỘC PHÂN TÍCH (STRICT GROUNDING & ZERO HALLUCINATION):
             "config_form": None,
             "anti_hallucination_guarded": True,
             "pipeline_evidence": pipeline_evidence,
+            "intent_classification": intent_info,
         }
 
     def _parse_drilldown_placeholders(self, text: str) -> str:

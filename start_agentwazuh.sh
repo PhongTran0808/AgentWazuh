@@ -30,8 +30,11 @@ if [[ -f "$BASE_DIR/pass.env" ]]; then
   chmod 600 "$BASE_DIR/pass.env" 2>/dev/null || true
 fi
 
+export LAYA_DEVICE="${LAYA_DEVICE:-cuda}"
+export LAYA_MODEL_PATH="${LAYA_MODEL_PATH:-/home/xinloihuy/Documents/AgentWazuh_dataset/laya_finetuned_typed_decisions}"
+
 PY_BIN=""
-for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
+for PY_CANDIDATE in "/home/xinloihuy/Documents/AgentWazuh_dataset/laya_venv/bin/python3" python3.12 python3.11 python3.10 python3; do
   if command -v "$PY_CANDIDATE" >/dev/null 2>&1 && \
      "$PY_CANDIDATE" -c 'import fastapi, uvicorn, telegram, cryptography, networkx' >/dev/null 2>&1; then
     PY_BIN="$(command -v "$PY_CANDIDATE")"
@@ -40,7 +43,7 @@ for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
 done
 
 if [[ -z "$PY_BIN" ]]; then
-  for PY_CANDIDATE in python3.12 python3.11 python3.10 python3; do
+  for PY_CANDIDATE in "/home/xinloihuy/Documents/AgentWazuh_dataset/laya_venv/bin/python3" python3.12 python3.11 python3.10 python3; do
     if command -v "$PY_CANDIDATE" >/dev/null 2>&1; then
       PY_BIN="$(command -v "$PY_CANDIDATE")"
       break
@@ -76,6 +79,12 @@ if [[ -n "${DISCORD_WEBHOOK_URL:-}" ]]; then
   echo "✅ Discord alert forwarding sẽ được khởi động cùng AgentWazuh"
 else
   echo "⚠️ Chưa cấu hình DISCORD_WEBHOOK_URL; Discord forwarding sẽ tắt"
+fi
+
+if [[ -d "${LAYA_MODEL_PATH:-}" ]]; then
+  echo "✅ Laya Intent Classifier (${LAYA_DEVICE:-cuda}) sẵn sàng: $LAYA_MODEL_PATH"
+else
+  echo "⚠️ Không tìm thấy LAYA_MODEL_PATH; sẽ dùng deterministic keyword fallback"
 fi
 
 MCP_URL="http://127.0.0.1:3000"

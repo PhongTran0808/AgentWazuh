@@ -51,6 +51,7 @@ from services.incident_assistant import IncidentAssistant, IncidentAssistantServ
 from services.ollama_client import OllamaClient, OllamaError
 from services.solpi_wazuh import WazuhSoLPi
 from services.audit_logger import audit_logger
+from services.laya_intent_router import route_intent
 from services.correlation_engine import (
     deduplicate_alerts,
     correlate_alerts,
@@ -2355,10 +2356,23 @@ async def process_telegram_message(chat_id: int, query: str, user_label: str = "
             system_status.setdefault("status", "offline")
             system_status["error"] = str(exc)
 
+    loop = asyncio.get_event_loop()
+    classified_intent = await loop.run_in_executor(None, lambda: route_intent(query))
+    if classified_intent.get("intent") == "out_of_scope" and not classified_intent.get("fallback_used", False):
+        return (
+            "Mình là AgentWazuh SOC Assistant và chỉ hỗ trợ các nội dung liên quan đến "
+            "an ninh mạng, SIEM, Wazuh, log/alert, điều tra sự cố, giám sát và vận hành bảo mật. "
+            "Câu hỏi hiện tại nằm ngoài phạm vi đó nên mình không thể trả lời."
+        )
+    if classified_intent.get("intent") == "response_action":
+        return (
+            "🛡️ **Cảnh báo HITL Guard**: Yêu cầu phản ứng sự cố (Response Action) "
+            "cần được thực hiện và phê duyệt trực tiếp bởi Operator trên Web Dashboard có phân quyền xác thực."
+        )
+
     receipt = solpi_wazuh.build_investigation_package(
         session_id, query, alert_to_use, alerts, system_status
     )
-    loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
         lambda: assistant.investigate_incident(
@@ -2368,6 +2382,7 @@ async def process_telegram_message(chat_id: int, query: str, user_label: str = "
             is_global_chat=True,
             recent_alerts=alerts,
             solpi_receipt=receipt.to_prompt_context(),
+            classified_intent=classified_intent,
         ),
     )
     return str(result.get("layer_2_llm_reasoning") or "Không có phản hồi từ AgentWazuh.")
@@ -2523,10 +2538,55 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             None, lambda: wazuh_client.get_rule_definition(requested_rule_id)
         )
 
+    # Classify user query via Laya Active Router
+    classified_intent = None
+    if req.query:
+        classified_intent = await _investigate_loop.run_in_executor(
+            None, lambda: route_intent(req.query)
+        )
+    laya_intent = classified_intent.get("intent") if classified_intent else None
+
     # Router LangGraph Form Engine (HITL StateGraph)
     q_lower = req.query.lower()
-    is_config_request = any(kw in q_lower for kw in ["cấu hình", "thêm rule", "tạo rule", "sửa rule", "thiết lập", "tạo quy tắc", "mở form"])
+    is_config_request = (laya_intent in {"create_rule", "configure"}) or any(kw in q_lower for kw in ["cấu hình", "thêm rule", "tạo rule", "sửa rule", "thiết lập", "tạo quy tắc", "mở form"])
     active_form = ACTIVE_FORM_SESSIONS.get(session)
+
+    # HITL Safety Guard for response_action (block IP, isolate agent, etc.)
+    if laya_intent == "response_action" and not alert_to_use and not active_form:
+        action_summary = (
+            f"🛡️ **Yêu Cầu Phản Ứng Sự Cố (Active Response / HITL Guard)**\n\n"
+            f"Hệ thống nhận diện yêu cầu hành động phản ứng: `{req.query}`.\n\n"
+            f"Theo chính sách kiểm soát an toàn SOC (HITL):\n"
+            f"- Mọi hành động có tác động lên hệ thống (như block IP, cô lập máy trạm, restart dịch vụ) "
+            f"**không được phép thực thi tự động từ câu chat thô**.\n"
+            f"- Yêu cầu bắt buộc phải qua phê duyệt xác nhận của Operator với token phân quyền hợp lệ.\n"
+            f"- Mô hình định tuyến: `{classified_intent.get('model_used')}` (Độ tin cậy: {classified_intent.get('confidence', 1.0) * 100:.1f}%).\n\n"
+            f"Vui lòng vào tab **Phản ứng Sự cố (Active Response)** để kiểm tra và xác nhận hành động."
+        )
+        return {
+            "status": "success",
+            "investigation": {
+                "summary": action_summary,
+                "layer_2_llm_reasoning": action_summary,
+                "threat_classification": "CRITICAL",
+                "intent_classification": classified_intent,
+                "reasoning_steps": [
+                    {"step": 1, "title": "Intent Routing (Laya)", "status": "COMPLETED", "detail": f"Classified as response_action ({classified_intent.get('confidence')})"},
+                    {"step": 2, "title": "HITL Authorization Guard", "status": "COMPLETED", "detail": "Action halted pending operator confirmation"},
+                ],
+                "evidence": {
+                    "source": "Laya Active Router + HITL Authorization Guard",
+                    "raw_wazuh": [],
+                    "normalized_by_python": [],
+                    "ai_analysis": {"intent": classified_intent},
+                },
+                "pipeline_evidence": {
+                    "source": "Laya Active Router + HITL Authorization Guard",
+                    "model_used": classified_intent.get("model_used", "Laya"),
+                    "intent_classification": classified_intent,
+                },
+            }
+        }
 
     if is_config_request or (active_form and active_form.get("status") != "applied"):
         rule_defaults = infer_rule_form_defaults(req.query)
@@ -2571,6 +2631,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 solpi_receipt=solpi_receipt.to_prompt_context(),
                 incident_group=incident_group,
                 rule_lookup=rule_lookup,
+                classified_intent=classified_intent,
             )
             result["solpi"] = {
                 "observation_handle": solpi_receipt.handle,
@@ -2579,6 +2640,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
                 "evidence_count": len(solpi_receipt.evidence),
             }
             result["active_form_session"] = active_form
+            result["intent_classification"] = classified_intent
             return {"status": "success", "investigation": result}
 
         # Run LangGraph StateGraph
@@ -2607,7 +2669,8 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             "status": "success",
             "investigation": {
                 "summary": f"⚙️ **LangGraph StateGraph Engine**: Đã chạy qua các nút `collect_field` ➔ `dry_run_check` ➔ `await_human_approval`.\nCấu hình Rule nháp ID `{lg_state.get('sandbox_result', {}).get('tested_rule_id')}` đã được tạo. Vui lòng kiểm tra và bấm **'Duyệt & Áp dụng'**.",
-                "active_form_session": form_session_data
+                "active_form_session": form_session_data,
+                "intent_classification": classified_intent,
             }
         }
 
@@ -2627,6 +2690,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         solpi_receipt=solpi_receipt.to_prompt_context(),
         incident_group=incident_group,
         rule_lookup=rule_lookup,
+        classified_intent=classified_intent,
     )
     result["solpi"] = {
         "observation_handle": solpi_receipt.handle,
@@ -2641,6 +2705,7 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
         "incident_id": requested_incident_id,
         "scoped_alert_count": len(analysis_alerts),
     }
+    result["intent_classification"] = classified_intent
 
     if active_form:
         result["active_form_session"] = active_form

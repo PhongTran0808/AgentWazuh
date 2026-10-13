@@ -1084,6 +1084,7 @@ pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--
 .msg-text > :last-child { margin-bottom: 0; }
 .msg-text p { margin: 0.5em 0; }
 .msg-text pre { overflow-x: auto; padding: var(--space-2xs); background: var(--paper-sunk); border-radius: var(--radius-sm); }
+.msg-text img { display: block; max-width: 100%; height: auto; margin: 0.65rem 0; border-radius: var(--radius-md); border: 1px solid var(--rule-soft); }
 
 .step-item.completed strong { color: var(--ink); }
 

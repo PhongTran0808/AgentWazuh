@@ -1,0 +1,359 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentWazuh — LOGIC THẬT SỰ 100%: Tự Động Gom Nhóm Cứ Mỗi 15 Giây & Khi Vừa Mở Trang Web",
+    "subtitle": "Mặc định `currentViewMode = 'group'` (web/app.js dòng 349 & 1446): Vừa mở trang là tự động hút 1000 Log (24h) -> Lọc rác & Gom nhóm (Hộp 4) -> Hiển thị ngay cột phải (kể cả khi chưa bấm gì!)",
+    "output": ".archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "locale": "vi",
+    "translations": {
+      "viewer.passport.eyebrow": "Chi tiết chức năng của Hộp",
+      "viewer.passport.metadata": "Thông tin định danh",
+      "viewer.passport.evidence": "Chức năng chính & Vị trí Code",
+      "viewer.passport.verified": "Chức năng thực thi (Click xem):",
+      "viewer.passport.reach": "Truy vết đường đi từ hộp này",
+      "viewer.passport.upstream": "Luồng đi vào",
+      "viewer.passport.downstream": "Luồng đi ra",
+      "viewer.passport.close": "Đóng bảng chi tiết",
+      "viewer.passport.copy": "Sao chép link",
+      "viewer.passport.relations": "Các mũi tên nối",
+      "viewer.passport.relations.show": "Hiện các mũi tên kết nối",
+      "viewer.passport.relations.hide": "Ẩn các mũi tên kết nối",
+      "viewer.passport.relations.list": "Các đường đi nối với hộp này",
+      "viewer.passport.relationship.summary": "Đi ra: {out} nhánh · Đi vào: {in} nhánh{loops}",
+      "viewer.passport.relationship.group.out": "Mũi tên đi ra",
+      "viewer.passport.relationship.group.in": "Mũi tên đi vào",
+      "viewer.passport.relationship.direction.out": "Đi ra →",
+      "viewer.passport.relationship.direction.in": "← Đi vào",
+      "viewer.passport.sourceMarker": "Code"
+    },
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:PhongTran0808/AgentWazuh.git",
+      "link_mode": "local-only",
+      "revision": "28b212adadb18e9283e1c5df0844469661240edd"
+    },
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "frontend": { "label": "Trình Duyệt Web (Tự Gọi Gom Nhóm Mỗi 15s)" },
+        "backend": { "label": "Bộ Điều Phối & Bộ Lọc Rác / Gom Nhóm" },
+        "database": { "label": "Kho Bộ Đệm RAM (5) & Sổ Kiểm Toán Ổ Đĩa (8)" },
+        "cloud": { "label": "Trợ Lý AI (Đọc Trực Tiếp Từ RAM + Chống Bịa)" },
+        "security": { "label": "Máy Chủ Wazuh & Kiểm Duyệt Luật XML" }
+      }
+    },
+    "views": [
+      {
+        "id": "vong_1_tu_dong_gom_nhom_15s",
+        "label": "Vòng 1: Vừa Mở Web Là Tự Động Gom Nhóm (15s/lần)",
+        "focus": ["soc_channels", "fastapi_core", "wazuh_connector", "wazuh_siem", "correlation_engine", "local_cache_store"],
+        "note": "0 -> 3 -> 1 -> 2 (hút 1000 Log) -> 4 (lọc rác, nén 60s, gom nhóm, chấm điểm) -> 5 (RAM) -> Hiện ngay cột phải!"
+      },
+      {
+        "id": "vong_2_khi_chat_hoac_bam_phan_tich",
+        "label": "Vòng 2: Khi Bấm Vào Nhóm Sự Cố Hoặc Gõ Chat",
+        "focus": ["soc_channels", "fastapi_core", "local_cache_store", "solpi_ledger", "incident_assistant", "response_channels"],
+        "note": "0 -> 3 (kiểm tra RAM, thiếu thì qua 1->2) -> 5 -> 9 (AI phân tích + chống bịa) -> 10 -> 0. Song song: 5 -> 8 (ghi audit)."
+      },
+      {
+        "id": "vong_3_tao_luat_langgraph",
+        "label": "Vòng 3: Tạo Luật Chặn Tấn Công (3+4➔6➔7➔2)",
+        "focus": ["fastapi_core", "correlation_engine", "langgraph_hitl", "config_manager", "wazuh_siem"],
+        "note": "0 -> 3 (Lệnh + 200 Log RAM) -> 6 (LangGraph viết nháp + gọi hàm chạy thử từ 4) -> 7 (kiểm tra XML) -> 2 (nạp vào Wazuh)."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "wazuh_connector",
+      "type": "backend",
+      "label": "1. Bộ Kết Nối (WazuhClient)",
+      "sublabel": "Cầu nối gọi API 55000 (Agent) & 9200 (Log)",
+      "tag": "services/wazuh_client.py",
+      "pos": [430, 72],
+      "size": [228, 68],
+      "sources": [
+        { "path": "services/wazuh_client.py", "line": 80, "end_line": 160, "label": "1. Đăng nhập JWT & kết nối Wazuh Manager" },
+        { "path": "services/wazuh_client.py", "line": 220, "end_line": 340, "label": "2. Hút 1000 Log 24h & tìm Log theo ID" },
+        { "path": "services/wazuh_client.py", "line": 480, "end_line": 620, "label": "3. Lấy thống kê 24h & tra cứu Rule gốc" }
+      ]
+    },
+    {
+      "id": "wazuh_siem",
+      "type": "security",
+      "label": "2. Máy Chủ Wazuh & OpenSearch",
+      "sublabel": "Kho chứa Log gốc, Danh sách Agent & Luật XML",
+      "tag": "wazuh-alerts-4.x-*",
+      "pos": [860, 72],
+      "size": [228, 68],
+      "sources": [
+        { "path": "mcp_layer/wazuh_mcp.py", "line": 27, "end_line": 60, "label": "1. Lưu trữ toàn bộ Log cảnh báo gốc" },
+        { "path": "mcp_layer/wazuh_mcp.py", "line": 61, "end_line": 97, "label": "2. Quản lý trạng thái các máy trạm Agent" },
+        { "path": "mcp_layer/wazuh_mcp.py", "line": 98, "end_line": 125, "label": "3. Nạp & thực thi bộ Luật phát hiện tấn công" }
+      ]
+    },
+    {
+      "id": "config_manager",
+      "type": "security",
+      "label": "7. Bộ Ghi Luật (ConfigManager)",
+      "sublabel": "Sao lưu file cũ, Kiểm tra XML & Khởi động lại",
+      "tag": "wazuh_config_manager.py",
+      "pos": [1290, 72],
+      "size": [228, 68],
+      "sources": [
+        { "path": "integrations/wazuh_config_manager.py", "line": 94, "end_line": 145, "label": "1. Sao lưu file luật cũ trước khi sửa" },
+        { "path": "integrations/wazuh_config_manager.py", "line": 146, "end_line": 210, "label": "2. Kiểm tra cú pháp XML (sai tự hoàn tác)" },
+        { "path": "integrations/wazuh_config_manager.py", "line": 211, "end_line": 285, "label": "3. Ghi vào local_rules.xml & restart Wazuh" }
+      ]
+    },
+    {
+      "id": "soc_channels",
+      "type": "frontend",
+      "label": "0. Trình Duyệt Web SOC (app.js)",
+      "sublabel": "Mặc định bật Tab Nhóm, tự gọi lấy nhóm mỗi 15s",
+      "tag": "Mặc định: Tab Nhóm Sự Cố",
+      "pos": [16, 256],
+      "size": [228, 68],
+      "sources": [
+        { "path": "web/app.js", "line": 349, "end_line": 350, "label": "1. Mặc định chọn sẵn tab 'Nhóm sự cố'" },
+        { "path": "web/app.js", "line": 818, "end_line": 860, "label": "2. Tự gọi /alerts/correlated lấy nhóm" },
+        { "path": "web/app.js", "line": 1446, "end_line": 1455, "label": "3. Chạy ngay khi mở Web & lặp mỗi 15s" }
+      ]
+    },
+    {
+      "id": "fastapi_core",
+      "type": "backend",
+      "label": "3. Bộ Điều Phối (FastAPI Server)",
+      "sublabel": "Kiểm tra RAM trước: Có -> lấy luôn; Thiếu -> gọi 1",
+      "tag": "core/server.py",
+      "pos": [430, 256],
+      "size": [228, 68],
+      "sources": [
+        { "path": "core/server.py", "line": 534, "end_line": 566, "label": "1. Kiểm tra RAM (Hộp 5) xem có dữ liệu chưa" },
+        { "path": "core/server.py", "line": 2475, "end_line": 2515, "label": "2. Nếu RAM thiếu hoặc >30s -> Gọi sang Hộp 1" },
+        { "path": "core/server.py", "line": 2526, "end_line": 2648, "label": "3. Chia luồng: Tạo luật (6) hoặc Hỏi AI (9)" }
+      ]
+    },
+    {
+      "id": "correlation_engine",
+      "type": "backend",
+      "label": "4. Bộ Lọc Rác, Gom Nhóm & Chấm Điểm",
+      "sublabel": "Lọc IP rác, Nén trùng 60s, Đồ thị & Chấm điểm",
+      "tag": "Chạy Tự Động Mỗi 15s",
+      "pos": [860, 356],
+      "size": [228, 68],
+      "sources": [
+        { "path": "services/correlation_engine.py", "line": 36, "end_line": 230, "label": "1. Trích xuất IP/Rule/MITRE & Lọc bỏ IP rác" },
+        { "path": "services/correlation_engine.py", "line": 540, "end_line": 600, "label": "2. Nén gộp cảnh báo trùng lặp trong 60 giây" },
+        { "path": "services/correlation_engine.py", "line": 703, "end_line": 898, "label": "3. Nối đồ thị NetworkX & Chấm điểm Priority" }
+      ]
+    },
+    {
+      "id": "langgraph_hitl",
+      "type": "backend",
+      "label": "6. Quy Trình Tạo Luật (LangGraph)",
+      "sublabel": "Viết nháp XML -> Chạy thử trên 200 Log -> Chờ duyệt",
+      "tag": "config_form_graph.py",
+      "pos": [1290, 256],
+      "size": [228, 68],
+      "sources": [
+        { "path": "langgraph_engine/graphs/config_form_graph.py", "line": 38, "end_line": 75, "label": "1. Thu thập tham số & Sinh mã XML nháp" },
+        { "path": "langgraph_engine/graphs/config_form_graph.py", "line": 76, "end_line": 95, "label": "2. Gọi dry_run_rule (Hộp 4) test 200 Log" },
+        { "path": "langgraph_engine/graphs/config_form_graph.py", "line": 96, "end_line": 115, "label": "3. Tạm dừng chờ người dùng bấm Phê duyệt" }
+      ]
+    },
+    {
+      "id": "local_cache_store",
+      "type": "database",
+      "label": "5. Kho Bộ Đệm RAM & Snapshot",
+      "sublabel": "Lưu sẵn 1000 Log & Nhóm INC-xxx để cấp thẳng cho AI",
+      "tag": "GLOBAL_ALERTS_CACHE",
+      "pos": [430, 444],
+      "size": [228, 68],
+      "sources": [
+        { "path": "core/server.py", "line": 487, "end_line": 533, "label": "1. Lưu bản chụp cố định cho mỗi nhóm INC-xxx" },
+        { "path": "core/server.py", "line": 581, "end_line": 598, "label": "2. Giữ sẵn 1000 Log mới nhất trong bộ nhớ RAM" },
+        { "path": "core/server.py", "line": 2407, "end_line": 2412, "label": "3. Cấp thẳng dữ liệu từ RAM xuống AI (Hộp 9)" }
+      ]
+    },
+    {
+      "id": "solpi_ledger",
+      "type": "database",
+      "label": "8. Sổ Nhật Ký Kiểm Toán (SoL-Pi)",
+      "sublabel": "Ghi bản sao bằng chứng ra ổ đĩa & Cấp mã SHA-256",
+      "tag": "Lưu Audit (Không chặn đường)",
+      "pos": [860, 556],
+      "size": [228, 68],
+      "sources": [
+        { "path": "services/solpi_wazuh.py", "line": 70, "end_line": 115, "label": "1. Băm SHA-256 & ghi bằng chứng ra ổ đĩa" },
+        { "path": "services/solpi_wazuh.py", "line": 116, "end_line": 145, "label": "2. Ghi nối tiếp vào sổ cái ledger.jsonl" },
+        { "path": "services/solpi_wazuh.py", "line": 146, "end_line": 188, "label": "3. Tạo mã biên lai đính kèm vào Prompt AI" }
+      ]
+    },
+    {
+      "id": "response_channels",
+      "type": "frontend",
+      "label": "10. Cổng Trả Kết Quả & Cảnh Báo",
+      "sublabel": "Hiển thị Cột phải, Khung Chat, Telegram & Discord",
+      "tag": "Trả Về Màn Hình",
+      "pos": [16, 624],
+      "size": [228, 68],
+      "sources": [
+        { "path": "web/app.js", "line": 957, "end_line": 1055, "label": "1. Hiển thị thẻ Nhóm sự cố & Báo cáo Chat" },
+        { "path": "services/telegram_bot.py", "line": 152, "end_line": 202, "label": "2. Trả lời & điều tra qua Bot Telegram" },
+        { "path": "services/discord_webhook.py", "line": 168, "end_line": 238, "label": "3. Bắn cảnh báo tự động sang kênh Discord" }
+      ]
+    },
+    {
+      "id": "incident_assistant",
+      "type": "cloud",
+      "label": "9. Trợ Lý AI & Chốt Chống Bịa Đặt",
+      "sublabel": "Nhận dữ liệu từ RAM (5) + Python khóa số liệu thật",
+      "tag": "incident_assistant.py",
+      "pos": [430, 624],
+      "size": [228, 68],
+      "sources": [
+        { "path": "services/incident_assistant.py", "line": 1053, "end_line": 1100, "label": "1. Hỏi số liệu: Python trả lời thẳng (0% bịa)" },
+        { "path": "services/incident_assistant.py", "line": 1197, "end_line": 1265, "label": "2. Python tính sẵn thống kê thật từ Kho RAM" },
+        { "path": "services/incident_assistant.py", "line": 1266, "end_line": 1336, "label": "3. Khóa cứng dữ liệu vào Prompt cấm AI tự bịa" }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "user_to_core",
+      "from": "soc_channels",
+      "to": "fastapi_core",
+      "label": "1. Mở Web (tự gọi 15s) / Chat",
+      "variant": "emphasis"
+    },
+    {
+      "id": "core_to_connector",
+      "from": "fastapi_core",
+      "to": "wazuh_connector",
+      "label": "2a. Tự động gọi mỗi 15s (hoặc khi thiếu)"
+    },
+    {
+      "id": "connector_to_siem",
+      "from": "wazuh_connector",
+      "to": "wazuh_siem",
+      "label": "2b. Hút 1000 Log (24h) & 200 Log mới"
+    },
+    {
+      "id": "siem_to_correlation",
+      "from": "wazuh_siem",
+      "to": "correlation_engine",
+      "label": "2c. Đổ thẳng xuống lọc rác & gom nhóm",
+      "variant": "emphasis"
+    },
+    {
+      "id": "correlation_to_cache",
+      "from": "correlation_engine",
+      "to": "local_cache_store",
+      "label": "2d. Lưu Nhóm Sự Cố INC-xxx & đẩy lên Web",
+      "variant": "emphasis"
+    },
+    {
+      "id": "core_to_hitl",
+      "from": "fastapi_core",
+      "to": "langgraph_hitl",
+      "label": "3a. Truyền Lệnh + 200 Log từ RAM sang",
+      "variant": "security"
+    },
+    {
+      "id": "correlation_to_hitl",
+      "from": "correlation_engine",
+      "to": "langgraph_hitl",
+      "label": "3b. Cấp hàm dry_run_rule() chạy thử"
+    },
+    {
+      "id": "hitl_to_config",
+      "from": "langgraph_hitl",
+      "to": "config_manager",
+      "label": "3c. Người duyệt xong -> Chuyển ghi",
+      "variant": "security"
+    },
+    {
+      "id": "config_to_siem",
+      "from": "config_manager",
+      "to": "wazuh_siem",
+      "label": "3d. Sao lưu & Nạp Luật vào Wazuh",
+      "variant": "dashed"
+    },
+    {
+      "id": "core_to_cache",
+      "from": "fastapi_core",
+      "to": "local_cache_store",
+      "label": "4a. Kiểm tra & Lấy dữ liệu trong Kho RAM",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cache_to_assistant",
+      "from": "local_cache_store",
+      "to": "incident_assistant",
+      "label": "4b. Lấy THẲNG dữ liệu từ RAM đưa vào AI",
+      "variant": "emphasis"
+    },
+    {
+      "id": "cache_to_solpi",
+      "from": "local_cache_store",
+      "to": "solpi_ledger",
+      "label": "4c. Ghi 1 bản lưu trữ kiểm toán ra ổ đĩa"
+    },
+    {
+      "id": "solpi_to_assistant",
+      "from": "solpi_ledger",
+      "to": "incident_assistant",
+      "label": "4d. Đính kèm mã biên lai SHA-256"
+    },
+    {
+      "id": "assistant_to_response",
+      "from": "incident_assistant",
+      "to": "response_channels",
+      "label": "5a. Xuất Báo Cáo & Chuỗi Tấn Công",
+      "variant": "emphasis"
+    },
+    {
+      "id": "response_to_user",
+      "from": "response_channels",
+      "to": "soc_channels",
+      "label": "5b. Trả kết quả về màn hình",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Vòng 1 — Tự Động Mỗi 15s & Khi Mở Web",
+      "items": [
+        "0 (app.js, mặc định tab Nhóm) → 3 (/alerts/correlated) → 1 (WazuhClient) → 2 (Wazuh: hút 1000 Log 24h) → 4 (Lọc IP rác → Nén trùng 60s → NetworkX → Chấm điểm) → 5 (RAM, ghi INC-xxx) → Hiển thị cột phải.",
+        "Kích hoạt: DOMContentLoaded (dòng 1446) + setInterval 15s (dòng 1454) + SSE alert mới (dòng 859). Chưa cần bấm gì!"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Vòng 2 — Khi Bấm INC-xxx Hoặc Gõ Chat",
+      "items": [
+        "Đường chính: 0 → 3 (kiểm tra RAM _cache_age ≤30s) → 5 → 9 (AI + chống bịa ngay trong 9) → 10 → 0.",
+        "Song song: 5 → 8 (ghi audit backup ra ổ đĩa + tạo mã SHA-256) → 9 (đính kèm biên lai SHA-256 vào prompt, không phải nguồn dữ liệu).",
+        "Thiếu dữ liệu (cache_age >30s hoặc không tìm thấy alert): 3 → 1 → 2 → 4 → 5 → 9."
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Vòng 3 — Khi Tạo Luật Chặn Tấn Công",
+      "items": [
+        "0 → 3 (Lệnh + lấy 200 Log từ RAM) → 6 (LangGraph: Viết nháp → dry_run_rule() từ Hộp 4 → Chờ người duyệt) → 7 (ConfigManager: sao lưu + kiểm tra XML) → 2 (Nạp luật vào Wazuh)."
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Hộp 8 (SoL-Pi) — Sổ Nhật Ký Kiểm Toán (Không Phải Nguồn AI)",
+      "items": [
+        "5 → 8: Ghi bản backup bằng chứng xuống data/solpi_wazuh/observations/<sha256>.json + ledger.jsonl.",
+        "8 → 9: Chỉ đính kèm mã biên lai SHA-256 vào prompt. AI lấy DỮ LIỆU từ Hộp 5 (RAM), không đọc từ ổ đĩa."
+      ]
+    }
+  ]
+}

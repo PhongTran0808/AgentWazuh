@@ -1,0 +1,1045 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-13T03:14:18.049Z",
+  "specification": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "sha256": "6401000247675f01568323463d9046447c446d02fec87487d634fdd57d1d502c",
+    "bytes": 16154
+  },
+  "artifact": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "sha256": "6291bc647c9b5bb341d819b59d1fa795628e7abef970a041fb91133702d0be4d",
+    "bytes": 785341
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/usr/bin/node",
+        "/home/kweismann/.gemini/config/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "6401000247675f01568323463d9046447c446d02fec87487d634fdd57d1d502c",
+          "bytes": 16154
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 604,
+      "command": [
+        "/usr/bin/node",
+        "/home/kweismann/.gemini/config/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "d1fa0d09-adfd-4024-9b87-ffb22f42354f",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+        "output": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "specification": {
+          "sha256": "6401000247675f01568323463d9046447c446d02fec87487d634fdd57d1d502c",
+          "bytes": 16154
+        },
+        "artifact": {
+          "sha256": "6291bc647c9b5bb341d819b59d1fa795628e7abef970a041fb91133702d0be4d",
+          "bytes": 785341
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "git@github.com:PhongTran0808/AgentWazuh",
+          "revision": "28b212adadb18e9283e1c5df0844469661240edd",
+          "references": 22,
+          "linkMode": "local-only"
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 122,
+      "command": [
+        "/usr/bin/node",
+        "/home/kweismann/.gemini/config/skills/archify/bin/archify.mjs",
+        "check",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "artifact": {
+          "sha256": "6291bc647c9b5bb341d819b59d1fa795628e7abef970a041fb91133702d0be4d",
+          "bytes": 785341
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 1,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 24.5,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 6.911424903722722,
+            "maxBends": 2,
+            "routesOverSuggestedBends": 0,
+            "maxStretch": 1,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 61,
+            "minInteriorSegmentPx": 61,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [
+              {
+                "left": {
+                  "id": "siem_to_correlation",
+                  "from": "wazuh_siem",
+                  "to": "correlation_engine",
+                  "label": "2c. Đổ thẳng xuống lọc rác &amp; gom nhóm",
+                  "collectionIndex": 3,
+                  "artifactIndex": 4
+                },
+                "right": {
+                  "id": "core_to_hitl",
+                  "from": "fastapi_core",
+                  "to": "langgraph_hitl",
+                  "label": "3a. Truyền Lệnh + 200 Log từ RAM sang",
+                  "collectionIndex": 5,
+                  "artifactIndex": 6
+                },
+                "point": [
+                  974,
+                  283
+                ]
+              }
+            ],
+            "detours": []
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 72,
+            "emptyTopRatio": 0.095,
+            "occupiedTop": 72,
+            "viewBoxTop": 0,
+            "canvasHeight": 760,
+            "typicalNodeHeight": 68,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1490.625,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": false,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": "user_to_core",
+              "from": "soc_channels",
+              "to": "fastapi_core"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 6.911424903722722,
+            "semanticTextCount": 37
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "d1fa0d09-adfd-4024-9b87-ffb22f42354f"
+      }
+    },
+    "browser-check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 1495,
+      "command": [
+        "/usr/bin/node",
+        "/home/kweismann/.gemini/config/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "--json",
+        "--require-provenance",
+        "--out-dir",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-9"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "pass",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "d1fa0d09-adfd-4024-9b87-ffb22f42354f",
+        "artifact": {
+          "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+          "sha256": "6291bc647c9b5bb341d819b59d1fa795628e7abef970a041fb91133702d0be4d",
+          "bytes": 785341
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "/tmp/archify_chrome_bin/google-chrome"
+        },
+        "diagnostics": [],
+        "containment": {
+          "status": "pass",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 115,
+                "diagramChromePx": 78,
+                "svgPx": 657,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 6.911424903722722,
+              "minimumProjectedNonEdgeTextPx": 7.775353016688062,
+              "minimumProjectedEdgeTextPx": 6.911424903722722,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1499,
+              "diagramWidth": 1469,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 123,
+                "diagramChromePx": 84,
+                "svgPx": 717,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 7.543003851091142,
+              "minimumProjectedNonEdgeTextPx": 8.485879332477534,
+              "minimumProjectedEdgeTextPx": 7.543003851091142,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1740,
+              "diagramWidth": 1710,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 86,
+                "diagramChromePx": 84,
+                "svgPx": 834,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 94,
+                "diagramChromePx": 94,
+                "svgPx": 912,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "themeStates": {
+          "status": "pass",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "requestedTheme": "light",
+              "resolvedTheme": "light",
+              "ok": true
+            },
+            {
+              "width": 1440,
+              "height": 900,
+              "requestedTheme": "dark",
+              "resolvedTheme": "dark",
+              "ok": true
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "requestedTheme": "dark",
+              "resolvedTheme": "dark",
+              "ok": true
+            }
+          ]
+        },
+        "readability": {
+          "status": "pass",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 115,
+                "diagramChromePx": 78,
+                "svgPx": 657,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 6.911424903722722,
+              "minimumProjectedNonEdgeTextPx": 7.775353016688062,
+              "minimumProjectedEdgeTextPx": 6.911424903722722,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1499,
+              "diagramWidth": 1469,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 123,
+                "diagramChromePx": 84,
+                "svgPx": 717,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 7.543003851091142,
+              "minimumProjectedNonEdgeTextPx": 8.485879332477534,
+              "minimumProjectedEdgeTextPx": 7.543003851091142,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1740,
+              "diagramWidth": 1710,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 86,
+                "diagramChromePx": 84,
+                "svgPx": 834,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 94,
+                "diagramChromePx": 94,
+                "svgPx": 912,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "viewerChrome": {
+          "status": "pass",
+          "viewports": [
+            {
+              "width": 1440,
+              "height": 900,
+              "theme": "light",
+              "innerWidth": 1440,
+              "innerHeight": 900,
+              "scrollWidth": 1440,
+              "scrollHeight": 900,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1376,
+              "diagramWidth": 1346,
+              "pageComposition": {
+                "bodyPaddingPx": 12,
+                "headerPx": 115,
+                "diagramChromePx": 78,
+                "svgPx": 657,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 6.911424903722722,
+              "minimumProjectedNonEdgeTextPx": 7.775353016688062,
+              "minimumProjectedEdgeTextPx": 6.911424903722722,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1600,
+              "height": 1000,
+              "theme": "light",
+              "innerWidth": 1600,
+              "innerHeight": 1000,
+              "scrollWidth": 1600,
+              "scrollHeight": 1000,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1499,
+              "diagramWidth": 1469,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 123,
+                "diagramChromePx": 84,
+                "svgPx": 717,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 7.543003851091142,
+              "minimumProjectedNonEdgeTextPx": 8.485879332477534,
+              "minimumProjectedEdgeTextPx": 7.543003851091142,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "theme": "light",
+              "innerWidth": 1920,
+              "innerHeight": 1080,
+              "scrollWidth": 1920,
+              "scrollHeight": 1080,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1740,
+              "diagramWidth": 1710,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 86,
+                "diagramChromePx": 84,
+                "svgPx": 834,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 54,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            },
+            {
+              "width": 2048,
+              "height": 1320,
+              "theme": "light",
+              "innerWidth": 2048,
+              "innerHeight": 1320,
+              "scrollWidth": 2048,
+              "scrollHeight": 1320,
+              "overflowX": false,
+              "overflowY": false,
+              "verticalScrollAccepted": false,
+              "overflowDisposition": "contained",
+              "readerLayout": "adaptive",
+              "readerOverflow": null,
+              "readerFit": "intrinsic-height",
+              "ok": true,
+              "readerWidth": 1920,
+              "diagramWidth": 1870,
+              "pageComposition": {
+                "bodyPaddingPx": 64,
+                "headerPx": 94,
+                "diagramChromePx": 94,
+                "svgPx": 912,
+                "cardsPx": 0,
+                "viewBoxHeight": 760
+              },
+              "viewBoxWidth": 1558,
+              "minimumProjectedNodeTextPx": 8,
+              "minimumProjectedNonEdgeTextPx": 9,
+              "minimumProjectedEdgeTextPx": 8,
+              "minimumProjectedNodeText": "1. Mở Web (tự gọi 15s) / Chat",
+              "minimumProjectedNodeTextDetail": "edge",
+              "minimumProjectedNodeTextOwner": {
+                "kind": "edge",
+                "id": "user_to_core",
+                "from": "soc_channels",
+                "to": "fastapi_core"
+              },
+              "minimumRequiredNodeTextPx": 6,
+              "readabilityOk": true,
+              "hasLegend": true,
+              "hasNavigationDock": true,
+              "legendDockIntersectionArea": 0,
+              "dockStageIntersectionArea": 0,
+              "dockStageGap": 10,
+              "requiredDockStageGap": 10,
+              "viewerChromeStageOk": true,
+              "viewerChromeReserve": 44,
+              "viewerChromeActive": true,
+              "viewerChromeOk": true,
+              "resolvedTheme": "light"
+            }
+          ]
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "directory": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-9",
+          "receipt": "agentwazuh-logic-vi.browser-check.json",
+          "files": []
+        }
+      }
+    }
+  },
+  "diagnostics": [],
+  "evidence": {
+    "receipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-9/agentwazuh-logic-vi.finalize.json",
+    "summaryReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-9/agentwazuh-logic-vi.finalize-summary.json",
+    "browserCheckReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-9/agentwazuh-logic-vi.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "finishedAt": "2026-10-13T03:14:20.395Z",
+  "durationMs": 2345,
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T01:56:36.899Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  }
+}

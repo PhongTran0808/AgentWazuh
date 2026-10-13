@@ -595,6 +595,17 @@ class WazuhClient:
                 total = categorized_total
                 total_is_exact = False
 
+            # Fallback thông minh cho môi trường Lab/Demo: Nếu trong 24h qua
+            # chưa phát sinh log mới (total == 0) nhưng trong 30 ngày (720h)
+            # vẫn có dữ liệu (đồng bộ với get_latest_alerts), tự động mở rộng
+            # cửa sổ thống kê lên 720h để tránh báo cáo 0 cảnh báo.
+            if total == 0 and categorized_total == 0 and hours_back and hours_back < 720:
+                fallback_stats = self.get_alert_stats_aggregated(hours_back=720, tz_offset_hours=tz_offset_hours)
+                if fallback_stats.get("total_24h", 0) > 0:
+                    fallback_stats["window_hours"] = 720
+                    fallback_stats["fallback_from_hours"] = hours_back
+                    return fallback_stats
+
             hourly_buckets = res_json.get("aggregations", {}).get("hourly", {}).get("buckets", [])
             hourly_local = {f"{h:02d}:00": 0 for h in range(24)}
             for hb in hourly_buckets:
@@ -629,6 +640,7 @@ class WazuhClient:
 
             return {
                 "total_24h": total,
+                "window_hours": hours_back,
                 "total_relation": total_relation,
                 "total_is_exact": total_is_exact,
                 "critical": sev_map.get("critical", 0),
@@ -688,17 +700,22 @@ class WazuhClient:
             logger.error(f"[OpenSearch Query] Error: {e}")
         return []
 
-    def get_latest_alerts(self, limit: int = 200, hours_back: int = 720) -> list:
+    def get_latest_alerts(self, limit: int = 200, hours_back: Optional[int] = 720) -> list:
         """
         Fetch live alerts for UI Preview (fast path, capped at `limit`).
         For correlation, use get_alerts_for_correlation() instead.
         """
         if not self.host:
             return []
+        query_clause = (
+            {"range": {"timestamp": {"gte": f"now-{hours_back}h", "lte": "now"}}}
+            if hours_back and hours_back > 0
+            else {"match_all": {}}
+        )
         search_dsl = {
             "size": limit,
             "sort": [{"timestamp": {"order": "desc"}}],
-            "query": {"range": {"timestamp": {"gte": f"now-{hours_back}h", "lte": "now"}}},
+            "query": query_clause,
             "_source": [
                 "timestamp", "id",
                 "rule.id", "rule.level", "rule.description", "rule.groups",
@@ -753,9 +770,9 @@ class WazuhClient:
         if not self.host:
             return []
 
-        must_clauses = [
-            {"range": {"timestamp": {"gte": f"now-{hours_back}h", "lte": "now"}}}
-        ]
+        must_clauses = []
+        if hours_back and hours_back > 0:
+            must_clauses.append({"range": {"timestamp": {"gte": f"now-{hours_back}h", "lte": "now"}}})
         if agent_id:
             must_clauses.append({"term": {"agent.id": agent_id}})
         if source_ip:
@@ -764,7 +781,7 @@ class WazuhClient:
         search_dsl = {
             "size": max_results,
             "sort": [{"timestamp": {"order": "desc"}}],
-            "query": {"bool": {"must": must_clauses}},
+            "query": {"bool": {"must": must_clauses}} if must_clauses else {"match_all": {}},
             "_source": [
                 "timestamp", "id",
                 "rule.id", "rule.level", "rule.description", "rule.groups",
@@ -779,5 +796,13 @@ class WazuhClient:
             ]
         }
         alerts = self._fetch_alerts_opensearch(search_dsl, timeout=10)
+        if not alerts and hours_back and hours_back < 720:
+            logger.info(f"[CORRELATION_RETRIEVAL] 0 alerts in {hours_back}h — expanding window to 720h (30d)")
+            return self.get_alerts_for_correlation(
+                hours_back=720,
+                max_results=max_results,
+                agent_id=agent_id,
+                source_ip=source_ip,
+            )
         logger.info(f"[CORRELATION_RETRIEVAL] Fetched {len(alerts)} alerts (last {hours_back}h)")
         return alerts

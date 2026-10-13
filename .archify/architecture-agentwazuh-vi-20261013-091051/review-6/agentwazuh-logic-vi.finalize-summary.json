@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "sha256": "573c58b92aad36e0b747a04a1e40b409b8e0ad28f9d7a2bcceed8374fd865cec",
+    "bytes": 16047
+  },
+  "artifact": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "sha256": "418f191e96305aedf851c100c8e79a9640b291de383d08a161a0cdaee4ab5454",
+    "bytes": 785256
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-6/agentwazuh-logic-vi.finalize.json",
+    "summaryReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-6/agentwazuh-logic-vi.finalize-summary.json",
+    "browserCheckReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-6/agentwazuh-logic-vi.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T01:56:36.899Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2078,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "resolvedCrossovers": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [
+        {
+          "left": {
+            "id": "siem_to_correlation",
+            "from": "wazuh_siem",
+            "to": "correlation_engine",
+            "label": "2c. Đổ 200 Log gốc xuống gom nhóm",
+            "collectionIndex": 3,
+            "artifactIndex": 4
+          },
+          "right": {
+            "id": "core_to_hitl",
+            "from": "fastapi_core",
+            "to": "langgraph_hitl",
+            "label": "3a. Điều phối LỆNH yêu cầu tạo Luật",
+            "collectionIndex": 5,
+            "artifactIndex": 6
+          },
+          "point": [
+            974,
+            283
+          ]
+        }
+      ],
+      "detours": [],
+      "truncated": false
+    },
+    "hints": [
+      "wazuh_siem → correlation_engine crosses fastapi_core → langgraph_hitl: move the node of whichever is a branch, return, or second entrance to the other side of the main path, so that relationship runs through an empty corridor."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

@@ -12,6 +12,7 @@ import shutil
 import requests
 from services.chat_intent import classify_chat_intent, is_contextual_security_followup, is_security_related_query
 from services.ollama_client import OllamaClient, OllamaError, model_name_from_selection
+from services.wazuh_kb import get_compact_kb_context, render_wazuh_kb_answer
 
 logger = logging.getLogger("IncidentAssistant")
 
@@ -715,6 +716,10 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
 
         context = system_context or {}
         host = context.get("wazuh_host") or context.get("host") or os.getenv("WAZUH_HOST", "chưa xác định")
+        if allow_static_lookup:
+            kb_hit = render_wazuh_kb_answer(user_prompt, host=str(host))
+            if kb_hit:
+                return kb_hit["markdown"]
         stats = context.get("alert_stats") or {}
         intent = classify_chat_intent(user_prompt)
 
@@ -1021,9 +1026,15 @@ graph TD
             is_security_related_query(str(item.get("content") or ""))
             for item in (conversation_history or [])[-12:]
         )
+        kb_precheck = (
+            render_wazuh_kb_answer(query, host=str(current_host))
+            if (not scope_filter and not alert_data and not incident_group)
+            else None
+        )
         if (
             query.strip()
             and not is_security_related_query(query)
+            and not kb_precheck
             and chat_intent.get("intent") != "greeting"
             and not alert_data
             and not scope_filter
@@ -1098,6 +1109,42 @@ graph TD
                     }
                 }
 
+        # Tra cứu tức thì Kho Tri Thức Cục Bộ Wazuh SIEM (0 Token, <1ms, kèm ảnh SVG minh họa)
+        # cho các câu hỏi về nút chức năng, cách thêm thiết bị, đọc log ở đâu, xử lý lỗi Wazuh...
+        if not scope_filter and not alert_data and not incident_group:
+            kb_hit = render_wazuh_kb_answer(query, host=str(current_host))
+            if kb_hit:
+                kb_md = kb_hit["markdown"]
+                return {
+                    "summary": kb_md,
+                    "layer_2_llm_reasoning": kb_md,
+                    "reasoning_steps": [
+                        {"step": 1, "title": "Local Wazuh SIEM Knowledge Base", "status": "COMPLETED", "detail": f"Matched topic: {kb_hit['topic_id']} (0 LLM tokens)"},
+                        {"step": 2, "title": "Visual SVG Guide & Playbook", "status": "COMPLETED", "detail": f"Attached illustration: {kb_hit['image_url']}"},
+                    ],
+                    "evidence": {
+                        "source": "Local Wazuh SIEM Knowledge Base (config/wazuh_knowledge_base.json)",
+                        "raw_wazuh": [],
+                        "normalized_by_python": [{"topic_id": kb_hit["topic_id"], "title": kb_hit["title"]}],
+                        "ai_analysis": {
+                            "intent": chat_intent,
+                            "threat_classification": "INFO",
+                            "model_used": "Local Wazuh KB (0 tokens)",
+                        },
+                    },
+                    "pipeline_evidence": {
+                        "source": "Local Wazuh SIEM Knowledge Base",
+                        "raw_wazuh": [],
+                        "normalized_by_python": [{"topic_id": kb_hit["topic_id"], "title": kb_hit["title"]}],
+                        "ai_analysis": {
+                            "intent": chat_intent,
+                            "threat_classification": "INFO",
+                            "model_used": "Local Wazuh KB (0 tokens)",
+                        },
+                    },
+                    "chat_intent": chat_intent,
+                }
+
         model_label = "AgentWazuh AI (PI.dev / cloud)"
         selected_model = str(model_override or "").strip()
         if selected_model.lower().startswith("ollama/"):
@@ -1127,6 +1174,9 @@ graph TD
         threat_class = self._classify_threat(alert_data, static_info)
 
         context_lines = [f"- Nguồn Máy Chủ Wazuh Server: {current_host}"]
+        kb_snippet = get_compact_kb_context(query)
+        if kb_snippet:
+            context_lines.append(f"- TÀI LIỆU CHUẨN WAZUH SIEM CỤC BỘ:\n{kb_snippet}")
         if incident_group:
             snapshot_id = incident_group.get("snapshot_id") or incident_group.get("incident_id") or incident_group.get("group_id")
             snapshot_created_at = incident_group.get("snapshot_created_at") or "không rõ"

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "sha256": "bb1196cfeecef9a68a94a2c9c04908a897b579833c6f5da662f7a345f2eafdeb",
+    "bytes": 16846
+  },
+  "artifact": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "sha256": "037aab989a17eff64caf61a471c18f7264db12245e3402c52ff47a4b9098e43c",
+    "bytes": 782511
+  },
+  "gates": {
+    "validate": "fail",
+    "deliver": "not-run",
+    "check": "not-run",
+    "browser-check": "not-run"
+  },
+  "failedStage": "validate",
+  "diagnostics": [
+    {
+      "code": "schema/maxLength",
+      "severity": "error",
+      "message": "/components/10/sources/0/label (id/label: \"1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)\") must NOT have more than 48 characters {\"limit\":48}",
+      "subject": {
+        "diagramType": "architecture",
+        "path": "/components/10/sources/0/label",
+        "identity": "1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)"
+      },
+      "evidence": {
+        "keyword": "maxLength",
+        "limit": 48
+      },
+      "supportedFixes": [
+        "provide at most 48 character(s)"
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-11/agentwazuh-logic-vi.finalize.json",
+    "summaryReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-11/agentwazuh-logic-vi.finalize-summary.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T01:56:36.899Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 310,
+  "nextAction": {
+    "action": "edit-in-place",
+    "candidate": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "constraint": "Preserve all semantics and user-fixed geometry. Use references/architecture-layout-repair.md to choose a local repair or connected-scene reflow; edit the existing candidate.",
+    "then": "finalize-once"
+  }
+}

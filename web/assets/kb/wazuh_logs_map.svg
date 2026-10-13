@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111c33"/>
+    </linearGradient>
+  </defs>
+  <rect width="820" height="300" rx="14" fill="url(#bg3)" stroke="#1e293b" stroke-width="2"/>
+  <text x="24" y="34" fill="#f59e0b" font-family="sans-serif" font-size="15" font-weight="bold">BẢN ĐỒ ĐƯỜNG DẪN ĐỌC LOG &amp; CẤU HÌNH WAZUH SERVER (/var/ossec/)</text>
+
+  <!-- Col 1: Logs -->
+  <rect x="24" y="56" width="376" height="220" rx="10" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+  <text x="42" y="82" fill="#38bdf8" font-family="sans-serif" font-size="13" font-weight="bold">📂 1. THƯ MỤC ĐỌC LOG (/var/ossec/logs/)</text>
+
+  <rect x="40" y="96" width="344" height="48" rx="6" fill="#1e293b"/>
+  <text x="52" y="115" fill="#7dd3fc" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/logs/alerts/alerts.json</text>
+  <text x="52" y="133" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Chứa toàn bộ Cảnh báo đã khớp Rule (Filebeat đọc từ đây)</text>
+
+  <rect x="40" y="152" width="344" height="48" rx="6" fill="#1e293b"/>
+  <text x="52" y="171" fill="#fcd34d" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/logs/ossec.log</text>
+  <text x="52" y="189" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Log hệ thống của Wazuh (lỗi kết nối Agent, lỗi nạp Rule XML)</text>
+
+  <rect x="40" y="208" width="344" height="52" rx="6" fill="#1e293b"/>
+  <text x="52" y="227" fill="#a7f3d0" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/logs/archives/archives.json</text>
+  <text x="52" y="245" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Chứa 100% Log thô (kể cả log chưa khớp Rule nào)</text>
+
+  <!-- Col 2: Config & Rules -->
+  <rect x="420" y="56" width="376" height="220" rx="10" fill="#0f172a" stroke="#10b981" stroke-width="1.8"/>
+  <text x="438" y="82" fill="#10b981" font-family="sans-serif" font-size="13" font-weight="bold">⚙️ 2. THƯ MỤC LUẬT &amp; CẤU HÌNH (/var/ossec/etc/)</text>
+
+  <rect x="436" y="96" width="344" height="48" rx="6" fill="#1e293b"/>
+  <text x="448" y="115" fill="#6ee7b7" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/etc/ossec.conf</text>
+  <text x="448" y="133" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Cấu hình chính (Cổng nhận Syslog 514, FIM, Active Response)</text>
+
+  <rect x="436" y="152" width="344" height="48" rx="6" fill="#1e293b"/>
+  <text x="448" y="171" fill="#f472b6" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/etc/rules/local_rules.xml</text>
+  <text x="448" y="189" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Nơi thêm Luật tùy chỉnh (Rule ID từ 100000 ➔ 120000)</text>
+
+  <rect x="436" y="208" width="344" height="52" rx="6" fill="#1e293b"/>
+  <text x="448" y="227" fill="#c084fc" font-family="monospace" font-size="11" font-weight="bold">/var/ossec/etc/decoders/local_decoder.xml</text>
+  <text x="448" y="245" fill="#cbd5e1" font-family="sans-serif" font-size="10">➔ Nơi viết bộ tách trường (Decoder) cho định dạng Log mới</text>
+</svg>

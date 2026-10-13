@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "sha256": "48ed9591aeb86faec575db6f49e70e081057ab222211cc4aaa3c3a3b368d8f2c",
+    "bytes": 16054
+  },
+  "artifact": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "sha256": "4b26faee49c23fc2c903803f929a40d911844639d2dbe6494d0cb2ef6a9bd901",
+    "bytes": 784041
+  },
+  "gates": {
+    "validate": "fail",
+    "deliver": "not-run",
+    "check": "not-run",
+    "browser-check": "not-run"
+  },
+  "failedStage": "validate",
+  "diagnostics": [
+    {
+      "code": "composition/label-route-clearance",
+      "severity": "error",
+      "message": "[composition/label-route-clearance] showcase architecture label \"4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256\" on connections[11] id \"cache_to_solpi\" \"local_cache_store\" -> \"solpi_ledger\" label \"4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256\" is 3.1px from connections[4] id \"correlation_to_cache\" \"correlation_engine\" -> \"local_cache_store\" label \"2d. Cất Nhóm Sự Cố vào Kho RAM (Hộp 5)\" segment 1 [759, 390] -> [759, 471] (label rect [576, 474, 212, 14]; minimum 4px) — adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel.",
+      "subject": {
+        "diagramType": "architecture",
+        "collection": "connections",
+        "index": 11,
+        "id": "cache_to_solpi",
+        "from": "local_cache_store",
+        "to": "solpi_ledger"
+      },
+      "evidence": {
+        "label": "4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256",
+        "otherRelationship": {
+          "diagramType": "architecture",
+          "collection": "connections",
+          "index": 4,
+          "id": "correlation_to_cache",
+          "from": "correlation_engine",
+          "to": "local_cache_store"
+        },
+        "segmentIndex": 1,
+        "clearancePx": 3.1,
+        "minimumPx": 4,
+        "labelRect": {
+          "relation": {
+            "id": "cache_to_solpi",
+            "from": "local_cache_store",
+            "to": "solpi_ledger",
+            "label": "4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256"
+          },
+          "relationIndex": 11,
+          "label": "4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256",
+          "x": 576.2,
+          "y": 474.05,
+          "width": 211.6,
+          "height": 14,
+          "lx": 682,
+          "ly": 484.05
+        },
+        "from": [
+          759,
+          390
+        ],
+        "to": [
+          759,
+          471
+        ]
+      },
+      "supportedFixes": [
+        "adjust labelAt, labelDx, labelDy, or labelSegment; otherwise adjust the other relationship route/via/channel"
+      ]
+    },
+    {
+      "code": "layout/constraint",
+      "severity": "error",
+      "message": "Label \"4c. Trích Log sang Lưu Ổ Đĩa & Băm SHA-256\" overlaps component \"local_cache_store\" — adjust labelDx/labelDy/labelSegment or set labelAt.\n  label rect: [576, 474, 212, 14]\n  component \"local_cache_store\" rect: [430, 444, 228, 68]\n  Suggested fix: set labelAt [682, 526] or set labelDy 42 (below); or set labelAt [682, 436] or set labelDy -48 (above)",
+      "subject": {
+        "diagramType": "architecture"
+      }
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 2,
+    "shown": 2,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-5/agentwazuh-logic-vi.finalize.json",
+    "summaryReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-5/agentwazuh-logic-vi.finalize-summary.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T01:56:36.899Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 379,
+  "nextAction": {
+    "action": "edit-in-place",
+    "candidate": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "constraint": "Preserve all semantics and user-fixed geometry. Use references/architecture-layout-repair.md to choose a local repair or connected-scene reflow; edit the existing candidate.",
+    "then": "finalize-once"
+  }
+}

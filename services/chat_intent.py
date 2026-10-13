@@ -11,10 +11,16 @@ SECURITY_SCOPE_MARKERS = (
     "log", "rest api", "mitre", "ioc", "incident", "security", "cyber", "cybersecurity",
     "firewall", "ids", "ips", "endpoint", "edr", "xdr", "threat", "malware", "ransomware",
     "phishing", "brute force", "vulnerability", "cve", "file integrity", "fim",
-    # Vietnamese security vocabulary
+    "syscheck", "sca", "active response", "filebeat", "indexer", "decoder", "ossec",
+    "ossec.conf", "ossec.log", "alerts.json", "archives.json", "local_rules.xml",
+    "hitl", "dry-run", "logtest", "wazuh-logtest", "daemon", "jwt", "cheatsheet",
+    # Vietnamese security & UI operational vocabulary
     "an ninh", "bảo mật", "an toàn thông tin", "tấn công", "sự cố", "cảnh báo", "nhật ký",
     "mã độc", "virus", "lỗ hổng", "xác thực", "phân quyền", "đặc quyền", "giám sát",
     "điều tra", "truy vết", "phát hiện xâm nhập", "máy chủ", "thiết bị", "mạng máy tính",
+    "thêm thiết bị", "máy trạm", "tường lửa", "fortigate", "nút này", "nút chạy thử", "giao diện",
+    "cột bên phải", "nhóm sự cố", "sơ đồ tấn công", "gói tin api", "kiểm kê thiết bị",
+    "bản đồ mạng", "đọc log", "xem log", "cổng 1514", "cổng 1515", "cổng 55000", "cổng 9200",
     # Dashboard-wide SOC reports may omit the words "Wazuh" and "alert".
     "báo cáo", "24h", "24 giờ", "24 giờ qua",
 )

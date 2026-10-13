@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 290" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111c33"/>
+    </linearGradient>
+    <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981"/>
+    </marker>
+  </defs>
+  <rect width="820" height="290" rx="14" fill="url(#bg2)" stroke="#1e293b" stroke-width="2"/>
+  <text x="24" y="34" fill="#10b981" font-family="sans-serif" font-size="15" font-weight="bold">QUY TRÌNH 3 BƯỚC THÊM THIẾT BỊ VÀO WAZUH SERVER</text>
+
+  <!-- Step 1 -->
+  <rect x="24" y="58" width="235" height="206" rx="10" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+  <text x="42" y="86" fill="#38bdf8" font-family="sans-serif" font-size="13" font-weight="bold">BƯỚC 1: CÀI GÓI AGENT</text>
+  <text x="42" y="110" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Máy Linux (Ubuntu/Debian/RHEL):</text>
+  <rect x="38" y="118" width="206" height="36" rx="5" fill="#1e293b"/>
+  <text x="46" y="134" fill="#38bdf8" font-family="monospace" font-size="10">WAZUH_MANAGER="IP_SERVER"</text>
+  <text x="46" y="148" fill="#93c5fd" font-family="monospace" font-size="10">apt install wazuh-agent</text>
+  <text x="42" y="174" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Thiết bị mạng (FortiGate/Router):</text>
+  <rect x="38" y="182" width="206" height="42" rx="5" fill="#1e293b"/>
+  <text x="46" y="198" fill="#10b981" font-family="monospace" font-size="10">Bật gửi Syslog (UDP 514)</text>
+  <text x="46" y="214" fill="#94a3b8" font-family="monospace" font-size="10">về IP của Wazuh Server</text>
+
+  <line x1="259" y1="160" x2="291" y2="160" stroke="#10b981" stroke-width="2" marker-end="url(#arr2)"/>
+
+  <!-- Step 2 -->
+  <rect x="295" y="58" width="235" height="206" rx="10" fill="#0f172a" stroke="#f59e0b" stroke-width="1.8"/>
+  <text x="313" y="86" fill="#f59e0b" font-family="sans-serif" font-size="13" font-weight="bold">BƯỚC 2: KHỞI ĐỘNG &amp; ĐĂNG KÝ</text>
+  <text x="313" y="110" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Bật dịch vụ trên máy trạm:</text>
+  <rect x="309" y="118" width="206" height="48" rx="5" fill="#1e293b"/>
+  <text x="317" y="135" fill="#fcd34d" font-family="monospace" font-size="10">systemctl enable wazuh-agent</text>
+  <text x="317" y="153" fill="#fcd34d" font-family="monospace" font-size="10">systemctl start wazuh-agent</text>
+  <text x="313" y="186" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Tự động nhận Key qua cổng 1515</text>
+  <text x="313" y="206" fill="#94a3b8" font-family="sans-serif" font-size="10">và truyền Log về cổng 1514.</text>
+  <text x="313" y="230" fill="#94a3b8" font-family="sans-serif" font-size="10">(Windows: Start-Service WazuhSvc)</text>
+
+  <line x1="530" y1="160" x2="562" y2="160" stroke="#10b981" stroke-width="2" marker-end="url(#arr2)"/>
+
+  <!-- Step 3 -->
+  <rect x="566" y="58" width="230" height="206" rx="10" fill="#0f172a" stroke="#10b981" stroke-width="1.8"/>
+  <text x="584" y="86" fill="#10b981" font-family="sans-serif" font-size="13" font-weight="bold">BƯỚC 3: KIỂM TRA KẾT NỐI</text>
+  <text x="584" y="110" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Trên Wazuh Server:</text>
+  <rect x="580" y="118" width="202" height="34" rx="5" fill="#1e293b"/>
+  <text x="588" y="139" fill="#6ee7b7" font-family="monospace" font-size="10">/var/ossec/bin/agent_control -l</text>
+  <text x="584" y="172" fill="#e2e8f0" font-family="sans-serif" font-size="11">• Trên Web AgentWazuh:</text>
+  <rect x="580" y="180" width="202" height="64" rx="5" fill="#064e3b"/>
+  <text x="590" y="200" fill="#a7f3d0" font-family="sans-serif" font-size="11" font-weight="bold">Vào mục "Kiểm kê thiết bị"</text>
+  <text x="590" y="218" fill="#d1fae5" font-family="sans-serif" font-size="10">hoặc gõ Chat: "Danh sách agent"</text>
+  <text x="590" y="234" fill="#6ee7b7" font-family="sans-serif" font-size="10">➔ Trạng thái báo 🟢 ACTIVE</text>
+</svg>

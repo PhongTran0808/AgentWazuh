@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 290" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bg5" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111c33"/>
+    </linearGradient>
+  </defs>
+  <rect width="820" height="290" rx="14" fill="url(#bg5)" stroke="#1e293b" stroke-width="2"/>
+  <text x="24" y="34" fill="#f43f5e" font-family="sans-serif" font-size="15" font-weight="bold">BẢNG CHẨN ĐOÁN NHANH 3 LỖI PHỔ BIẾN TRÊN WAZUH SERVER</text>
+
+  <!-- Issue 1 -->
+  <rect x="24" y="56" width="246" height="210" rx="10" fill="#0f172a" stroke="#f43f5e" stroke-width="1.8"/>
+  <text x="40" y="82" fill="#f43f5e" font-family="sans-serif" font-size="12" font-weight="bold">1. AGENT BÁO DISCONNECTED</text>
+  <text x="40" y="104" fill="#cbd5e1" font-family="sans-serif" font-size="10">• Nguyên nhân: Tắt máy trạm, chặn</text>
+  <text x="40" y="120" fill="#cbd5e1" font-family="sans-serif" font-size="10">cổng TCP 1514, hoặc dịch vụ dừng.</text>
+  <rect x="38" y="132" width="218" height="118" rx="6" fill="#1e293b"/>
+  <text x="48" y="152" fill="#fcd34d" font-family="sans-serif" font-size="10" font-weight="bold">Cách khắc phục trên Agent:</text>
+  <text x="48" y="170" fill="#7dd3fc" font-family="monospace" font-size="9.5">systemctl restart wazuh-agent</text>
+  <text x="48" y="190" fill="#7dd3fc" font-family="monospace" font-size="9.5">nc -zv IP_WAZUH_SERVER 1514</text>
+  <text x="48" y="212" fill="#94a3b8" font-family="sans-serif" font-size="9.5">Xem lỗi: tail -n 30</text>
+  <text x="48" y="228" fill="#94a3b8" font-family="monospace" font-size="9.5">/var/ossec/logs/ossec.log</text>
+
+  <!-- Issue 2 -->
+  <rect x="287" y="56" width="246" height="210" rx="10" fill="#0f172a" stroke="#f59e0b" stroke-width="1.8"/>
+  <text x="303" y="82" fill="#f59e0b" font-family="sans-serif" font-size="12" font-weight="bold">2. KHÔNG CÓ LOG MỚI (0 ALERT)</text>
+  <text x="303" y="104" fill="#cbd5e1" font-family="sans-serif" font-size="10">• Nguyên nhân: Dịch vụ Filebeat hoặc</text>
+  <text x="303" y="120" fill="#cbd5e1" font-family="sans-serif" font-size="10">Wazuh Indexer (9200) bị dừng/đầy đĩa.</text>
+  <rect x="301" y="132" width="218" height="118" rx="6" fill="#1e293b"/>
+  <text x="311" y="152" fill="#fcd34d" font-family="sans-serif" font-size="10" font-weight="bold">Cách khắc phục trên Server:</text>
+  <text x="311" y="170" fill="#6ee7b7" font-family="monospace" font-size="9.5">systemctl restart filebeat</text>
+  <text x="311" y="188" fill="#6ee7b7" font-family="monospace" font-size="9.5">systemctl restart wazuh-indexer</text>
+  <text x="311" y="206" fill="#6ee7b7" font-family="monospace" font-size="9.5">filebeat test output</text>
+  <text x="311" y="228" fill="#94a3b8" font-family="sans-serif" font-size="9.5">Kiểm tra ổ đĩa: df -h</text>
+
+  <!-- Issue 3 -->
+  <rect x="550" y="56" width="246" height="210" rx="10" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+  <text x="566" y="82" fill="#38bdf8" font-family="sans-serif" font-size="12" font-weight="bold">3. LỖI NẠP RULE XML / API 55000</text>
+  <text x="566" y="104" fill="#cbd5e1" font-family="sans-serif" font-size="10">• Nguyên nhân: Sai cú pháp thẻ XML</text>
+  <text x="566" y="120" fill="#cbd5e1" font-family="sans-serif" font-size="10">hoặc trùng Rule ID trong local_rules.xml</text>
+  <rect x="564" y="132" width="218" height="118" rx="6" fill="#1e293b"/>
+  <text x="574" y="152" fill="#fcd34d" font-family="sans-serif" font-size="10" font-weight="bold">Cách kiểm tra &amp; sửa lỗi:</text>
+  <text x="574" y="170" fill="#c084fc" font-family="monospace" font-size="9.5">/var/ossec/bin/wazuh-analysisd -t</text>
+  <text x="574" y="190" fill="#c084fc" font-family="monospace" font-size="9.5">/var/ossec/bin/wazuh-logtest</text>
+  <text x="574" y="212" fill="#94a3b8" font-family="sans-serif" font-size="9.5">Nếu lỗi API 55000:</text>
+  <text x="574" y="228" fill="#94a3b8" font-family="monospace" font-size="9.5">systemctl restart wazuh-manager</text>
+</svg>

@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-13T03:52:57.814Z",
+  "specification": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+    "sha256": "bb1196cfeecef9a68a94a2c9c04908a897b579833c6f5da662f7a345f2eafdeb",
+    "bytes": 16846
+  },
+  "artifact": {
+    "path": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+    "sha256": "037aab989a17eff64caf61a471c18f7264db12245e3402c52ff47a4b9098e43c",
+    "bytes": 782511
+  },
+  "stages": {
+    "validate": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": null,
+      "command": [
+        "/usr/bin/node",
+        "/home/kweismann/.gemini/config/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "deliver",
+        "receiptId": "0db03364-9be2-4c7e-b1e8-4170d2eead83",
+        "stage": "render",
+        "type": "architecture",
+        "input": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+        "output": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+        "error": "architecture schema validation failed:\n  /components/10/sources/0/label (id/label: \"1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)\") must NOT have more than 48 characters {\"limit\":48}",
+        "diagnostics": [
+          {
+            "code": "schema/maxLength",
+            "severity": "error",
+            "message": "/components/10/sources/0/label (id/label: \"1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)\") must NOT have more than 48 characters {\"limit\":48}",
+            "subject": {
+              "diagramType": "architecture",
+              "path": "/components/10/sources/0/label",
+              "identity": "1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)"
+            },
+            "evidence": {
+              "keyword": "maxLength",
+              "limit": 48
+            },
+            "supportedFixes": [
+              "provide at most 48 character(s)"
+            ]
+          }
+        ],
+        "provenance": "failed",
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      },
+      "execution": "embedded-in-deliver"
+    },
+    "deliver": {
+      "status": "not-run",
+      "execution": "blocked-by-validate"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "schema/maxLength",
+      "severity": "error",
+      "message": "/components/10/sources/0/label (id/label: \"1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)\") must NOT have more than 48 characters {\"limit\":48}",
+      "subject": {
+        "diagramType": "architecture",
+        "path": "/components/10/sources/0/label",
+        "identity": "1. Câu hỏi số liệu: Python trả lời thẳng (0% bịa)"
+      },
+      "evidence": {
+        "keyword": "maxLength",
+        "limit": 48
+      },
+      "supportedFixes": [
+        "provide at most 48 character(s)"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-11/agentwazuh-logic-vi.finalize.json",
+    "summaryReceipt": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/review-11/agentwazuh-logic-vi.finalize-summary.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "validate",
+  "finishedAt": "2026-10-13T03:52:58.125Z",
+  "durationMs": 310,
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-13T01:56:36.899Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  }
+}

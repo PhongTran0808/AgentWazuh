@@ -1,0 +1,31 @@
+{
+  "chapter": "03",
+  "chapter_title": "Cách Thêm Thiết Bị (Deploy New Agent) Trên Wazuh Server & Cấu Hình Syslog",
+  "topics": [
+    {
+      "id": "add_device_agent",
+      "title": "➕ Hướng Dẫn Thêm Thiết Bị Mới (Deploy New Agent & Syslog) Trên Wazuh Server",
+      "image_url": "/static/assets/kb/wz_agents_deploy_annotated.png",
+      "keywords": [
+        "thêm thiết bị", "làm sao thêm thiết bị", "cách thêm thiết bị", "thêm máy trạm",
+        "thêm agent", "cài đặt agent", "cài đặt wazuh agent", "cài agent",
+        "đăng ký agent", "kết nối thiết bị mới", "thêm tường lửa", "thêm fortigate",
+        "cấu hình syslog", "agent-auth", "add agent", "deploy new agent"
+      ],
+      "quick_summary": "Trên giao diện Wazuh Server: Vào AGENTS SUMMARY -> bấm nút 'Deploy new agent' -> (1) Chọn Hệ điều hành (Linux/Windows/macOS) -> (2) Nhập địa chỉ IP Wazuh Server -> (3) Copy câu lệnh tự động sinh sẵn chạy trên máy trạm. Với FortiGate/Switch, bật Remote Syslog gửi UDP 514 về Wazuh Server.",
+      "answer_markdown": "### ➕ Cách Thêm Thiết Bị Mới Trực Tiếp Trên Giao Diện Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật màn hình Agents Summary và Deploy new agent trên Wazuh Server](/static/assets/kb/wz_agents_deploy_annotated.png)\n\n#### 🖥️ Cách 1: Thao Tác Ngay Trên Giao Diện Web Của Wazuh Server *(Khuyên dùng)*\n1. Tại màn hình chính Wazuh Server, bấm vào khung **`AGENTS SUMMARY`** (hoặc mở Menu `☰` ➔ **`Agents management`** ➔ **`Summary`**).\n2. Bấm vào nút **`① Deploy new agent`** (khoanh đỏ ở góc phải trên bảng danh sách Agent).\n3. Làm theo 3 bước được đánh dấu đỏ trên màn hình hướng dẫn của Wazuh Server:\n   - **`① Bước 1 (Select package)`**: Chọn hệ điều hành của máy cần cài (**`LINUX`** `DEB/RPM`, **`WINDOWS`** `MSI`, hoặc **`macOS`**) và kiến trúc chip (`amd64` / `arm64`).\n   - **`② Bước 2 (Server address)`**: Nhập địa chỉ IP của Wazuh Server: **`{host}`**.\n   - **`③ Bước 4 & 5 (Install and enroll / Start the agent)`**: Bấm nút **`Copy command`** để sao chép câu lệnh đã gắn sẵn IP `{host}`, sau đó dán vào Terminal (quyền `root`) hoặc PowerShell (quyền `Admin`) của máy trạm.\n\n---\n\n#### 💻 Cách 2: Lệnh Cài Nhanh Qua CLI (Nếu không mở giao diện Web)\n- **Trên Ubuntu / Debian**:\n```bash\ncurl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg\necho \"deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main\" | tee /etc/apt/sources.list.d/wazuh.list\napt-get update && WAZUH_MANAGER=\"{host}\" apt-get install -y wazuh-agent\nsystemctl daemon-reload && systemctl enable --now wazuh-agent\n```\n- **Trên Windows (PowerShell Admin)**:\n```powershell\nInvoke-WebRequest -Uri https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.7-1.msi -OutFile wazuh-agent.msi\nmsiexec.exe /i wazuh-agent.msi /q WAZUH_MANAGER=\"{host}\" WAZUH_REGISTRATION_SERVER=\"{host}\"\nNET START WazuhSvc\n```\n\n#### 🔥 Cách 3: Thêm Thiết Bị Mạng Không Cài Được Agent (FortiGate / Router / Switch)\n1. Trên **FortiGate**: Bật gửi Syslog về IP `{host}`, cổng `514` (UDP):\n```text\nconfig log syslogd setting\n    set status enable\n    set server \"{host}\"\n    set port 514\nend\n```\n2. Trên **Wazuh Server** (`/var/ossec/etc/ossec.conf`): Đảm bảo có khối `<remote>` nhận `syslog` cổng `514` rồi chạy `sudo systemctl restart wazuh-manager`."
+    },
+    {
+      "id": "agent_groups_and_removal",
+      "title": "🗂️ Cách Xóa Agent, Đổi IP Server & Quản Lý Nhóm Tập Trung (Groups / agent.conf)",
+      "image_url": "/static/assets/kb/wz_agents_deploy_annotated.png",
+      "keywords": [
+        "xóa agent", "gỡ bỏ agent", "remove agent", "manage_agents",
+        "agent.conf", "cấu hình tập trung", "nhóm agent", "agent groups",
+        "đổi ip wazuh server", "client.keys", "đăng ký lại agent"
+      ],
+      "quick_summary": "Xem trạng thái Active/Disconnected tại Agents Summary trên Wazuh Server. Xóa Agent cũ bằng lệnh /var/ossec/bin/manage_agents -r <ID>. Để đẩy cấu hình hàng loạt xuống nhiều Agent cùng lúc, vào Menu ☰ -> Agents management -> Groups (hoặc sửa /var/ossec/etc/shared/default/agent.conf).",
+      "answer_markdown": "### 🗂️ Hướng Dẫn Quản Lý Trạng Thái Agent, Xóa Agent & Cấu Hình Tập Trung (`Groups`)\n\n![Ảnh chụp thật màn hình quản lý Agent trên Wazuh Server](/static/assets/kb/wz_agents_deploy_annotated.png)\n\n#### 1. Lệnh Xóa Một Agent Cũ Khỏi Wazuh Server\n```bash\n# Xem danh sách ID các Agent hiện có trên Wazuh Server\nsudo /var/ossec/bin/agent_control -l\n\n# Xóa Agent theo ID (ví dụ xóa Agent ID 009)\nsudo /var/ossec/bin/manage_agents -r 009\n```\n\n#### 2. Cách Đổi Địa Chỉ IP Wazuh Server Trên Máy Trạm Agent\n1. Mở file `/var/ossec/etc/ossec.conf` trên máy Agent (hoặc `C:\\Program Files (x86)\\ossec-agent\\ossec.conf` trên Windows).\n2. Sửa thẻ `<address>` bên trong `<client><server>` thành `{host}`.\n3. Đăng ký lại khóa và khởi động lại Agent:\n```bash\nsudo /var/ossec/bin/agent-auth -m {host}\nsudo systemctl restart wazuh-agent\n```\n\n#### 3. Cấu Hình Tập Trung Cho Hàng Loạt Agent (`Agents management ➔ Groups`)\nTrên giao diện Wazuh Server, mở Menu `☰` ➔ **`Agents management`** ➔ **`Groups`** (hoặc sửa file `/var/ossec/etc/shared/default/agent.conf`). Mọi cấu hình thêm vào đây sẽ được Wazuh Server **tự động đồng bộ xuống toàn bộ Agent** trong nhóm mà không cần SSH vào từng máy!"
+    }
+  ]
+}

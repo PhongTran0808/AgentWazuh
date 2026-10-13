@@ -1,0 +1,32 @@
+{
+  "chapter": "02",
+  "chapter_title": "Kiến Trúc Hệ Thống, Cổng Mạng (Ports) & Các Tiến Trình (Daemons) Của Wazuh Server",
+  "topics": [
+    {
+      "id": "architecture_ports",
+      "title": "🌐 Kiến Trúc Wazuh Server & Danh Sách Cổng Mạng (Ports)",
+      "image_url": "/static/assets/kb/wz_overview_annotated.png",
+      "keywords": [
+        "kiến trúc wazuh", "cổng mạng wazuh", "port của wazuh", "wazuh dùng cổng nào",
+        "cổng 1514", "cổng 1515", "cổng 55000", "cổng 9200", "cổng 514", "cổng 443",
+        "wazuh hoạt động như thế nào", "thành phần của wazuh", "wazuh indexer là gì",
+        "wazuh manager là gì", "danh sách port wazuh"
+      ],
+      "quick_summary": "Wazuh Server gồm 3 thành phần chính: Wazuh Agent (thu thập log), Wazuh Server/Manager (nhận log cổng 1514/514, đăng ký cổng 1515, phân tích bằng analysisd, cấp API cổng 55000) và Wazuh Indexer + Dashboard (lưu trữ OpenSearch cổng 9200, giao diện Web cổng 443).",
+      "answer_markdown": "### 🌐 Kiến Trúc Hoạt Động & Bảng Cổng Dịch Vụ Của Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật giao diện điều hành Wazuh Server](/static/assets/kb/wz_overview_annotated.png)\n\n#### 1. Bảng Cổng Mạng (Network Ports) Trên Wazuh Server Cần Nhớ\n| Cổng (Port) | Giao Thức | Chiều Kết Nối | Chức Năng Cụ Thể |\n|---|---|---|---|\n| **`1514`** | TCP *(mặc định)* / UDP | Agent ➔ Server | Truyền dữ liệu Log đã mã hóa (AES/Blowfish) từ các Wazuh Agent về Server (`wazuh-remoted`). |\n| **`1515`** | TCP | Agent ➔ Server | Đăng ký Agent mới và cấp phát khóa tự động (`wazuh-authd`). |\n| **`1516`** | TCP | Server ➔ Server | Giao tiếp nội bộ giữa các node Wazuh Manager khi chạy mô hình Cluster. |\n| **`514`** | UDP / TCP | Firewall ➔ Server | Nhận nhật ký **Remote Syslog** từ thiết bị không cài được Agent (FortiGate, Router, Switch). |\n| **`55000`** | HTTPS (TCP) | REST Client ➔ Server | **Wazuh Manager REST API** (Lấy danh sách Agent, trạng thái Server, tra cứu Rule, phát lệnh Active Response). |\n| **`9200`** | HTTPS (TCP) | Filebeat ➔ Indexer | **Wazuh Indexer (OpenSearch)** lưu trữ và tìm kiếm chỉ mục `wazuh-alerts-4.x-*`. |\n| **`443`** | HTTPS (TCP) | Trình duyệt ➔ Dashboard | Giao diện Web **Wazuh Server Dashboard** (`https://{host}`). |"
+    },
+    {
+      "id": "wazuh_daemons_explained",
+      "title": "⚙️ Giải Thích Các Tiến Trình Nền (Daemons) Của Wazuh Server & Agent",
+      "image_url": "/static/assets/kb/wz_server_logs_api_annotated.png",
+      "keywords": [
+        "wazuh-analysisd", "wazuh-remoted", "wazuh-authd", "wazuh-modulesd",
+        "wazuh-monitord", "wazuh-logcollector", "wazuh-syscheckd", "wazuh-execd",
+        "wazuh-db", "wazuh-apid", "filebeat làm gì", "các tiến trình của wazuh",
+        "daemon của wazuh", "dịch vụ của wazuh"
+      ],
+      "quick_summary": "Trên Wazuh Server có 8 tiến trình chính: remoted (nhận log 1514/514), authd (đăng ký agent 1515), analysisd (giải mã & khớp rule), modulesd (quét CVE/SCA), monitord (nén/xoay vòng log), db (SQLite metadata), apid (API 55000) và Filebeat (đẩy log lên Indexer 9200).",
+      "answer_markdown": "### ⚙️ Bảng Chức Năng Các Tiến Trình Nền (Daemons) Trên Wazuh Server (`{host}`)\n\n![Ảnh chụp thật màn hình Server Logs theo dõi các Daemon trên Wazuh Server](/static/assets/kb/wz_server_logs_api_annotated.png)\n\n#### 1. Các Tiến Trình Trên Máy Chủ Wazuh Server (`{host}`)\n| Tên Tiến Trình (Daemon) | Nhiệm Vụ Chính |\n|---|---|\n| **`wazuh-remoted`** | Lắng nghe cổng `1514` (nhận log mã hóa từ Agent) và cổng `514` (nhận Syslog từ FortiGate/Switch). |\n| **`wazuh-authd`** | Lắng nghe cổng `1515` để tự động đăng ký Agent mới và ghi khóa vào `/var/ossec/etc/client.keys`. |\n| **`wazuh-analysisd`** | **Trái tim của Wazuh**: Nhận log, chạy qua bộ giải mã (**Decoders**), so khớp với bộ luật (**Rules XML**) và ghi cảnh báo ra `/var/ossec/logs/alerts/alerts.json`. |\n| **`wazuh-db`** | Quản lý cơ sở dữ liệu SQLite nội bộ lưu thông tin phần cứng, gói phần mềm, FIM và trạng thái từng Agent. |\n| **`wazuh-modulesd`** | Chạy các mô-đun mở rộng: Quét lỗ hổng **Vulnerability Detector**, **SCA**, tích hợp Cloud (AWS/Azure) và VirusTotal. |\n| **`wazuh-apid`** | Cung cấp dịch vụ **Wazuh REST API** tại cổng `55000/TCP`. |\n| **`wazuh-monitord`** | Theo dõi trạng thái kết nối (Keep-alive) của các Agent, đồng thời nén và ký số các file log hàng ngày. |\n| **`filebeat`** | Đọc file `alerts.json` theo thời gian thực và đẩy lên **Wazuh Indexer (OpenSearch cổng 9200)**. |\n\n#### 2. Các Tiến Trình Trên Máy Trạm Wazuh Agent\n- **`wazuh-logcollector`**: Đọc các file log hệ điều hành (`/var/log/auth.log`, `syslog`, Windows EventChannel) gửi về Server.\n- **`wazuh-syscheckd`**: Thực hiện giám sát toàn vẹn file (**FIM**) và Registry.\n- **`wazuh-execd`**: Thực thi các kịch bản **Active Response** (như khóa IP tấn công khi nhận lệnh từ Server)."
+    }
+  ]
+}

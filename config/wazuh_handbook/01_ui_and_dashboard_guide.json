@@ -1,0 +1,37 @@
+{
+  "chapter": "01",
+  "chapter_title": "Hướng Dẫn Giao Diện Màn Hình Chính (Overview) & Menu Trái Trên Wazuh Server",
+  "topics": [
+    {
+      "id": "ui_buttons_guide",
+      "title": "🖥️ Giải Thích Các Khu Vực & Nút Bấm Trên Màn Hình Chính (Overview) Của Wazuh Server",
+      "image_url": "/static/assets/kb/wz_overview_annotated.png",
+      "keywords": [
+        "nút này làm gì", "nút này là gì", "chức năng các nút", "hướng dẫn giao diện",
+        "màn hình chính wazuh", "giao diện wazuh server", "overview wazuh",
+        "agents summary", "last 24 hours alerts", "endpoint security",
+        "threat intelligence", "security operations", "cloud security",
+        "it hygiene", "configuration assessment", "malware detection",
+        "file integrity monitoring", "threat hunting", "vulnerability detection",
+        "mitre att&ck", "pci dss", "gdpr", "hipaa", "các nút trên wazuh",
+        "giao diện dashboard", "màn hình chính", "nút bấm"
+      ],
+      "quick_summary": "Màn hình chính Overview của Wazuh Server chia làm 6 khu vực: (1) Nút Menu ☰ góc trái trên; (2) AGENTS SUMMARY (số máy trạm Active/Disconnected); (3) LAST 24 HOURS ALERTS (cảnh báo theo 4 mức độ); (4) ENDPOINT SECURITY (SCA, Malware, FIM); (5) THREAT INTELLIGENCE (Threat Hunting, Vulnerability, MITRE ATT&CK); (6) SECURITY OPERATIONS & CLOUD SECURITY.",
+      "answer_markdown": "### 🖥️ Giải Thích Chi Tiết Các Nút & Khu Vực Trên Màn Hình `Overview` Của Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật màn hình Overview của Wazuh Server có khoanh đỏ vị trí](/static/assets/kb/wz_overview_annotated.png)\n\n| Vị Trí Khoanh Đỏ | Tên Khu Vực / Nút Trên Wazuh Server | Tác Dụng Chính & Khi Nào Cần Bấm Vào |\n|---|---|---|\n| **`① Menu ☰`** *(Góc trên bên trái)* | **Nút Hamburger Menu (`☰`)** | Mở thanh điều hướng bên trái chứa toàn bộ tính năng quản trị (`Explore`, `Agents management`, `Server management`, `Indexer management`). |\n| **`② AGENTS SUMMARY`** | **Tổng Quan Máy Trạm (`Active` / `Disconnected`)** | Hiển thị số lượng Agent đang hoạt động (**Active**) và mất kết nối (**Disconnected**). **Bấm trực tiếp vào đây** để mở danh sách thiết bị hoặc thêm Agent mới (`Deploy new agent`). |\n| **`③ LAST 24 HOURS ALERTS`** | **Thống Kê Cảnh Báo 24 Giờ Qua** | Đếm nhanh số cảnh báo trong 24h theo 4 cấp: **Critical** (`Level ≥ 15`), **High** (`Level 12–14`), **Medium** (`Level 7–11`), **Low** (`Level 0–6`). |\n| **`④ Configuration Assessment`** *(Endpoint Security)* | **Đánh Giá Cấu Hình Bảo Mật (SCA)** | Kiểm tra và chấm điểm cấu hình máy chủ (Linux/Windows) xem đã đạt chuẩn an toàn **CIS Benchmark** hay chưa. |\n| **`⑤ File Integrity Monitoring`** *(Endpoint Security)* | **Giám Sát Toàn Vẹn Tệp Tin (FIM)** | Theo dõi chi tiết file nào trong `/etc`, `/bin`, `C:\\Windows` vừa bị ai thêm mới, chỉnh sửa hoặc xóa bỏ. |\n| **`⑥ Threat Hunting`** *(Threat Intelligence)* | **Săn Tìm Mối Đe Dọa & Đọc Log Cảnh Báo** | **Module quan trọng nhất của SOC**: Nơi xem biểu đồ cảnh báo và chuyển sang tab **`Events`** để đọc từng dòng Log chi tiết. |\n| **`⑦ Vulnerability Detection`** *(Threat Intelligence)* | **Phát Hiện Lỗ Hổng Phần Mềm (CVE)** | Quét danh sách các gói phần mềm cài trên từng Agent và liệt kê các mã lỗ hổng **`CVE-xxxx`** cần vá. |\n| **`⑧ MITRE ATT&CK`** *(Threat Intelligence)* | **Bản Đồ Kỹ Thuật Tấn Công MITRE** | Ánh xạ các cảnh báo đang xảy ra vào ma trận chiến thuật của tin tặc (VD: `T1110 Brute Force`, `T1059 Command Scripting`). |\n| **`⑨ IT Hygiene`** *(Security Operations)* | **Vệ Sinh An Toàn Hệ Thống** | Kiểm kê tài nguyên phần cứng, tiến trình đang chạy (`processes`), cổng mạng đang mở và các gói phần mềm trên toàn bộ Agent. |\n| **`⑩ PCI DSS / GDPR / HIPAA`** *(Security Operations)* | **Báo Cáo Tuân Thủ Tiêu Chuẩn Quốc Tế** | Tự động gom các cảnh báo liên quan đến quy định bảo mật dữ liệu thẻ thanh toán (`PCI DSS`), dữ liệu cá nhân (`GDPR`) và y tế (`HIPAA`). |"
+    },
+    {
+      "id": "wazuh_native_dashboard_menus",
+      "title": "📋 Giải Thích Toàn Bộ Các Mục Trong Thanh Menu Trái (☰) Của Wazuh Server",
+      "image_url": "/static/assets/kb/wz_left_menu_annotated.png",
+      "keywords": [
+        "menu bên trái", "menu của wazuh", "thanh menu wazuh", "nút 3 gạch",
+        "explore trong wazuh", "discover trong wazuh", "dashboards trong wazuh",
+        "visualize trong wazuh", "agents management", "server management",
+        "indexer management", "ruleset test ở đâu", "dev tools ở đâu",
+        "xem rule ở đâu trên web", "xem decoder ở đâu"
+      ],
+      "quick_summary": "Khi bấm nút ☰ ở góc trái trên của Wazuh Server, thanh Menu chia thành 7 nhóm: Explore (Discover tìm log thô), Endpoint security, Threat intelligence, Security operations, Cloud security, Agents management (Summary, Groups) và Server management (Rules, Decoders, CDB Lists, Logs, Dev Tools, Ruleset Test).",
+      "answer_markdown": "### 📋 Giải Thích Chi Tiết Thanh Menu Trái (`☰`) Trên Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật Menu trái của Wazuh Server có khoanh đỏ và gạch chân đỏ](/static/assets/kb/wz_left_menu_annotated.png)\n\nKhi bấm vào biểu tượng **`☰`** ở góc trên cùng bên trái của Wazuh Server, bạn sẽ thấy các nhóm chức năng được khoanh đỏ như trong ảnh:\n\n| Nhóm Menu | Mục Khoanh Đỏ / Gạch Chân Đỏ | Chức Năng Cụ Thể Trên Wazuh Server |\n|---|---|---|\n| **Explore** | **`① Discover`** | Truy vấn trực tiếp vào kho dữ liệu OpenSearch (`wazuh-alerts-4.x-*`) bằng ngôn ngữ DQL/Lucene. |\n| **Endpoint security** | **`② File Integrity Monitoring` / `SCA` / `Malware`** | Kiểm tra cấu hình hệ điều hành, phát hiện mã độc (Rootcheck) và giám sát thay đổi tệp tin nhạy cảm. |\n| **Threat intelligence** | **`③ Threat Hunting`** | Trung tâm giám sát cảnh báo an ninh chính (xem Dashboard tổng quan và tab `Events` chi tiết). |\n| **Threat intelligence** | **`④ Vulnerability Detection` & `⑤ MITRE ATT&CK`** | Tra cứu lỗ hổng `CVE` trên các máy trạm và phân tích kỹ thuật tấn công theo khung MITRE. |\n| **Agents management** | **`⑥ Summary`** *(Quản lý Thiết bị)* | Xem danh sách toàn bộ Agent (`Active` / `Disconnected`) và bấm nút **`Deploy new agent`** để cài thêm máy mới. |\n| **Agents management** | **`⑦ Groups`** *(Nhóm Agent)* | Gom nhóm các máy trạm và đẩy cấu hình tập trung (`agent.conf`) từ Server xuống hàng loạt Agent. |\n| **Server management** | **`⑧ Rules`** *(Quản lý Luật)* | Xem toàn bộ danh sách Rule và chỉnh sửa trực tiếp file luật tùy chỉnh **`local_rules.xml`** ngay trên trình duyệt. |\n| **Server management** | **`⑨ Decoders` & `CDB Lists`** | Quản lý bộ tách trường dữ liệu (`local_decoder.xml`) và danh sách tra cứu nhanh (IP đen, tài khoản VIP). |\n| **Server management** | **`⑩ Logs`** *(Nhật ký Server)* | Đọc trực tiếp file `/var/ossec/logs/ossec.log` của Wazuh Manager ngay trên giao diện Web mà không cần SSH. |\n| **Server management** | **`⑪ Dev Tools` (API Console)** | Khung chạy lệnh gọi trực tiếp **Wazuh REST API (cổng 55000)** (VD: `GET /agents`, `PUT /agents/restart`). |\n| **Server management** | **`⑫ Ruleset Test`** | Công cụ **`wazuh-logtest` phiên bản Web**: Dán 1 dòng log thô vào để kiểm tra xem khớp Decoder và Rule ID nào. |"
+    }
+  ]
+}

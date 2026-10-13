@@ -1,0 +1,31 @@
+{
+  "chapter": "08",
+  "chapter_title": "Cẩm Nang Sửa Lỗi Thực Chiến (Troubleshooting) & Bảng Lệnh CLI Trên Wazuh Server",
+  "topics": [
+    {
+      "id": "troubleshooting_errors",
+      "title": "🛠️ Chẩn Đoán & Xử Lý Nhanh 5 Lỗi Thường Gặp Nhất Trên Wazuh Server",
+      "image_url": "/static/assets/kb/wz_server_logs_api_annotated.png",
+      "keywords": [
+        "lỗi này ra sao", "lỗi wazuh", "agent disconnected", "mất kết nối agent",
+        "agent offline", "never connected", "không có cảnh báo", "không lên log",
+        "0 cảnh báo", "lỗi filebeat", "lỗi indexer", "lỗi 401", "không kết nối được wazuh",
+        "lỗi rule xml", "sửa lỗi wazuh", "khắc phục sự cố wazuh", "đầy ổ cứng",
+        "not ready yet", "duplicate agent", "last 24 hours alerts 0"
+      ],
+      "quick_summary": "5 lỗi phổ biến trên Wazuh Server: (1) LAST 24 HOURS ALERTS hiện số 0 -> Do mặc định lọc 24h, vào Threat Hunting đổi lịch sang Last 30/90 days hoặc kiểm tra Filebeat; (2) Agent Disconnected -> Kiểm tra cổng TCP 1514 và restart wazuh-agent; (3) Lỗi sửa Rule XML -> Vào Server management -> Logs (hoặc chạy wazuh-analysisd -t); (4) Dashboard not ready yet -> Restart wazuh-indexer.",
+      "answer_markdown": "### 🛠️ Bảng Chẩn Đoán & Khắc Phục Nhanh Sự Cố Trên Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật màn hình kiểm tra lỗi tại Server management -> Logs trên Wazuh Server](/static/assets/kb/wz_server_logs_api_annotated.png)\n\n#### 🟠 1. Tại sao mục `LAST 24 HOURS ALERTS` trên Wazuh Server hiện toàn số `0`?\n- **Nguyên nhân 1 *(Phổ biến nhất trong Lab)*:** Không có cảnh báo mới phát sinh trong đúng 24 giờ gần nhất, nhưng dữ liệu các ngày trước vẫn còn nguyên.\n  - **Cách kiểm tra**: Vào **`Threat Hunting`** ➔ bấm khung chọn thời gian ở góc trên bên phải đổi từ **`Last 24 hours`** sang **`Last 30 days`** hoặc **`Last 90 days`**.\n- **Nguyên nhân 2:** Dịch vụ **Filebeat** hoặc **Wazuh Indexer (`9200`)** bị dừng hoặc đầy ổ đĩa (`>85%`).\n  ```bash\n  df -h && sudo filebeat test output\n  sudo systemctl restart wazuh-indexer filebeat\n  ```\n\n#### 🔴 2. Lỗi Agent báo `Disconnected` hoặc `Never connected` trong `AGENTS SUMMARY`\n- **Nguyên nhân**: Máy trạm tắt, tường lửa chặn cổng `1514/TCP` (gửi log) hoặc `1515/TCP` (đăng ký), hoặc lệch khóa xác thực (`client.keys`).\n- **Lệnh kiểm tra & khắc phục trên máy Agent**:\n  ```bash\n  nc -zv {host} 1514 && nc -zv {host} 1515\n  sudo systemctl restart wazuh-agent\n  sudo tail -n 25 /var/ossec/logs/ossec.log\n  ```\n\n#### 🔵 3. Lỗi không lưu/khởi động được sau khi sửa Rule XML\n- **Cách kiểm tra trên Web**: Mở Menu `☰` ➔ **`Server management`** ➔ **`Logs`** (vị trí `①` và `②` trên ảnh) để xem dòng báo lỗi `ERROR`.\n- **Lệnh soi chính xác dòng XML bị lỗi qua SSH**:\n  ```bash\n  sudo /var/ossec/bin/wazuh-analysisd -t\n  ```\n\n#### 🟣 4. Lỗi trình duyệt báo `Wazuh dashboard server is not ready yet`\n- **Nguyên nhân**: Dịch vụ `wazuh-indexer` (OpenSearch cổng `9200`) chưa chạy lên hoặc bị treo.\n- **Lệnh khắc phục**:\n  ```bash\n  sudo systemctl restart wazuh-indexer && sleep 10 && sudo systemctl restart wazuh-dashboard\n  ```"
+    },
+    {
+      "id": "wazuh_cli_cheatsheet",
+      "title": "💻 Bảng Tổng Hợp Các Câu Lệnh CLI Quan Trọng Nhất Trên Wazuh Server",
+      "image_url": "/static/assets/kb/wz_server_logs_api_annotated.png",
+      "keywords": [
+        "lệnh wazuh", "câu lệnh wazuh", "cli wazuh", "agent_control",
+        "wazuh-control", "lệnh kiểm tra wazuh", "cheatsheet wazuh", "bảng lệnh wazuh"
+      ],
+      "quick_summary": "Tổng hợp các lệnh CLI thường dùng nhất trong /var/ossec/bin/ trên Wazuh Server: wazuh-control status (xem tiến trình), agent_control -l (xem danh sách agent), wazuh-analysisd -t (kiểm tra cú pháp XML), wazuh-logtest (test log và rule), filebeat test output.",
+      "answer_markdown": "### 💻 Bảng Lệnh CLI Bỏ Túi Dành Cho Quản Trị Viên Wazuh Server (`{host}`)\n\n![Ảnh chụp thật giao diện Logs & API Console trên Wazuh Server](/static/assets/kb/wz_server_logs_api_annotated.png)\n\n| Mục Đích Thao Tác | Câu Lệnh Thực Thi Trên Wazuh Server |\n|---|---|\n| **Xem trạng thái toàn bộ tiến trình con** | `sudo /var/ossec/bin/wazuh-control status` |\n| **Khởi động lại toàn bộ hệ thống Wazuh** | `sudo systemctl restart wazuh-manager wazuh-indexer filebeat wazuh-dashboard` |\n| **Liệt kê danh sách tất cả Agent** | `sudo /var/ossec/bin/agent_control -l` |\n| **Xem chi tiết 1 Agent (VD: ID 007)** | `sudo /var/ossec/bin/agent_control -i 007` |\n| **Khởi động lại 1 Agent từ xa (ID 007)** | `sudo /var/ossec/bin/agent_control -R 007` |\n| **Kiểm tra cú pháp Rule & Cấu hình XML** | `sudo /var/ossec/bin/wazuh-analysisd -t` |\n| **Chạy thử dòng Log với Decoder & Rule** | `sudo /var/ossec/bin/wazuh-logtest` |\n| **Kiểm tra kết nối Filebeat ➔ OpenSearch** | `sudo filebeat test output` |\n| **Theo dõi cảnh báo chảy trực tiếp** | `sudo tail -f /var/ossec/logs/alerts/alerts.json` |"
+    }
+  ]
+}

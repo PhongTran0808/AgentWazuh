@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 310" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bg4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#111c33"/>
+    </linearGradient>
+  </defs>
+  <rect width="820" height="310" rx="14" fill="url(#bg4)" stroke="#1e293b" stroke-width="2"/>
+  <text x="24" y="34" fill="#38bdf8" font-family="sans-serif" font-size="15" font-weight="bold">SƠ ĐỒ GIẢI THÍCH CÁC NÚT &amp; KHU VỰC TRÊN GIAO DIỆN SOC</text>
+
+  <!-- Left Navigation -->
+  <rect x="24" y="54" width="185" height="232" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1.5"/>
+  <text x="38" y="78" fill="#94a3b8" font-family="sans-serif" font-size="12" font-weight="bold">1. THANH MENU TRÁI</text>
+  <rect x="36" y="90" width="161" height="34" rx="5" fill="#1e293b"/>
+  <text x="46" y="111" fill="#38bdf8" font-family="sans-serif" font-size="11" font-weight="bold">📊 Trung tâm điều tra</text>
+  <rect x="36" y="132" width="161" height="34" rx="5" fill="#1e293b"/>
+  <text x="46" y="153" fill="#10b981" font-family="sans-serif" font-size="11" font-weight="bold">🕸️ Bản đồ mạng (Map)</text>
+  <rect x="36" y="174" width="161" height="34" rx="5" fill="#1e293b"/>
+  <text x="46" y="195" fill="#f59e0b" font-family="sans-serif" font-size="11" font-weight="bold">🖥️ Kiểm kê thiết bị</text>
+  <rect x="36" y="216" width="161" height="34" rx="5" fill="#1e293b"/>
+  <text x="46" y="237" fill="#c084fc" font-family="sans-serif" font-size="11" font-weight="bold">📡 Gói tin API / Cài đặt</text>
+
+  <!-- Center Chat -->
+  <rect x="223" y="54" width="295" height="232" rx="10" fill="#0f172a" stroke="#38bdf8" stroke-width="1.8"/>
+  <text x="240" y="78" fill="#38bdf8" font-family="sans-serif" font-size="12" font-weight="bold">2. KHUNG CHAT TRỢ LÝ AI (Ở GIỮA)</text>
+  <rect x="237" y="92" width="267" height="58" rx="6" fill="#1e293b"/>
+  <text x="248" y="112" fill="#f8fafc" font-family="sans-serif" font-size="11" font-weight="bold">• Hỏi trạng thái / Thống kê / Hướng dẫn</text>
+  <text x="248" y="130" fill="#94a3b8" font-family="sans-serif" font-size="10">Trả lời tức thì từ dữ liệu thật &amp; Kho tri thức</text>
+  <rect x="237" y="160" width="267" height="58" rx="6" fill="#1e293b"/>
+  <text x="248" y="180" fill="#f472b6" font-family="sans-serif" font-size="11" font-weight="bold">• Gõ "Tạo rule chặn..." ➔ Bật Form HITL</text>
+  <text x="248" y="198" fill="#94a3b8" font-family="sans-serif" font-size="10">Chạy thử Dry-run trên 200 log ➔ Bấm Duyệt</text>
+  <rect x="237" y="228" width="267" height="44" rx="6" fill="#172554"/>
+  <text x="248" y="254" fill="#93c5fd" font-family="sans-serif" font-size="11" font-weight="bold">💬 Ô nhập lệnh + Chọn Model (Gemini/Ollama)</text>
+
+  <!-- Right Incident Column -->
+  <rect x="532" y="54" width="264" height="232" rx="10" fill="#0f172a" stroke="#10b981" stroke-width="1.8"/>
+  <text x="548" y="78" fill="#10b981" font-family="sans-serif" font-size="12" font-weight="bold">3. CỘT CẢNH BÁO PHẢI (TỰ CẬP NHẬT)</text>
+  <rect x="546" y="92" width="118" height="28" rx="5" fill="#065f46"/>
+  <text x="605" y="110" fill="#a7f3d0" font-family="sans-serif" font-size="10" font-weight="bold" text-anchor="middle">Nhóm sự cố (Mặc định)</text>
+  <rect x="670" y="92" width="112" height="28" rx="5" fill="#1e293b"/>
+  <text x="726" y="110" fill="#94a3b8" font-family="sans-serif" font-size="10" text-anchor="middle">Đơn lẻ / Lọc</text>
+
+  <rect x="546" y="130" width="236" height="142" rx="6" fill="#1e293b" stroke="#334155"/>
+  <text x="558" y="150" fill="#fcd34d" font-family="monospace" font-size="11" font-weight="bold">PRIORITY: 67/100 | TIN CẬY: 70%</text>
+  <text x="558" y="170" fill="#f8fafc" font-family="sans-serif" font-size="11" font-weight="bold">Thẻ INC-xxx (Gom nhóm tự động)</text>
+  <text x="558" y="190" fill="#94a3b8" font-family="sans-serif" font-size="10">• Click vào thẻ: Gửi nhóm sang AI phân tích</text>
+  <text x="558" y="208" fill="#94a3b8" font-family="sans-serif" font-size="10">• Nút "Sơ đồ tấn công": Vẽ đồ thị Kill-Chain</text>
+  <text x="558" y="226" fill="#94a3b8" font-family="sans-serif" font-size="10">• Nút "Log chi tiết": Mở bảng tra cứu sâu</text>
+</svg>

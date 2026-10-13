@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AgentWazuh — Kiến Trúc Logic Hệ Thống SOC AI Co-Pilot",
+    "output": ".archify/architecture-agentwazuh-logic-20261013-085106/agentwazuh-logic.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:PhongTran0808/AgentWazuh.git",
+      "link_mode": "local-only",
+      "revision": "28b212adadb18e9283e1c5df0844469661240edd"
+    },
+    "views": [
+      {
+        "id": "alert_ingestion_flow",
+        "label": "1. Luồng Thu Thập & Tương Quan",
+        "focus": ["soc_channels", "fastapi_core", "wazuh_connector", "wazuh_siem", "correlation_engine"],
+        "note": "Polling JWT 55000 & OpenSearch 443 -> Deduplication SHA-256 -> Đồ thị tương quan NetworkX + TF-IDF & Điểm kép."
+      },
+      {
+        "id": "ai_investigation_flow",
+        "label": "2. Luồng Điều Tra AI & SoL-Pi",
+        "focus": ["fastapi_core", "solpi_ledger", "correlation_engine", "incident_assistant", "ai_mcp_layer"],
+        "note": "Đóng gói bằng chứng bất biến SHA-256 (WazuhSoLPi) -> Phân loại Intent -> Truy vấn Gemini, Ollama & FastMCP Tools."
+      },
+      {
+        "id": "hitl_rule_flow",
+        "label": "3. Luồng Tạo Rule HITL An Toàn",
+        "focus": ["fastapi_core", "correlation_engine", "langgraph_hitl", "config_manager", "wazuh_siem"],
+        "note": "LangGraph StateGraph sinh XML nháp -> Dry-Run trên alert lịch sử -> Chờ Analyst duyệt -> Backup & Validate XML."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "wazuh_connector",
+      "type": "backend",
+      "label": "WazuhClient",
+      "sublabel": "JWT :55000 & Proxy :443",
+      "tag": "TTL 840s",
+      "pos": [340, 80],
+      "size": [168, 64],
+      "sources": [
+        { "path": "services/wazuh_client.py", "line": 80, "end_line": 160, "label": "WazuhClient Connector" }
+      ]
+    },
+    {
+      "id": "wazuh_siem",
+      "type": "security",
+      "label": "Wazuh SIEM & Indexer",
+      "sublabel": "Manager API + OpenSearch",
+      "tag": "wazuh-alerts-4.x-*",
+      "pos": [656, 80],
+      "size": [168, 64],
+      "sources": [
+        { "path": "mcp_layer/wazuh_mcp.py", "line": 27, "end_line": 97, "label": "Wazuh API & Indexer DSL" }
+      ]
+    },
+    {
+      "id": "config_manager",
+      "type": "security",
+      "label": "WazuhConfigManager",
+      "sublabel": "XML Validate & Backup",
+      "tag": "Guarded Write",
+      "pos": [972, 80],
+      "size": [168, 64],
+      "sources": [
+        { "path": "integrations/wazuh_config_manager.py", "line": 94, "end_line": 189, "label": "XML Validation & Apply" }
+      ]
+    },
+    {
+      "id": "soc_channels",
+      "type": "frontend",
+      "label": "SOC Web UI & ChatOps",
+      "sublabel": "Workbench + Bot Channels",
+      "tag": "Port 8080 / 9090",
+      "pos": [24, 260],
+      "size": [168, 64],
+      "sources": [
+        { "path": "core/server.py", "line": 1063, "end_line": 1097, "label": "Workbench Routes" },
+        { "path": "services/telegram_bot.py", "line": 152, "end_line": 202, "label": "Telegram Bot" },
+        { "path": "services/discord_webhook.py", "line": 168, "end_line": 238, "label": "Discord Notifier" }
+      ]
+    },
+    {
+      "id": "fastapi_core",
+      "type": "backend",
+      "label": "FastAPI Core Server",
+      "sublabel": "Auth, Cache & Router",
+      "tag": "core/server.py",
+      "pos": [340, 260],
+      "size": [168, 64],
+      "sources": [
+        { "path": "core/server.py", "line": 676, "end_line": 780, "label": "Heartbeat & Alert Cache" },
+        { "path": "core/server.py", "line": 2405, "end_line": 2648, "label": "Investigate Orchestrator" }
+      ]
+    },
+    {
+      "id": "correlation_engine",
+      "type": "backend",
+      "label": "Correlation Engine",
+      "sublabel": "Graph, TF-IDF & Score",
+      "tag": "Weight >= 0.40",
+      "pos": [656, 260],
+      "size": [168, 64],
+      "sources": [
+        { "path": "services/correlation_engine.py", "line": 233, "end_line": 355, "label": "Weighted Graph & Confidence" },
+        { "path": "services/correlation_engine.py", "line": 703, "end_line": 966, "label": "Multi-Entity Correlation" }
+      ]
+    },
+    {
+      "id": "langgraph_hitl",
+      "type": "backend",
+      "label": "LangGraph HITL",
+      "sublabel": "Dry-Run & Rule Approval",
+      "tag": "StateGraph",
+      "pos": [972, 260],
+      "size": [168, 64],
+      "sources": [
+        { "path": "langgraph_engine/graphs/config_form_graph.py", "line": 38, "end_line": 112, "label": "ConfigFormState Graph" },
+        { "path": "core/server.py", "line": 2651, "end_line": 2712, "label": "HITL Rule Endpoints" }
+      ]
+    },
+    {
+      "id": "solpi_ledger",
+      "type": "database",
+      "label": "WazuhSoLPi Ledger",
+      "sublabel": "SHA-256 Evidence Pack",
+      "tag": "Zero Hallucination",
+      "pos": [340, 440],
+      "size": [168, 64],
+      "sources": [
+        { "path": "services/solpi_wazuh.py", "line": 70, "end_line": 180, "label": "ObservationReceipt & Ledger" }
+      ]
+    },
+    {
+      "id": "incident_assistant",
+      "type": "backend",
+      "label": "IncidentAssistant AI",
+      "sublabel": "Intent Router & Triage",
+      "tag": "Strict Grounding",
+      "pos": [656, 440],
+      "size": [168, 64],
+      "sources": [
+        { "path": "services/incident_assistant.py", "line": 84, "end_line": 173, "label": "Deterministic & AI Triage" },
+        { "path": "services/chat_intent.py", "line": 43, "end_line": 78, "label": "Chat Intent Classifier" }
+      ]
+    },
+    {
+      "id": "ai_mcp_layer",
+      "type": "cloud",
+      "label": "LLM & FastMCP Tools",
+      "sublabel": "Gemini, Ollama & CaseMgr",
+      "tag": "Hybrid AI + MCP",
+      "pos": [972, 440],
+      "size": [168, 64],
+      "sources": [
+        { "path": "ai/gemini_analyzer.py", "line": 119, "end_line": 172, "label": "Gemini Group Analyzer" },
+        { "path": "services/ollama_client.py", "line": 48, "end_line": 162, "label": "Local Ollama Client" },
+        { "path": "integrations/wazuh_mcp_client.py", "line": 42, "end_line": 145, "label": "Streamable-HTTP MCP Client" }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "soc_to_core",
+      "from": "soc_channels",
+      "to": "fastapi_core",
+      "label": "REST / SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "core_to_connector",
+      "from": "fastapi_core",
+      "to": "wazuh_connector",
+      "label": "Poll & Auth"
+    },
+    {
+      "id": "connector_to_siem",
+      "from": "wazuh_connector",
+      "to": "wazuh_siem",
+      "label": "JWT & DSL"
+    },
+    {
+      "id": "core_to_correlation",
+      "from": "fastapi_core",
+      "to": "correlation_engine",
+      "label": "Raw Alerts",
+      "variant": "emphasis"
+    },
+    {
+      "id": "correlation_to_hitl",
+      "from": "correlation_engine",
+      "to": "langgraph_hitl",
+      "label": "Dry-Run XML",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hitl_to_config",
+      "from": "langgraph_hitl",
+      "to": "config_manager",
+      "label": "HITL Apply",
+      "variant": "security"
+    },
+    {
+      "id": "config_to_siem",
+      "from": "config_manager",
+      "to": "wazuh_siem",
+      "label": "Validate XML",
+      "variant": "dashed"
+    },
+    {
+      "id": "core_to_solpi",
+      "from": "fastapi_core",
+      "to": "solpi_ledger",
+      "label": "Archive JSON"
+    },
+    {
+      "id": "solpi_to_assistant",
+      "from": "solpi_ledger",
+      "to": "incident_assistant",
+      "label": "SHA256 Receipt"
+    },
+    {
+      "id": "correlation_to_assistant",
+      "from": "correlation_engine",
+      "to": "incident_assistant",
+      "label": "Incident Group"
+    },
+    {
+      "id": "assistant_to_ai_mcp",
+      "from": "incident_assistant",
+      "to": "ai_mcp_layer",
+      "label": "Prompt & MCP",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "1. Thu Thập & Lưu Trữ Bằng Chứng (WazuhClient + SoL-Pi)",
+      "items": [
+        "WazuhClient kết nối song song REST API :55000 (JWT cache 840s) và OpenSearch Console Proxy :443 (Session cache 240s)",
+        "WazuhSoLPi nén và băm SHA-256 mọi gói alert thực tế vào data/solpi_wazuh/observations/, cấp ObservationReceipt chống AI bịa dữ liệu",
+        "Hỗ trợ nhận cảnh báo thời gian thực qua Webhook (/api/wazuh/webhook) và phát cảnh báo ra Discord/Telegram"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "2. Tương Quan Đa Thực Thể & Điểm Kép (Correlation Engine)",
+      "items": [
+        "Khử trùng lặp SHA-256 (_dedup_fingerprint) giữ nguyên ngữ cảnh process/file/port trên từng Agent",
+        "Đồ thị tương quan có trọng số NetworkX (IP nguồn/đích, Lateral Movement a1.dst==a2.src, Agent, User, TF-IDF >= 0.65) với ngưỡng cắt nhiễu weight >= 0.40",
+        "Tính toán song song Priority Score (0-100) và Confidence Score (15%-98%) kèm sinh biểu đồ chuỗi tấn công Mermaid (Attack Graph)"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "3. Điều Tra Hybrid AI & FastMCP (IncidentAssistant)",
+      "items": [
+        "Bộ phân loại câu hỏi (chat_intent.py) tách biệt truy vấn Ground-Truth tất định (trả lời thẳng từ dữ liệu API) với câu hỏi điều tra chuyên sâu",
+        "GeminiAnalyzer chỉ nhận Incident Group đã qua xử lý Python để phân tích ngữ nghĩa tiếng Việt có dấu chuẩn xác",
+        "Hỗ trợ chuyển đổi linh hoạt giữa Cloud LLM (Gemini / OpenRouter / Pi CLI), Local Ollama (:11434) và Wazuh FastMCP Tools"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "4. Sinh Rule LangGraph HITL & Guarded Config",
+      "items": [
+        "StateGraph 5 bước: collect_field -> clarify_question -> dry_run_check (chạy thử trên alert lịch sử) -> await_human_approval -> apply_config",
+        "WazuhConfigManager kiểm tra nghiêm ngặt cú pháp XML (frequency/timeframe/if_matched_sid) và luôn tạo bản sao lưu trước khi ghi qua helper đặc quyền",
+        "Phát hiện từ baocaoquet.md: một số route cần siết chặt session auth và tách bạch trạng thái pending_rules với deploy thật"
+      ]
+    }
+  ]
+}

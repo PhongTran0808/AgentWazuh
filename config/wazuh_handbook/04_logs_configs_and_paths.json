@@ -1,0 +1,33 @@
+{
+  "chapter": "04",
+  "chapter_title": "Cách Đọc Log Cảnh Báo Trên Giao Diện Wazuh Server & Vị Trí Các File Log CLI",
+  "topics": [
+    {
+      "id": "log_locations",
+      "title": "📂 Đọc Log Của Wazuh Server Ở Đâu? (Trên Giao Diện Web & Trong Hệ Thống File)",
+      "image_url": "/static/assets/kb/wz_threat_hunting_logs_annotated.png",
+      "keywords": [
+        "đọc log của wazuh ở đâu", "đọc log ở đâu", "log của wazuh nằm ở đâu",
+        "xem log wazuh", "xem log trên wazuh server", "đọc log trên web",
+        "vị trí file log", "đường dẫn log", "ossec.log", "alerts.json",
+        "alerts.log", "archives.json", "ossec.conf nằm ở đâu",
+        "local_rules.xml nằm ở đâu", "thư mục cài đặt wazuh", "file log wazuh",
+        "events trong threat hunting", "cách xem cảnh báo trên wazuh"
+      ],
+      "quick_summary": "Có 2 cách đọc log trên Wazuh Server: (1) Trên giao diện Web: Vào Threat Hunting -> bấm tab 'Events' (nhớ chỉnh lịch sang Last 30/90 days nếu 24h trống) hoặc vào Server management -> Logs để đọc ossec.log; (2) Trên CLI (/var/ossec/logs/): alerts/alerts.json (log cảnh báo), ossec.log (log lỗi hệ thống), archives/archives.json (log thô).",
+      "answer_markdown": "### 📂 Hướng Dẫn Đọc Log Trên Giao Diện Wazuh Server (`https://{host}`) & Đường Dẫn File\n\n![Ảnh chụp thật màn hình đọc Log tại Threat Hunting -> Events trên Wazuh Server](/static/assets/kb/wz_threat_hunting_logs_annotated.png)\n\n#### 🖥️ Cách 1: Đọc Log Cảnh Báo Trực Tiếp Trên Giao Diện Web Wazuh Server\nTừ màn hình chính `Overview`, bấm vào **`Threat Hunting`** rồi thao tác theo 4 vị trí khoanh đỏ trên ảnh:\n1. **`① Bấm chọn tab Events`**: Chuyển từ màn hình biểu đồ (`Dashboard`) sang bảng danh sách từng dòng Log sự kiện chi tiết.\n2. **`② Thanh tìm kiếm DQL (`Search`)`**: Gõ điều kiện lọc nhanh, ví dụ:\n   - Lọc theo mã Rule: `rule.id : \"5710\"` hoặc `rule.level >= 10`\n   - Lọc theo IP tấn công: `data.srcip : \"10.10.20.10\"`\n   - Lọc theo tên máy trạm: `agent.name : \"web-server\"`\n3. **`③ Bộ chọn thời gian (Góc phải trên)`**: Mặc định Wazuh để `Last 24 hours`. Nếu 24h qua không có log mới, hãy bấm vào đây đổi sang **`Last 30 days`** hoặc **`Last 90 days`** (như trong ảnh hiện ngay **24,574** bản ghi).\n4. **`④ Nút mũi tên `>` ở đầu mỗi dòng Log`**: Bấm vào mũi tên `>` để bung toàn bộ trường JSON và xem dòng nhật ký gốc (**`full_log`**).\n\n> 💡 **Mẹo đọc Log lỗi nội bộ của Wazuh Server trên Web**: Mở Menu `☰` ➔ **`Server management`** ➔ **`Logs`** để đọc trực tiếp file `/var/ossec/logs/ossec.log` ngay trên trình duyệt!\n\n---\n\n#### 💻 Cách 2: Vị Trí Các File Log & Cấu Hình Trong Máy Chủ Linux (`/var/ossec/`)\n| Đường Dẫn File Trên Wazuh Server | Chức Năng & Lệnh Đọc Nhanh Qua SSH |\n|---|---|\n| `/var/ossec/logs/alerts/alerts.json` | **Log Cảnh báo (Alerts)** đã khớp Rule.<br>Lệnh xem: `sudo tail -f /var/ossec/logs/alerts/alerts.json` |\n| `/var/ossec/logs/ossec.log` | **Log vận hành & báo lỗi** của chính Wazuh Server.<br>Lệnh xem lỗi: `sudo grep -iE \"error|warn\" /var/ossec/logs/ossec.log | tail -n 20` |\n| `/var/ossec/logs/archives/archives.json` | **Kho lưu trữ 100% Log thô** từ mọi thiết bị (kể cả chưa khớp Rule). |\n| `/var/ossec/etc/ossec.conf` | File cấu hình trung tâm của Wazuh Server. |\n| `/var/ossec/etc/rules/local_rules.xml` | File chứa các **Luật tùy chỉnh (Custom Rules)**. |"
+    },
+    {
+      "id": "archives_logall_guide",
+      "title": "🗄️ Cách Đọc Log Hệ Thống (Server Logs) & Bật Archives.json Bắt Log Chưa Khớp Rule",
+      "image_url": "/static/assets/kb/wz_server_logs_api_annotated.png",
+      "keywords": [
+        "bật archives", "logall", "logall_json", "archives.json trống",
+        "xem log thô chưa khớp rule", "log gửi về nhưng không lên cảnh báo",
+        "wazuh-archives", "server management logs", "xem ossec.log trên web"
+      ],
+      "quick_summary": "Để đọc log lỗi dịch vụ Wazuh ngay trên Web, vào Menu ☰ -> Server management -> Logs. Để bắt cả những log thô gửi về nhưng chưa khớp Rule nào (Level < 3), bật <logall_json>yes</logall_json> trong /var/ossec/etc/ossec.conf.",
+      "answer_markdown": "### 🗄️ Xem Nhật Ký Hệ Thống (`Server Logs`) Trên Web & Cách Bật `archives.json`\n\n![Ảnh chụp thật màn hình Server management -> Logs và Dev Tools trên Wazuh Server](/static/assets/kb/wz_server_logs_api_annotated.png)\n\n#### 1. Xem Log Vận Hành Wazuh Server (`ossec.log`) Ngay Trên Web\n- Mở Menu `☰` ➔ **`Server management`** ➔ **`Logs`** *(Phần trên của ảnh chụp)*:\n  - Tại vị trí **`①`** và **`②`**, bạn có thể lọc theo mức độ (`Error`, `Warning`, `Info`) hoặc gõ tên tiến trình (`analysisd`, `remoted`, `authd`) để tìm lỗi ngay trên giao diện Web.\n\n#### 2. Bật `archives.json` Khi Thiết Bị Đã Gửi Log Nhưng Không Lên Cảnh Báo\nMặc định Wazuh chỉ hiển thị các log khớp với Rule có `level >= 3`. Để kiểm tra xem log từ FortiGate/máy trạm đã chạm tới Wazuh Server hay chưa:\n1. Mở `/var/ossec/etc/ossec.conf` trên Wazuh Server và bật:\n```xml\n<ossec_config>\n  <global>\n    <logall>yes</logall>\n    <logall_json>yes</logall_json>\n  </global>\n</ossec_config>\n```\n2. Khởi động lại: `sudo systemctl restart wazuh-manager`\n3. Kiểm tra dòng log thô: `sudo tail -f /var/ossec/logs/archives/archives.json`"
+    }
+  ]
+}

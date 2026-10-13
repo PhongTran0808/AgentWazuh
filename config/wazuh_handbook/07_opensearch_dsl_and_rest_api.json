@@ -1,0 +1,19 @@
+{
+  "chapter": "07",
+  "chapter_title": "Sử Dụng Dev Tools (API Console) Trên Wazuh Server & Truy Vấn OpenSearch (9200)",
+  "topics": [
+    {
+      "id": "rest_api_and_opensearch_guide",
+      "title": "🔑 Hướng Dẫn Dùng Dev Tools (API Console) Trên Wazuh Server & Gọi REST API 55000 / 9200",
+      "image_url": "/static/assets/kb/wz_server_logs_api_annotated.png",
+      "keywords": [
+        "cách gọi api wazuh", "rest api 55000", "lấy token wazuh",
+        "jwt token wazuh", "truy vấn opensearch", "xóa index cũ",
+        "wazuh-alerts-4.x", "kiểm tra index", "api của wazuh", "curl wazuh api",
+        "api console", "dev tools trên wazuh server"
+      ],
+      "quick_summary": "Trên giao diện Wazuh Server: Vào Menu ☰ -> Server management -> Dev Tools (API Console) để gõ lệnh GET /agents, GET /rules và bấm nút Play ▶️ xem ngay kết quả JSON mà không cần tự lấy JWT Token. Hoặc gọi qua curl tới cổng 55000 (Manager API) và 9200 (OpenSearch Indexer).",
+      "answer_markdown": "### 🔑 Cách Dùng `Dev Tools (API Console)` Trên Wazuh Server & Lệnh `curl` API\n\n![Ảnh chụp thật màn hình Server Logs và Dev Tools API Console trên Wazuh Server](/static/assets/kb/wz_server_logs_api_annotated.png)\n\n#### 🖥️ 1. Gọi Thử API Ngay Trên Giao Diện Web (`Server management ➔ Dev Tools`)\nNhư phần dưới của ảnh chụp thật (**vị trí `③` và `④`**):\n- Mở Menu `☰` ➔ **`Server management`** ➔ **`Dev Tools`**.\n- **Khung bên trái**: Nhập truy vấn API (ví dụ `GET /agents?status=active` hoặc `PUT /agents/001/restart`) rồi bấm biểu tượng tam giác **`▶️` (Send request)**.\n- **Khung bên phải**: Hiển thị ngay dữ liệu JSON trả về từ Wazuh Server.\n\n---\n\n#### 💻 2. Lệnh Gọi Wazuh REST API (`55000`) & OpenSearch (`9200`) Từ Terminal\n```bash\n# Lấy JWT Token từ cổng 55000\nTOKEN=$(curl -s -u wazuh:wazuh -k -X POST \"https://{host}:55000/security/user/authenticate?raw=true\")\n\n# Lấy danh sách Agent qua REST API 55000\ncurl -s -k -H \"Authorization: Bearer $TOKEN\" \"https://{host}:55000/agents?limit=500\" | jq .\n\n# Kiểm tra dung lượng các chỉ mục cảnh báo trên OpenSearch (cổng 9200)\ncurl -s -k -u admin:admin \"https://{host}:9200/_cat/indices/wazuh-alerts-*?v&s=index\"\n\n# Xóa index tháng cũ khi ổ cứng đầy (VD: xóa tháng 08/2026)\ncurl -s -k -u admin:admin -X DELETE \"https://{host}:9200/wazuh-alerts-4.x-2026.08.*\"\n```"
+    }
+  ]
+}

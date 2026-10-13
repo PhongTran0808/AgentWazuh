@@ -1,0 +1,19 @@
+{
+  "chapter": "06",
+  "chapter_title": "Các Mô-Đun Bảo Mật Trên Wazuh Server: FIM (Syscheck), SCA, Vulnerability & Active Response",
+  "topics": [
+    {
+      "id": "fim_sca_active_response",
+      "title": "🛡️ Giải Thích Chi Tiết 4 Mô-Đun Trên Wazuh Server: FIM, SCA, Vulnerability & Active Response",
+      "image_url": "/static/assets/kb/wz_overview_annotated.png",
+      "keywords": [
+        "fim là gì", "file integrity monitoring", "syscheck", "giám sát toàn vẹn file",
+        "sca là gì", "security configuration assessment", "cis benchmark",
+        "active response là gì", "tự động chặn ip", "vulnerability detection",
+        "quét lỗ hổng", "whodata", "report_changes", "tính năng của wazuh"
+      ],
+      "quick_summary": "Trên màn hình Overview của Wazuh Server có 4 mô-đun bảo mật cốt lõi: (1) FIM (vị trí số ⑤) giám sát thay đổi file nhạy cảm theo thời gian thực (Rule 550/554/553); (2) Configuration Assessment - SCA (vị trí số ④) chấm điểm chuẩn CIS; (3) Vulnerability Detection (vị trí số ⑦) quét lỗ hổng CVE; (4) Active Response tự động chặn IP tấn công.",
+      "answer_markdown": "### 🛡️ Vị Trí & Cấu Hình 4 Mô-Đun Phòng Thủ Cốt Lõi Trên Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật vị trí FIM, SCA, Vulnerability trên màn hình Wazuh Server](/static/assets/kb/wz_overview_annotated.png)\n\n#### 1. FIM (`⑤ File Integrity Monitoring` / `syscheck`) — Giám Sát Toàn Vẹn Tệp Tin\n- **Vị trí trên Wazuh Server**: Mục **`⑤ File Integrity Monitoring`** trong khung `ENDPOINT SECURITY`.\n- **Cách bật giám sát thời gian thực (`realtime` & `whodata`)** trong `/var/ossec/etc/ossec.conf`:\n```xml\n<syscheck>\n  <directories check_all=\"yes\" realtime=\"yes\" whodata=\"yes\" report_changes=\"yes\">/etc,/usr/bin,/var/www/html</directories>\n</syscheck>\n```\n- **Các Rule FIM quan trọng**: Rule **`550`** *(File bị sửa nội dung)*, Rule **`554`** *(File mới được tạo thêm)*, Rule **`553`** *(File bị xóa)*.\n\n#### 2. SCA (`④ Configuration Assessment`) & `⑦ Vulnerability Detection`\n- **`④ Configuration Assessment (SCA)`**: Tự động chấm điểm tuân thủ bảo mật hệ điều hành theo chuẩn **CIS Benchmark** (Rule `19000–19015`).\n- **`⑦ Vulnerability Detection`**: Quét danh sách phần mềm trên từng Agent và đối chiếu cơ sở dữ liệu lỗ hổng **CVE**.\n\n#### 3. Active Response — Tự Động Khóa IP Kẻ Tấn Công\nKhai báo trong `/var/ossec/etc/ossec.conf` trên **Wazuh Server** để tự động khóa IP bằng tường lửa trong 10 phút (`600s`) khi chạm Rule `5712` hoặc `100105`:\n```xml\n<active-response>\n  <command>firewall-drop</command>\n  <location>local</location>\n  <rules_id>5712,100105</rules_id>\n  <timeout>600</timeout>\n</active-response>\n```"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "chapter": "05",
+  "chapter_title": "Quản Lý Luật (Rules XML), Bộ Tách Trường (Decoders) & Công Cụ Ruleset Test Trên Wazuh Server",
+  "topics": [
+    {
+      "id": "custom_rules_decoders",
+      "title": "📜 Cách Xem, Sửa Luật (Custom Rules) Trên Giao Diện Wazuh Server & Cấp Độ Level (0–16)",
+      "image_url": "/static/assets/kb/wz_rules_decoders_annotated.png",
+      "keywords": [
+        "cách viết rule", "cấu trúc rule xml", "level trong wazuh", "cấp độ cảnh báo",
+        "if_sid", "if_matched_sid", "frequency", "timeframe",
+        "rule id 100000", "luật tùy chỉnh", "custom rule", "giải thích level",
+        "overwrite rule", "ghi đè rule", "sửa rule trên wazuh", "manage rules files"
+      ],
+      "quick_summary": "Trên giao diện Wazuh Server: Mở Menu ☰ -> Server management -> Rules -> bấm 'Manage rules files' -> bấm 'Custom rules' để mở và sửa trực tiếp file local_rules.xml (Rule ID 100000–120000). Dùng if_sid cho sự kiện đơn và if_matched_sid kèm frequency/timeframe cho sự kiện lặp lại.",
+      "answer_markdown": "### 📜 Quản Lý & Viết Luật (`Rules XML`) Trên Wazuh Server (`https://{host}`)\n\n![Ảnh chụp thật màn hình Server management -> Rules trên Wazuh Server](/static/assets/kb/wz_rules_decoders_annotated.png)\n\n#### 🖥️ 1. Các Nút Quản Lý Rule Trên Giao Diện Web Wazuh Server\nMở Menu `☰` ➔ **`Server management`** ➔ **`Rules`**, chú ý các vị trí khoanh đỏ:\n- **`① Manage rules files`**: Chuyển sang chế độ quản lý danh sách các file `.xml` (thay vì xem từng dòng rule lẻ).\n- **`② Custom rules`**: Nút lọc nhanh chỉ hiện các luật do bạn tự tạo (loại bỏ hàng nghìn rule mặc định).\n- **`③ Add new rules file`**: Tạo thêm một file luật `.xml` mới trên Wazuh Server.\n- **`④ local_rules.xml`**: Bấm vào biểu tượng cây bút ✏️ ở dòng `local_rules.xml` để **soạn thảo trực tiếp mã XML ngay trên trình duyệt** và bấm **`Save`** ➔ **`Restart`**.\n\n---\n\n#### 📊 2. Thang Điểm Mức Độ Nghiêm Trọng (`rule.level` từ 0 ➔ 16)\n| Cấp Độ (Level) | Phân Loại Trên Wazuh | Ý Nghĩa Thực Tế |\n|---|---|---|\n| **Level `0`** | Ignored (Bỏ qua) | Không tạo cảnh báo (dùng để tắt cảnh báo giả / whitelist). |\n| **Level `1 – 6`** | 🟢 **Low severity** | Sự kiện thông tin bình thường (đăng nhập thành công, sai mật khẩu 1 lần). |\n| **Level `7 – 11`** | 🔵 **Medium severity** | Hành vi đáng ngờ, lỗi cấu hình SCA, hoặc đăng nhập thất bại lặp lại nhiều lần. |\n| **Level `12 – 14`** | 🟠 **High severity** | Tấn công rõ rệt (SQL Injection, thực thi mã độc, sửa file hệ thống quan trọng). |\n| **Level `15 – 16`** | 🔴 **Critical severity** | Xâm nhập nghiêm trọng, leo thang đặc quyền Root/Admin, cần ứng cứu ngay. |\n\n#### 🧩 3. Mẫu Rule Chống Brute-Force Chuẩn (`local_rules.xml`)\n- **`<if_sid>`**: Dùng cho sự kiện đơn lẻ. **Không** dùng chung với `frequency`.\n- **`<if_matched_sid>`**: Dùng khi đếm tần suất lặp lại (`frequency` lần trong `timeframe` giây):\n```xml\n<group name=\"custom_rules,sshd,\">\n  <rule id=\"100105\" level=\"10\" frequency=\"5\" timeframe=\"60\">\n    <if_matched_sid>5716</if_matched_sid>\n    <same_source_ip />\n    <description>Phát hiện tấn công SSH Brute Force (Sai mật khẩu 5 lần trong 60s)</description>\n    <mitre><id>T1110</id></mitre>\n  </rule>\n</group>\n```"
+    },
+    {
+      "id": "decoders_and_logtest",
+      "title": "🧩 Cách Viết Decoder (`local_decoder.xml`) & Chạy Thử Bằng `Ruleset Test` (`wazuh-logtest`)",
+      "image_url": "/static/assets/kb/wz_rules_decoders_annotated.png",
+      "keywords": [
+        "decoder là gì", "cách viết decoder", "local_decoder.xml",
+        "wazuh-logtest", "ruleset test", "kiểm thử rule", "test log wazuh",
+        "tách trường log", "prematch", "regex trong decoder", "cdb list"
+      ],
+      "quick_summary": "Trên giao diện Wazuh Server: Vào Menu ☰ -> Server management -> Decoders để sửa local_decoder.xml (tách các trường srcip, dstuser). Để kiểm tra dòng log thô khớp Decoder và Rule nào, vào Menu ☰ -> Server management -> Ruleset Test (hoặc chạy /var/ossec/bin/wazuh-logtest trên CLI).",
+      "answer_markdown": "### 🧩 Hướng Dẫn Viết Decoder & Kiểm Thử Log Bằng `Ruleset Test` Trên Wazuh Server\n\n![Ảnh chụp thật giao diện quản lý Rules & Decoders trên Wazuh Server](/static/assets/kb/wz_rules_decoders_annotated.png)\n\n#### 1. Sửa Decoder Trực Tiếp Trên Giao Diện Wazuh Server\n1. Mở Menu `☰` ➔ **`Server management`** ➔ **`Decoders`**.\n2. Bấm **`Manage decoders files`** ➔ Bấm nút lọc **`Custom decoders`** ➔ Chọn file **`local_decoder.xml`**.\n3. Ví dụ tách `dstuser` và `srcip` từ dòng log `2026-10-13 myapp: LOGIN_FAIL user=admin ip=10.10.20.10`:\n```xml\n<decoder name=\"myapp-custom\">\n  <program_name>^myapp</program_name>\n</decoder>\n\n<decoder name=\"myapp-custom-fields\">\n  <parent>myapp-custom</parent>\n  <regex>LOGIN_FAIL user=(\\S+) ip=(\\S+)</regex>\n  <order>dstuser, srcip</order>\n</decoder>\n```\n\n#### 2. Kiểm Thử Ngay Bằng `Ruleset Test` (Trên Web) Hoặc `wazuh-logtest` (CLI)\n- **Trên Giao diện Web Wazuh Server**: Mở Menu `☰` ➔ **`Server management`** ➔ **`Ruleset Test`**, dán dòng log thô vào ô và bấm **`Test`**.\n- **Trên CLI Wazuh Server**: Chạy lệnh `sudo /var/ossec/bin/wazuh-logtest` rồi dán dòng log vào để xem kết quả 3 pha (*Phase 1: Pre-decoding*, *Phase 2: Decoding*, *Phase 3: Rule matching*)."
+    }
+  ]
+}

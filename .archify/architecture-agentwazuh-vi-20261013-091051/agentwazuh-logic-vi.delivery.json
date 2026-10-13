@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "8f2653e6-fe67-4bb0-a565-385ffb435b80",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/candidate.json",
+  "output": "/run/media/kweismann/Dir_D/Tiểu luận CN/AgentWazuh/.archify/architecture-agentwazuh-vi-20261013-091051/agentwazuh-logic-vi.html",
+  "specification": {
+    "sha256": "93cf4048ae50c8dddcde8e2ad3c93455667d37325ac28429051cb03a21b162fa",
+    "bytes": 16841
+  },
+  "artifact": {
+    "sha256": "93e5935039864dc4de1d421262b8fef3b493f6c5d0eb68a125949c968b61d856",
+    "bytes": 785446
+  }
+}

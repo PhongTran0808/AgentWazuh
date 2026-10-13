@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "description": "Kho tri thức cục bộ Wazuh SIEM (Tái cấu trúc cho Giám sát viên SOC - Trả lời tức thì 0 Token, kèm ảnh minh họa SVG)",
+  "topics": [
+    {
+      "id": "ui_buttons_guide",
+      "title": "🖥️ Giải Thích Các Nút & Khu Vực Chức Năng Trên Giao Diện SOC",
+      "image_url": "/static/assets/kb/dashboard_buttons_guide.svg",
+      "keywords": [
+        "nút này làm gì", "nút này là gì", "chức năng các nút", "hướng dẫn giao diện",
+        "cột bên phải", "nhóm sự cố", "đơn lẻ", "sơ đồ tấn công", "log chi tiết",
+        "gói tin api", "api inspector", "kiểm kê thiết bị", "device inventory",
+        "bản đồ mạng", "network map", "nút phân tích", "nút duyệt", "dry-run",
+        "các nút trên web", "giao diện dashboard", "màn hình chính", "nút bấm"
+      ],
+      "quick_summary": "Giao diện gồm 3 khu vực: (1) Menu trái chuyển trang (Điều tra, Bản đồ mạng, Kiểm kê thiết bị, Gói tin API, Cài đặt); (2) Khung Chat AI ở giữa để hỏi đáp & duyệt Rule HITL; (3) Cột phải tự động gom nhóm sự cố INC-xxx mỗi 15 giây.",
+      "answer_markdown": "### 🖥️ Hướng Dẫn Nhanh Các Nút & Chức Năng Trên Giao Diện SOC\n\n![Sơ đồ các nút chức năng](/static/assets/kb/dashboard_buttons_guide.svg)\n\n| Khu Vực / Nút Bấm | Tác Dụng Chính (Ngắn Gọn) |\n|---|---|\n| **Tab `Nhóm sự cố`** *(Cột phải)* | Mặc định bật sẵn. Tự động lọc rác, nén trùng 60s và gom các cảnh báo liên quan thành thẻ **`INC-xxx`** cứ mỗi 15 giây. |\n| **Tab `Đơn lẻ` / `Lọc`** *(Cột phải)* | Xem từng dòng cảnh báo thô rời rạc (200 log mới nhất) hoặc lọc theo Mức độ (Critical/High/Medium/Low), Agent, Rule ID. |\n| **Nút `Phân tích` / Click thẻ `INC-xxx`** | Lấy dữ liệu của nhóm sự cố đó từ Kho RAM gửi thẳng xuống Trợ lý AI để lập báo cáo điều tra và đề xuất cách xử lý. |\n| **Nút `Sơ đồ tấn công`** | Vẽ đồ thị chuỗi tấn công (Kill-Chain Mermaid) thể hiện IP nguồn ➔ Hành vi ➔ Máy đích của nhóm sự cố đó. |\n| **Nút `Log chi tiết` (Drill-down)** | Mở trang bảng dữ liệu đầy đủ để soi toàn bộ `full_log` và trường JSON gốc từ OpenSearch. |\n| **Menu `Bản đồ mạng`** *(Bên trái)* | Hiển thị sơ đồ kết nối mạng trực quan giữa Wazuh Server, các máy trạm Agent và tường lửa FortiGate. |\n| **Menu `Kiểm kê thiết bị`** *(Bên trái)* | Quản lý danh sách toàn bộ máy trạm Agent (Active/Disconnected) và thiết bị gửi Syslog. |\n| **Menu `Gói tin API`** *(Bên trái)* | Soi trực tiếp các bản tin REST API (`55000` / `443`) và nhật ký kiểm toán hệ thống theo thời gian thực. |"
+    },
+    {
+      "id": "add_device_agent",
+      "title": "➕ Hướng Dẫn Thêm Thiết Bị (Wazuh Agent & Syslog) Vào Wazuh Server",
+      "image_url": "/static/assets/kb/add_device_flow.svg",
+      "keywords": [
+        "thêm thiết bị", "làm sao thêm thiết bị", "cách thêm thiết bị", "thêm máy trạm",
+        "thêm agent", "cài đặt agent", "cài đặt wazuh agent", "cài agent",
+        "đăng ký agent", "kết nối thiết bị mới", "thêm tường lửa", "thêm fortigate",
+        "cấu hình syslog", "agent-auth", "add agent", "deploy new agent"
+      ],
+      "quick_summary": "Thêm máy trạm (Linux/Windows) bằng cách cài gói wazuh-agent trỏ WAZUH_MANAGER về IP Server (cổng 1515 đăng ký, 1514 gửi log). Thêm thiết bị mạng (FortiGate/Router) bằng cách bật Remote Syslog gửi UDP/TCP 514 về Wazuh Server.",
+      "answer_markdown": "### ➕ Quy Trình Chuẩn Thêm Thiết Bị Mới Vào Wazuh Server (`{host}`)\n\n![Quy trình 3 bước thêm thiết bị](/static/assets/kb/add_device_flow.svg)\n\n#### 1. Thêm máy chủ / máy trạm Linux (Ubuntu / Debian)\nChạy lệnh sau với quyền `root` trên máy cần giám sát:\n```bash\ncurl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg\necho \"deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main\" | tee /etc/apt/sources.list.d/wazuh.list\napt-get update && WAZUH_MANAGER=\"{host}\" apt-get install -y wazuh-agent\nsystemctl daemon-reload && systemctl enable --now wazuh-agent\n```\n\n#### 2. Thêm máy trạm Windows (PowerShell Admin)\n```powershell\nInvoke-WebRequest -Uri https://packages.wazuh.com/4.x/windows/wazuh-agent-4.14.7-1.msi -OutFile wazuh-agent.msi\nmsiexec.exe /i wazuh-agent.msi /q WAZUH_MANAGER=\"{host}\" WAZUH_REGISTRATION_SERVER=\"{host}\"\nNET START WazuhSvc\n```\n\n#### 3. Thêm thiết bị mạng (Tường lửa FortiGate / Router qua Syslog)\n1. Trên **FortiGate**: Bật gửi Syslog về IP `{host}`, cổng `514` (UDP).\n2. Trên **Wazuh Server** (`/var/ossec/etc/ossec.conf`): Đảm bảo có khối `<remote>` mở cổng `514`:\n```xml\n<remote>\n  <connection>syslog</connection>\n  <port>514</port>\n  <protocol>udp</protocol>\n  <allowed-ips>10.0.0.0/8</allowed-ips>\n</remote>\n```\n3. Kiểm tra danh sách thiết bị đã vào chưa: Gõ **`Danh sách agent`** ngay trong khung Chat này hoặc chạy `/var/ossec/bin/agent_control -l`."
+    },
+    {
+      "id": "log_locations",
+      "title": "📂 Vị Trí Đọc Log & File Cấu Hình Của Wazuh (Server & Agent)",
+      "image_url": "/static/assets/kb/wazuh_logs_map.svg",
+      "keywords": [
+        "đọc log của wazuh ở đâu", "đọc log ở đâu", "log của wazuh nằm ở đâu",
+        "xem log wazuh", "vị trí file log", "đường dẫn log", "ossec.log",
+        "alerts.json", "alerts.log", "archives.json", "ossec.conf nằm ở đâu",
+        "local_rules.xml nằm ở đâu", "thư mục cài đặt wazuh", "file log wazuh"
+      ],
+      "quick_summary": "Trên Wazuh Server (/var/ossec/): Cảnh báo khớp rule ở logs/alerts/alerts.json; log lỗi hệ thống ở logs/ossec.log; toàn bộ log thô ở logs/archives/archives.json; cấu hình chính ở etc/ossec.conf; luật tùy chỉnh ở etc/rules/local_rules.xml.",
+      "answer_markdown": "### 📂 Bản Đồ Vị Trí Các File Log & Cấu Hình Quan Trọng Của Wazuh\n\n![Bản đồ đường dẫn Log và Cấu hình Wazuh](/static/assets/kb/wazuh_logs_map.svg)\n\n#### 1. Trên Máy Chủ Wazuh Server (`{host}`)\n| Đường Dẫn File | Chức Năng & Lệnh Đọc Nhanh |\n|---|---|\n| `/var/ossec/logs/alerts/alerts.json` | **Log Cảnh báo (Alerts)** đã khớp với Rule (Filebeat đọc file này đẩy lên OpenSearch).<br>Lệnh xem: `sudo tail -f /var/ossec/logs/alerts/alerts.json` |\n| `/var/ossec/logs/ossec.log` | **Log vận hành & báo lỗi** của chính Wazuh Manager (lỗi dịch vụ, lỗi kết nối Agent, lỗi XML).<br>Lệnh xem lỗi: `sudo grep -iE \"error|warn\" /var/ossec/logs/ossec.log | tail -n 20` |\n| `/var/ossec/logs/archives/archives.json` | **Kho lưu trữ 100% Log thô** nhận từ mọi thiết bị (kể cả log chưa khớp Rule nào). |\n| `/var/ossec/etc/ossec.conf` | File cấu hình trung tâm của Wazuh Server (cổng nhận log, FIM, Vulnerability, Active Response). |\n| `/var/ossec/etc/rules/local_rules.xml` | File chứa các **Luật tùy chỉnh (Custom Rules)** do quản trị viên hoặc AI tạo thêm. |\n\n#### 2. Trên Máy Trạm Wazuh Agent\n- **Linux Agent**: `/var/ossec/logs/ossec.log` *(log kết nối)* và `/var/ossec/etc/ossec.conf` *(cấu hình IP Server)*.\n- **Windows Agent**: `C:\\Program Files (x86)\\ossec-agent\\ossec.log` và `C:\\Program Files (x86)\\ossec-agent\\ossec.conf`."
+    },
+    {
+      "id": "troubleshooting_errors",
+      "title": "🛠️ Chẩn Đoán & Xử Lý Nhanh Các Lỗi Thường Gặp Trên Wazuh",
+      "image_url": "/static/assets/kb/troubleshooting_guide.svg",
+      "keywords": [
+        "lỗi này ra sao", "lỗi wazuh", "agent disconnected", "mất kết nối agent",
+        "agent offline", "never connected", "không có cảnh báo", "không lên log",
+        "0 cảnh báo", "lỗi filebeat", "lỗi indexer", "lỗi 401", "không kết nối được wazuh",
+        "lỗi rule xml", "sửa lỗi wazuh", "khắc phục sự cố wazuh", "đầy ổ cứng"
+      ],
+      "quick_summary": "3 lỗi phổ biến nhất: (1) Agent Disconnected -> Kiểm tra cổng TCP 1514 và khởi động lại wazuh-agent; (2) Không lên log mới trên Dashboard -> Kiểm tra Filebeat và Wazuh Indexer (cổng 9200); (3) Lỗi nạp Rule XML -> Chạy wazuh-analysisd -t để soi dòng lỗi.",
+      "answer_markdown": "### 🛠️ Bảng Chẩn Đoán & Khắc Phục Nhanh Sự Cố Wazuh Server (`{host}`)\n\n![Sơ đồ chẩn đoán lỗi Wazuh](/static/assets/kb/troubleshooting_guide.svg)\n\n#### 🔴 1. Lỗi Agent báo `Disconnected` hoặc `Never connected`\n- **Nguyên nhân**: Máy trạm tắt, tường lửa chặn cổng `1514/TCP` (gửi log) hoặc `1515/TCP` (đăng ký), hoặc lệch khóa xác thực (`client.keys`).\n- **Lệnh kiểm tra & khắc phục trên máy Agent**:\n  ```bash\n  nc -zv {host} 1514 && nc -zv {host} 1515\n  sudo systemctl restart wazuh-agent\n  sudo tail -n 25 /var/ossec/logs/ossec.log\n  ```\n\n#### 🟠 2. Lỗi Wazuh vẫn chạy nhưng Dashboard báo `0 cảnh báo` mới\n- **Nguyên nhân**: Dịch vụ **Filebeat** hoặc **Wazuh Indexer (cổng 9200)** bị dừng, hết hạn chứng chỉ SSL, hoặc ổ đĩa đầy (>85-90% làm OpenSearch khóa ghi).\n- **Lệnh khắc phục trên Wazuh Server**:\n  ```bash\n  df -h                                        # Kiểm tra dung lượng ổ đĩa\n  sudo filebeat test output                    # Kiểm tra kết nối Filebeat -> Indexer\n  sudo systemctl restart wazuh-indexer filebeat\n  ```\n\n#### 🔵 3. Lỗi không khởi động được `wazuh-manager` sau khi sửa Rule XML\n- **Nguyên nhân**: Sai cú pháp thẻ XML hoặc trùng `rule id` trong `/var/ossec/etc/rules/local_rules.xml`.\n- **Lệnh kiểm tra dòng bị lỗi**:\n  ```bash\n  sudo /var/ossec/bin/wazuh-analysisd -t\n  ```"
+    },
+    {
+      "id": "architecture_ports",
+      "title": "🌐 Kiến Trúc Wazuh SIEM & Danh Sách Cổng Mạng (Ports)",
+      "image_url": "/static/assets/kb/wazuh_architecture.svg",
+      "keywords": [
+        "kiến trúc wazuh", "cổng mạng wazuh", "port của wazuh", "wazuh dùng cổng nào",
+        "cổng 1514", "cổng 1515", "cổng 55000", "cổng 9200", "cổng 514",
+        "wazuh hoạt động như thế nào", "thành phần của wazuh", "wazuh indexer là gì",
+        "wazuh manager là gì", "filebeat làm gì", "wazuh-analysisd", "wazuh-remoted"
+      ],
+      "quick_summary": "Wazuh gồm 3 thành phần chính: Wazuh Agent (thu thập log), Wazuh Server/Manager (nhận log cổng 1514/514, đăng ký cổng 1515, phân tích bằng analysisd, cấp API cổng 55000) và Wazuh Indexer + Dashboard (lưu trữ OpenSearch cổng 9200, giao diện Web cổng 443).",
+      "answer_markdown": "### 🌐 Kiến Trúc Hoạt Động & Bảng Cổng Dịch Vụ Của Wazuh SIEM\n\n![Sơ đồ kiến trúc và cổng kết nối Wazuh](/static/assets/kb/wazuh_architecture.svg)\n\n#### 1. Bảng Cổng Mạng (Network Ports) Cần Nhớ\n| Cổng (Port) | Giao Thức | Chiều Kết Nối | Chức Năng Cụ Thể |\n|---|---|---|---|\n| **`1514`** | TCP / UDP | Agent ➔ Server | Truyền dữ liệu Log đã mã hóa từ các Wazuh Agent về Server (`wazuh-remoted`). |\n| **`1515`** | TCP | Agent ➔ Server | Đăng ký Agent mới và cấp phát khóa tự động (`wazuh-authd`). |\n| **`514`** | UDP / TCP | Firewall ➔ Server | Nhận nhật ký Syslog từ thiết bị không cài được Agent (FortiGate, Router, Switch). |\n| **`55000`** | HTTPS (TCP) | AgentWazuh ➔ Server | **Wazuh Manager REST API** (Lấy danh sách Agent, trạng thái Server, tra cứu Rule). |\n| **`9200`** | HTTPS (TCP) | Filebeat ➔ Indexer | **Wazuh Indexer (OpenSearch)** lưu trữ và tìm kiếm chỉ mục `wazuh-alerts-4.x-*`. |\n| **`443`** | HTTPS (TCP) | Trình duyệt ➔ Dashboard | Giao diện Web **Wazuh Dashboard** và cổng Proxy truy vấn OpenSearch. |\n\n#### 2. Các Tiến Trình Lõi (Daemons) Trên Wazuh Server\n- **`wazuh-remoted`**: Lắng nghe cổng `1514` và `514` để nhận log từ Agent/Syslog.\n- **`wazuh-analysisd`**: Giải mã (Decode) log và so khớp với bộ Luật (Rules) để sinh cảnh báo vào `alerts.json`.\n- **`filebeat`**: Đọc `alerts.json` và đẩy thẳng sang Wazuh Indexer (`9200`)."
+    },
+    {
+      "id": "custom_rules_decoders",
+      "title": "📜 Hướng Dẫn Viết Rule XML, Cấp Độ Level (0–16) & Kiểm Thử Log",
+      "image_url": "/static/assets/kb/wazuh_logs_map.svg",
+      "keywords": [
+        "cách viết rule", "cấu trúc rule xml", "level trong wazuh", "cấp độ cảnh báo",
+        "if_sid", "if_matched_sid", "frequency", "timeframe", "decoder là gì",
+        "wazuh-logtest", "kiểm thử rule", "rule id 100000", "luật tùy chỉnh",
+        "custom rule", "giải thích level"
+      ],
+      "quick_summary": "Rule tùy chỉnh đặt tại /var/ossec/etc/rules/local_rules.xml với ID từ 100000–120000. Dùng if_sid cho sự kiện đơn, if_matched_sid kèm frequency/timeframe cho sự kiện lặp lại (Brute Force). Cấp độ Level từ 0 (bỏ qua) đến 15-16 (Khẩn cấp).",
+      "answer_markdown": "### 📜 Quy Chuẩn Viết Luật (Rule XML) & Thang Điểm Mức Độ Trong Wazuh\n\n![Vị trí file Rule và Decoder](/static/assets/kb/wazuh_logs_map.svg)\n\n#### 1. Thang Điểm Mức Độ Nghiêm Trọng (`rule.level` từ 0 ➔ 16)\n| Cấp Độ (Level) | Phân Loại SOC | Ý Nghĩa Thực Tế |\n|---|---|---|\n| **Level `0`** | Bỏ qua (Ignored) | Không tạo cảnh báo (dùng để tắt cảnh báo giả / whitelist). |\n| **Level `1 – 6`** | 🟢 **Thấp (Low)** | Sự kiện thông tin bình thường (đăng nhập thành công, khởi động dịch vụ, sai mật khẩu 1 lần). |\n| **Level `7 – 11`** | 🟠 **Trung bình (Medium)** | Hành vi đáng ngờ, lỗi cấu hình SCA, hoặc đăng nhập thất bại lặp lại nhiều lần. |\n| **Level `12 – 14`** | 🔴 **Cao (High)** | Tấn công rõ rệt (SQL Injection, thực thi mã độc, thay đổi file hệ thống quan trọng). |\n| **Level `15 – 16`** | 🚨 **Khẩn cấp (Critical)** | Xâm nhập nghiêm trọng, leo thang đặc quyền Root/Admin, cần ứng cứu ngay lập tức. |\n\n#### 2. Cấu Trúc Mẫu Rule Tương Quan (Chặn Brute Force) trong `local_rules.xml`\n- **Lưu ý quan trọng**: Mã `id` của Rule tự tạo phải nằm trong dải **`100000` ➔ `120000`**. Khi đếm tần suất (`frequency` + `timeframe`), bắt buộc dùng **`<if_matched_sid>`** (không dùng `<if_sid>`):\n```xml\n<group name=\"custom_rules,sshd,\">\n  <rule id=\"100105\" level=\"10\" frequency=\"5\" timeframe=\"60\">\n    <if_matched_sid>5716</if_matched_sid>\n    <same_source_ip />\n    <description>Phát hiện tấn công SSH Brute Force (Sai mật khẩu 5 lần trong 60s)</description>\n    <mitre><id>T1110</id></mitre>\n  </rule>\n</group>\n```\n> 💡 **Mẹo trên AgentWazuh**: Bạn chỉ cần gõ vào khung Chat: *\"Tạo rule chặn SSH sai 5 lần trong 60s\"*, hệ thống sẽ tự sinh XML, chạy thử **Dry-run** trên 200 log thật và hiện nút **Duyệt & Áp dụng**!"
+    },
+    {
+      "id": "fim_sca_active_response",
+      "title": "🛡️ Các Tính Năng Bảo Mật Cốt Lõi: FIM, SCA, Vulnerability & Active Response",
+      "image_url": "/static/assets/kb/wazuh_architecture.svg",
+      "keywords": [
+        "fim là gì", "file integrity monitoring", "syscheck", "giám sát toàn vẹn file",
+        "sca là gì", "security configuration assessment", "cis benchmark",
+        "active response là gì", "tự động chặn ip", "vulnerability detection",
+        "quét lỗ hổng", "whodata", "tính năng của wazuh"
+      ],
+      "quick_summary": "4 mô-đun cốt lõi của Wazuh: (1) FIM (syscheck) giám sát thay đổi file nhạy cảm theo thời gian thực; (2) SCA chấm điểm tuân thủ bảo mật hệ điều hành theo chuẩn CIS; (3) Vulnerability Detection quét lỗ hổng CVE; (4) Active Response tự động chạy script chặn IP tấn công.",
+      "answer_markdown": "### 🛡️ Giải Thích 4 Tính Năng Phòng Thủ Cốt Lõi Trên Wazuh SIEM\n\n![Kiến trúc các mô-đun Wazuh](/static/assets/kb/wazuh_architecture.svg)\n\n| Tính Năng (Module) | Chức Năng & Cơ Chế Hoạt Động |\n|---|---|\n| **1. FIM (`syscheck`)**<br>*File Integrity Monitoring* | Giám sát việc **thêm / sửa / xóa / đổi quyền** các tệp tin và thư mục nhạy cảm (`/etc/passwd`, `/bin`, `C:\\Windows\\System32`).<br>• Chế độ `realtime=\"yes\"`: Phát hiện tức thì khi file bị thay đổi.<br>• Chế độ `whodata=\"yes\"`: Ghi rõ **User nào** và **Tiến trình nào** vừa sửa file (dùng Auditd/SACL). |\n| **2. SCA**<br>*Security Configuration Assessment* | Tự động kiểm tra cấu hình máy chủ (Windows/Linux) xem có tuân thủ tiêu chuẩn an ninh **CIS Benchmark** hay không (VD: chính sách độ dài mật khẩu, tắt SMBv1, quyền SSH root). |\n| **3. Vulnerability Detection**<br>*Quét lỗ hổng CVE* | Thu thập danh sách các gói phần mềm đã cài trên Agent và đối chiếu với cơ sở dữ liệu **CVE quốc tế** để báo cáo phần mềm nào đang có lỗ hổng cần vá. |\n| **4. Active Response**<br>*Phản ứng chủ động* | Khi phát hiện tấn công đạt ngưỡng Rule chỉ định (VD: Rule `100105` Brute Force), Wazuh tự động thực thi kịch bản (`firewall-drop`, `iptables`, `netsh`) trên Agent/Firewall để **khóa IP kẻ tấn công ngay lập tức**. |"
+    }
+  ]
+}

@@ -46,11 +46,28 @@ def is_contextual_security_followup(query: str) -> bool:
     return len(text) <= 120 and any(marker in text for marker in CONTEXTUAL_FOLLOWUP_MARKERS)
 
 
+GREETING_WORDS = {
+    "hi", "hello", "hey", "chào", "xin chào", "chào bạn", "chào bot", "alo",
+    "help", "trợ giúp", "bạn là ai", "bạn làm được gì", "who are you",
+    "good morning", "good afternoon", "good evening", "chào em", "chào anh",
+    "hi bạn", "hi bot", "hello bot", "hey bot", "hi there", "hello there", "hey there",
+}
+
+
+def is_greeting(query: str) -> bool:
+    """Check if query is a greeting or capability inquiry."""
+    text = (query or "").strip().lower()
+    clean_text = re.sub(r"[^\w\s]", "", text).strip()
+    if not clean_text:
+        return False
+    return clean_text in GREETING_WORDS
+
+
 def classify_chat_intent(query: str) -> Dict[str, str]:
     text = (query or "").strip().lower()
 
     # 1. Greetings & bot capabilities
-    if text in {"hi", "hello", "chào", "chào bạn", "alo", "help", "trợ giúp", "bạn là ai", "bạn làm được gì"}:
+    if is_greeting(text):
         return {"intent": "greeting", "format": "friendly_capabilities"}
 
     # 2. Rule configuration & HITL form requests

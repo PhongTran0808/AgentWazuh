@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 from services.chat_intent import (
     classify_chat_intent as deterministic_classify_chat_intent,
     is_contextual_security_followup,
+    is_greeting,
     is_security_related_query,
 )
 
@@ -234,6 +235,42 @@ def route_intent(
             "latency_ms": 0.0,
         }
 
+    # =========================================================================
+    # HYBRID LAYER 1: Fast Deterministic Interceptor (0ms, 100% precision)
+    # Greetings, capability inquiries, and explicit keyword patterns must not
+    # be misclassified by machine learning models as out_of_scope.
+    # =========================================================================
+    if is_greeting(clean_query):
+        return {
+            "intent": "support",
+            "confidence": 1.0,
+            "probabilities": {"support": 1.0},
+            "format": "friendly_capabilities",
+            "legacy_intent": "greeting",
+            "fallback_used": False,
+            "model_used": "hybrid_deterministic (greeting)",
+            "latency_ms": 0.1,
+        }
+
+    legacy_res = deterministic_classify_chat_intent(clean_query)
+    legacy_int = legacy_res.get("intent", "general")
+    legacy_fmt = legacy_res.get("format", "direct_answer")
+
+    if legacy_int == "greeting":
+        return {
+            "intent": "support",
+            "confidence": 1.0,
+            "probabilities": {"support": 1.0},
+            "format": "friendly_capabilities",
+            "legacy_intent": "greeting",
+            "fallback_used": False,
+            "model_used": "hybrid_deterministic (greeting)",
+            "latency_ms": 0.1,
+        }
+
+    # =========================================================================
+    # HYBRID LAYER 2: Laya ML Intent Classifier (Semantic understanding)
+    # =========================================================================
     agent = get_laya_agent()
     if agent is not None:
         t0 = time.perf_counter()
@@ -255,6 +292,32 @@ def route_intent(
                 float(ans_conf or 0.0),
                 float(prob_choice or 0.0)
             )
+
+            # =====================================================================
+            # HYBRID LAYER 3: Sanity Arbitration between Laya & Deterministic Markers
+            # =====================================================================
+            if choice == "out_of_scope" and is_security_related_query(clean_query):
+                logger.info(
+                    "Laya predicted out_of_scope for security-related query '%s'. Overriding with deterministic intent '%s'.",
+                    clean_query[:50],
+                    legacy_int,
+                )
+                mapped_intent = (
+                    "stats" if legacy_int == "metrics"
+                    else "wazuh_lookup" if legacy_int == "wazuh_explanation"
+                    else "investigate" if legacy_int == "investigation"
+                    else "support"
+                )
+                return {
+                    "intent": mapped_intent,
+                    "confidence": 0.90,
+                    "probabilities": {mapped_intent: 0.90},
+                    "format": legacy_fmt,
+                    "legacy_intent": legacy_int,
+                    "fallback_used": True,
+                    "model_used": "hybrid_arbitrated (laya_out_of_scope -> deterministic_override)",
+                    "latency_ms": round(latency_ms, 2),
+                }
 
             # Ensure predicted choice is valid
             if choice in LAYA_INTENTS and confidence >= threshold:
@@ -329,6 +392,7 @@ def classify_chat_intent_laya(query: str) -> Dict[str, str]:
     res = route_intent(query)
     return {
         "intent": res.get("legacy_intent", "general"),
+        "legacy_intent": res.get("legacy_intent", "general"),
         "format": res.get("format", "direct_answer"),
         "laya_intent": res.get("intent", "support"),
         "confidence": str(res.get("confidence", 0.0)),

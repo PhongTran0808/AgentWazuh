@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import shutil
 import requests
-from services.chat_intent import classify_chat_intent, is_contextual_security_followup, is_security_related_query
+from services.chat_intent import (
+    classify_chat_intent,
+    is_contextual_security_followup,
+    is_greeting as check_is_greeting,
+    is_security_related_query,
+)
 from services.laya_intent_router import route_intent
 from services.ollama_client import OllamaClient, OllamaError, model_name_from_selection
 from services.wazuh_kb import get_compact_kb_context, render_wazuh_kb_answer
@@ -1028,6 +1033,7 @@ graph TD
         # Route intent using Laya model with deterministic fallback
         intent_info = classified_intent or route_intent(query)
         laya_intent = intent_info.get("intent", "support")
+        greeting_query = check_is_greeting(query)
         chat_intent = {
             "intent": intent_info.get("legacy_intent", "general"),
             "format": intent_info.get("format", "direct_answer"),
@@ -1056,7 +1062,8 @@ graph TD
         is_outside_scope = (
             not has_security_context
             and not kb_precheck
-            and chat_intent.get("intent") != "greeting"
+            and intent_info.get("legacy_intent") != "greeting"
+            and not greeting_query
             and laya_intent != "support"
             and not is_security_related_query(query)
             and (
@@ -1091,6 +1098,43 @@ graph TD
                 "pipeline_evidence": {
                     "source": "AgentWazuh domain policy",
                     "model_used": "None (blocked before LLM)",
+                    "intent_classification": intent_info,
+                },
+                "chat_intent": chat_intent,
+                "intent_classification": intent_info,
+            }
+
+        # Fast greeting response (0 LLM token, instant friendly welcome)
+        if intent_info.get("legacy_intent") == "greeting" or greeting_query:
+            greeting_msg = (
+                "### 👋 Xin chào! Mình là AgentWazuh SOC Assistant\n\n"
+                "Chào bạn! Mình có thể hỗ trợ các nội dung vận hành và an ninh mạng Wazuh SIEM:\n\n"
+                "- 🔍 **Điều tra sự cố & phân tích Alert**: giải thích log, truy vết IP, tương quan sự kiện, đối chiếu MITRE ATT&CK.\n"
+                "- 📊 **Thống kê & Báo cáo**: tổng hợp số lượng alert, top IP tấn công, biểu đồ và xu hướng 24h qua.\n"
+                "- ⚙️ **Tạo & Thử nghiệm Rule XML**: hỗ trợ viết và dry-run rule giám sát trong sandbox HITL an toàn.\n"
+                "- 📖 **Tra cứu Wazuh**: kiểm tra trạng thái Wazuh Manager, Agent, và kho tri thức bảo mật.\n\n"
+                "Bạn có thể bắt đầu với: `hướng dẫn kiểm tra agent`, `thống kê alert 24h qua`, `giải thích Rule 5710`, hoặc `tạo rule phát hiện brute force`."
+            )
+            return {
+                "summary": greeting_msg,
+                "layer_2_llm_reasoning": greeting_msg,
+                "threat_classification": "INFORMATIONAL",
+                "reasoning_steps": [
+                    {"step": 1, "title": "Intent Classification", "status": "COMPLETED", "detail": "Greeting & Capabilities recognized (Hybrid Router)"},
+                    {"step": 2, "title": "SOC Assistant Guidance", "status": "COMPLETED", "detail": "Presented capabilities and sample queries"},
+                ],
+                "evidence": {
+                    "source": "AgentWazuh SOC Assistant",
+                    "raw_wazuh": [],
+                    "normalized_by_python": [],
+                    "ai_analysis": {
+                        "intent": chat_intent,
+                        "threat_classification": "INFORMATIONAL",
+                    },
+                },
+                "pipeline_evidence": {
+                    "source": "AgentWazuh SOC Assistant",
+                    "model_used": "Hybrid Greeting Handler (0 tokens)",
                     "intent_classification": intent_info,
                 },
                 "chat_intent": chat_intent,

@@ -48,12 +48,46 @@ let network     = null;
 let nodesDS     = null;
 let edgesDS     = null;
 let rawDevices  = [];       // last fetched devices array from /api/security-map
+let lastAttackPaths = [];
+let lastWazuhHost = "100.69.72.103";
+let currentTopologyMode = localStorage.getItem("secmap_topology_mode") || "zone"; // "zone" | "fanout"
 let savedPositions = JSON.parse(localStorage.getItem("secmap_positions") || "{}");
 
 // ─────────────────────────────────────────────
 //  INIT
 // ─────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+    // Mode toggle button setup
+    const modeBtn = document.getElementById("btn-toggle-topology-mode");
+    const modeLbl = document.getElementById("lbl-topo-mode");
+    const zoneLeg = document.getElementById("secmap-zone-legend");
+
+    const updateModeUI = () => {
+        if (modeLbl) {
+            modeLbl.textContent = currentTopologyMode === "zone"
+                ? "Chế độ: Phân vùng An ninh"
+                : "Chế độ: Sơ đồ Quạt Wazuh";
+        }
+        if (modeBtn) {
+            modeBtn.className = currentTopologyMode === "zone" ? "btn btn--primary btn--sm" : "btn btn--ghost btn--sm";
+        }
+        if (zoneLeg) {
+            zoneLeg.style.display = currentTopologyMode === "zone" ? "flex" : "none";
+        }
+    };
+    updateModeUI();
+
+    modeBtn?.addEventListener("click", () => {
+        currentTopologyMode = currentTopologyMode === "zone" ? "fanout" : "zone";
+        localStorage.setItem("secmap_topology_mode", currentTopologyMode);
+        updateModeUI();
+        if (network) {
+            network.destroy();
+            network = null;
+        }
+        renderVisNetwork(rawDevices, lastWazuhHost);
+    });
+
     // Live API Log Bar Height Resizer
     const logBar = document.getElementById("live-api-log-bar");
     if (logBar && !document.querySelector(".live-log-resizer-h")) {
@@ -113,8 +147,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-reset-layout")?.addEventListener("click", () => {
         localStorage.removeItem("secmap_positions");
         savedPositions = {};
-        if (network) network.setOptions({ physics: { enabled: true } });
-        setTimeout(() => { if (network) network.setOptions({ physics: { enabled: false } }); }, 3000);
+        if (network) {
+            network.destroy();
+            network = null;
+        }
+        renderVisNetwork(rawDevices, lastWazuhHost);
     });
 
     // Zoom fit
@@ -280,9 +317,11 @@ async function pollFullMap() {
         const json = await res.json();
 
         rawDevices = json.devices || [];
+        lastAttackPaths = json.attack_paths || [];
+        lastWazuhHost = json.wazuh_host || "100.69.72.103";
         updateSummaryStrip(json.summary || {});
-        renderVisNetwork(rawDevices, json.wazuh_host);
-        applyConnStateToBus(json.conn_state, json.wazuh_host || "—");
+        renderVisNetwork(rawDevices, lastWazuhHost);
+        applyConnStateToBus(json.conn_state, lastWazuhHost);
 
         const now = new Date();
         document.getElementById("secmap-last-refresh").textContent =
@@ -363,12 +402,14 @@ function renderVisNetwork(devices, wazuhHost) {
         return;
     }
 
-    // Build Wazuh Server centre node
+    const isZoneMode = currentTopologyMode === "zone";
     const serverNodeId = "__wazuh_server__";
+
+    // Build central Wazuh Server node
     const nodes = [
         {
             id: serverNodeId,
-            label: `Wazuh Server\n${wazuhHost || "SIEM"}`,
+            label: `Wazuh SIEM Server\n${wazuhHost || "SIEM"}\n[Management Hub]`,
             shape: "image",
             image: ICON_MAP["siem"],
             size: NODE_ICON_SIZE + 8,
@@ -376,13 +417,79 @@ function renderVisNetwork(devices, wazuhHost) {
             color: { border: "#818cf8", background: "transparent", highlight: { border: "#a78bfa" } },
             font: { color: "#f8fafc", face: "Inter", size: 11, strokeWidth: 3, strokeColor: "#020617" },
             shadow: { enabled: true, color: "rgba(129,140,248,0.4)", size: 16 },
-            x: 0, y: 0,
-            physics: false   // Centre node stays anchored
+            x: isZoneMode ? 50 : 0,
+            y: isZoneMode ? -190 : 0,
+            physics: false
         }
     ];
 
     const edges = [];
 
+    if (isZoneMode) {
+        // Collect attacker IPs from detected attack paths
+        let attackerIp = "203.0.113.45";
+        if (lastAttackPaths && lastAttackPaths.length > 0) {
+            const ips = [];
+            lastAttackPaths.forEach(p => (p.source_ips || []).forEach(ip => { if (!ips.includes(ip)) ips.push(ip); }));
+            if (ips.length > 0) attackerIp = ips.join(", ");
+        }
+
+        // WAN Attacker Node
+        nodes.push({
+            id: "__wan_attacker__",
+            label: `External Attacker\n${attackerIp}\n[WAN ZONE]`,
+            shape: "image",
+            image: ICON_MAP["unknown"],
+            size: NODE_ICON_SIZE + 4,
+            borderWidth: 4,
+            color: { border: "#ef4444", background: "transparent", highlight: { border: "#f87171" } },
+            font: { color: "#fca5a5", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
+            shadow: { enabled: true, color: "rgba(239, 68, 68, 0.5)", size: 24 },
+            x: -460,
+            y: -20,
+            physics: false
+        });
+
+        // Perimeter FortiGate Firewall Node
+        nodes.push({
+            id: "__fortigate_fw__",
+            label: `FortiGate 60F\n192.168.1.1\n[PERIMETER FW]`,
+            shape: "image",
+            image: ICON_MAP["firewall"],
+            size: NODE_ICON_SIZE + 6,
+            borderWidth: 3,
+            color: { border: "#38bdf8", background: "transparent", highlight: { border: "#7dd3fc" } },
+            font: { color: "#e0f2fe", face: "Inter", size: 11, strokeWidth: 3, strokeColor: "#020617" },
+            shadow: { enabled: true, color: "rgba(56, 189, 248, 0.4)", size: 20 },
+            x: -210,
+            y: -20,
+            physics: false
+        });
+
+        // Edge: WAN Attacker -> Perimeter FortiGate Firewall
+        edges.push({
+            from: "__wan_attacker__",
+            to: "__fortigate_fw__",
+            color: { color: "#ef4444", highlight: "#f87171" },
+            width: 3.5,
+            dashes: [8, 5],
+            arrows: { to: { enabled: true } },
+            title: "Inbound Attack Traffic (Internet -> Firewall)"
+        });
+
+        // Edge: FortiGate Firewall -> Wazuh SIEM Server (Syslog forwarding)
+        edges.push({
+            from: "__fortigate_fw__",
+            to: serverNodeId,
+            color: { color: "#38bdf8", highlight: "#7dd3fc" },
+            width: 2,
+            dashes: false,
+            arrows: { to: { enabled: false } },
+            title: "Security Syslog 514 / Netflow & API Audit"
+        });
+    }
+
+    let devIdx = 0;
     devices.forEach(dev => {
         // Skip duplicate central Wazuh Server node if returned in devices list
         if (dev.id === "wazuh_manager_node" || dev.type === "wazuh" || dev.ip === wazuhHost) {
@@ -396,7 +503,6 @@ function renderVisNetwork(devices, wazuhHost) {
         const glow     = BADGE_GLOW[dev.badge]   || BADGE_GLOW["OFFLINE"];
 
         // Health-aware label
-        const healthPct = dev.health?.score ?? 0;
         const riskVal   = dev.risk?.risk    ?? 0;
         const badgeEmoji = {
             "NORMAL":       "🟢",
@@ -414,8 +520,8 @@ function renderVisNetwork(devices, wazuhHost) {
             : "";
         const label = `${badgeEmoji} ${dev.name}\n${dev.ip}${scoreLine}`;
 
-        // Restore saved position if available
         const pos = savedPositions[dev.id];
+        const isUnderAttack = dev.badge === "UNDER_ATTACK";
 
         const nodeObj = {
             id: dev.id,
@@ -423,7 +529,7 @@ function renderVisNetwork(devices, wazuhHost) {
             shape: "image",
             image: iconSrc,
             size: NODE_ICON_SIZE,
-            borderWidth: dev.badge === "UNDER_ATTACK" ? 5 : dev.badge === "WARNING" ? 3 : 2,
+            borderWidth: isUnderAttack ? 5 : dev.badge === "WARNING" ? 3 : 2,
             borderWidthSelected: 3,
             color: {
                 border: border,
@@ -431,31 +537,73 @@ function renderVisNetwork(devices, wazuhHost) {
                 highlight: { border: border }
             },
             font: { color: "#f8fafc", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: glow, size: dev.badge === "UNDER_ATTACK" ? 28 : dev.badge === "WARNING" ? 18 : 10 },
-            // Store raw device data for click handler
+            shadow: { enabled: true, color: glow, size: isUnderAttack ? 28 : dev.badge === "WARNING" ? 18 : 10 },
             _device: dev
         };
 
-        if (pos) { nodeObj.x = pos.x; nodeObj.y = pos.y; }
+        if (pos) {
+            nodeObj.x = pos.x;
+            nodeObj.y = pos.y;
+        } else if (isZoneMode) {
+            // Predictable zone layout if no saved position exists
+            const isServer = (dev.type || "").toLowerCase().includes("server") || (dev.name || "").toLowerCase().includes("srv");
+            if (isServer) {
+                nodeObj.x = 90;
+                nodeObj.y = -30 + (devIdx * 120);
+            } else {
+                nodeObj.x = 340;
+                nodeObj.y = -90 + (devIdx * 100);
+            }
+        }
 
         nodes.push(nodeObj);
+        devIdx++;
 
-        // Edge from Wazuh Server to this device
-        const edgeColor = dev.health?.status === "offline" ? "#334155"
-                        : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
-                        : dev.badge === "WARNING"           ? "#f59e0b"
-                        : "#1e40af";
+        if (isZoneMode) {
+            // Zone mode edges:
+            // 1. From Firewall to device (with attack trajectory if under attack)
+            const isAttacked = isUnderAttack || (dev.incident && (dev.incident.priority_score ?? 0) > 40);
+            edges.push({
+                from: "__fortigate_fw__",
+                to: dev.id,
+                color: { color: isAttacked ? "#ef4444" : "#1e40af", highlight: isAttacked ? "#f87171" : "#3b82f6" },
+                width: isAttacked ? 3.5 : 1.5,
+                dashes: isAttacked ? [10, 6] : false,
+                arrows: { to: { enabled: isAttacked } },
+                title: isAttacked ? `Tấn công xuyên thấu biên: ${dev.name}` : `LAN/DMZ Routing`
+            });
 
-        edges.push({
-            from: serverNodeId,
-            to: dev.id,
-            color: { color: edgeColor, highlight: edgeColor },
-            width: dev.badge === "UNDER_ATTACK" ? 3 : dev.badge === "WARNING" ? 2 : 1,
-            dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
-            smooth: false,
-            font: { size: 0 },
-            arrows: { to: { enabled: false } }
-        });
+            // 2. From device to Wazuh SIEM (Agent reporting channel)
+            const edgeColor = dev.health?.status === "offline" ? "#334155"
+                            : isAttacked ? "#ef4444"
+                            : "#4338ca";
+            edges.push({
+                from: dev.id,
+                to: serverNodeId,
+                color: { color: edgeColor, highlight: edgeColor },
+                width: isAttacked ? 2.5 : 1.2,
+                dashes: [4, 4],
+                arrows: { to: { enabled: false } },
+                title: `Wazuh Agent #${dev.agent_id || "N/A"}`
+            });
+        } else {
+            // Fan-out classic star topology: Edge from Wazuh Server to this device
+            const edgeColor = dev.health?.status === "offline" ? "#334155"
+                            : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
+                            : dev.badge === "WARNING"           ? "#f59e0b"
+                            : "#1e40af";
+
+            edges.push({
+                from: serverNodeId,
+                to: dev.id,
+                color: { color: edgeColor, highlight: edgeColor },
+                width: dev.badge === "UNDER_ATTACK" ? 3 : dev.badge === "WARNING" ? 2 : 1,
+                dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
+                smooth: false,
+                font: { size: 0 },
+                arrows: { to: { enabled: false } }
+            });
+        }
     });
 
     const options = {
@@ -519,6 +667,14 @@ function renderVisNetwork(devices, wazuhHost) {
                     renderServerDetail();
                     return;
                 }
+                if (nodeId === "__fortigate_fw__") {
+                    renderFirewallDetail();
+                    return;
+                }
+                if (nodeId === "__wan_attacker__") {
+                    renderAttackerDetail();
+                    return;
+                }
                 const dev = rawDevices.find(d => d.id === nodeId);
                 if (dev) renderDeviceDetail(dev);
             }
@@ -528,7 +684,7 @@ function renderVisNetwork(devices, wazuhHost) {
         network.on("doubleClick", params => {
             if (params.nodes.length > 0) {
                 const nodeId = params.nodes[0];
-                if (nodeId === "__wazuh_server__") return;
+                if (nodeId === "__wazuh_server__" || nodeId === "__fortigate_fw__" || nodeId === "__wan_attacker__") return;
                 const dev = rawDevices.find(d => d.id === nodeId);
                 if (dev) {
                     const url = `/drilldown?device_id=${encodeURIComponent(dev.id)}`
@@ -708,8 +864,55 @@ function renderDeviceDetail(dev) {
             </div>
         </div>
 
+        <!-- 1-Click Active Response Defense Operations -->
+        <section class="evidence-section active-defense-section">
+            <h3>Tác chiến Phòng thủ 1-Click</h3>
+            <div class="active-defense-grid">
+                <button type="button" class="btn btn-action-isolate" title="Cô lập card mạng qua Wazuh Active Response"
+                        onclick="window.triggerDeviceAction('isolate_host', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
+                    Cô lập Host
+                </button>
+                <button type="button" class="btn btn-action-block" title="Chặn IP kẻ tấn công trên Firewall biên"
+                        onclick="window.triggerDeviceAction('block_ip', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
+                    Chặn Attacker
+                </button>
+                <button type="button" class="btn btn-action-fim" title="Kích hoạt quét toàn vẹn file tức thì"
+                        onclick="window.triggerDeviceAction('trigger_fim', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
+                    Quét FIM Gấp
+                </button>
+                <button type="button" class="btn btn-action-ai" title="Mở điều tra chuyên sâu cùng AI"
+                        onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
+                    Hỏi AI Sâu
+                </button>
+            </div>
+        </section>
+
+        <!-- mxterm Interactive Terminal Console -->
+        <section class="evidence-section mxterm-section">
+            <div class="mxterm-header">
+                <div class="mxterm-title">
+                    <span class="mxterm-label">mxterm v1.2 — Live Diagnostic Console</span>
+                </div>
+                <span class="mxterm-target">Node: ${escHtml(dev.name)}</span>
+            </div>
+            <div class="mxterm-box">
+                <div class="mxterm-chips">
+                    <span class="mxterm-chip" onclick="window.runQuickChipCmd('${escHtml(dev.id)}', 'status')">status</span>
+                    <span class="mxterm-chip" onclick="window.runQuickChipCmd('${escHtml(dev.id)}', 'ping')">ping</span>
+                    <span class="mxterm-chip" onclick="window.runQuickChipCmd('${escHtml(dev.id)}', 'netstat -tuln')">ports</span>
+                    <span class="mxterm-chip" onclick="window.runQuickChipCmd('${escHtml(dev.id)}', 'wazuh-control status')">wazuh</span>
+                </div>
+                <pre id="mxterm-output-${escHtml(dev.id)}" class="mxterm-output"><span class="mxterm-prompt">agent@${escHtml(dev.name)}:~$</span> <span class="mxterm-dim">Sẵn sàng nhận lệnh chẩn đoán nhanh...</span></pre>
+                <form class="mxterm-prompt-row" onsubmit="event.preventDefault(); window.submitMxtermCmd('${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}');">
+                    <span class="mxterm-symbol">&gt;</span>
+                    <input type="text" id="mxterm-input-${escHtml(dev.id)}" class="mxterm-input" placeholder="Nhập lệnh chẩn đoán (vd: ping, ports, status)..." autocomplete="off">
+                    <button type="submit" class="mxterm-run-btn">Run</button>
+                </form>
+            </div>
+        </section>
+
         <section class="evidence-section">
-            <h3><i class="fa-solid fa-heart-pulse"></i> Health Score</h3>
+            <h3>Health Score</h3>
             <div class="metric-row">
                 <div class="health-bar-outer">
                     <div class="health-bar-inner ${healthTone}" style="width:${healthPct}%"></div>
@@ -724,7 +927,7 @@ function renderDeviceDetail(dev) {
 
         ${incident ? `
         <section class="evidence-section incident-map-summary">
-            <h3><i class="fa-solid fa-triangle-exclamation"></i> Sự cố đang ảnh hưởng</h3>
+            <h3>Sự cố đang ảnh hưởng</h3>
             <p class="metric-note"><span class="ref">${escHtml(incident.incident_id || "Incident")}</span>
                 · ${incident.alert_count ?? 0} cảnh báo
                 · Độ tin cậy tương quan: <b>${incident.correlation_confidence ?? incident.confidence_score ?? 0}%</b>
@@ -734,7 +937,7 @@ function renderDeviceDetail(dev) {
         </section>` : ""}
 
         <section class="evidence-section">
-            <h3><i class="fa-solid fa-skull-crossbones"></i> Risk Score</h3>
+            <h3>Risk Score</h3>
             <div class="metric-row">
                 <div class="health-bar-outer">
                     <div class="health-bar-inner ${riskTone}" style="width:${riskVal}%"></div>
@@ -748,7 +951,7 @@ function renderDeviceDetail(dev) {
         </section>
 
         <section class="evidence-section">
-            <h3><i class="fa-solid fa-info-circle"></i> Chi tiết</h3>
+            <h3>Chi tiết</h3>
             <table class="kv-table">
                 <tr><td>Loại thiết bị</td><td>${escHtml(dev.type || "—")}</td></tr>
                 <tr><td>Hệ điều hành</td><td>${escHtml(dev.os || "—")}</td></tr>
@@ -760,7 +963,7 @@ function renderDeviceDetail(dev) {
 
         <button type="button" class="btn btn--primary btn--block device-detail-cta"
                 onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
-            <i class="fa-solid fa-magnifying-glass-chart"></i> Mở AI Investigation
+            Mở AI Investigation Scoped
         </button>`;
 }
 
@@ -771,17 +974,180 @@ function renderServerDetail() {
         <div class="device-detail-header">
             <img src="${ICON_MAP["siem"]}" class="device-type-icon-lg" alt="SIEM">
             <div class="device-detail-heading">
-                <div class="device-detail-name">Wazuh Manager</div>
-                <code class="device-detail-ip">SIEM — Nút trung tâm</code>
+                <div class="device-detail-name">Wazuh Manager (SIEM)</div>
+                <code class="device-detail-ip">100.69.72.103 · Port 55000 REST / 1514 Agent</code>
+                <div><span class="badge-pill NORMAL">QUẢN TRỊ TRUNG TÂM</span></div>
             </div>
         </div>
         <section class="evidence-section">
+            <h3>Vai trò Quản trị</h3>
             <p class="metric-note">
-                Đây là nút trung tâm Wazuh Manager — tất cả Agent gửi log về đây.<br>
-                Double-click vào thiết bị ngoài để mở AI Investigation scoped theo thiết bị đó.
+                Nút đầu não tiếp nhận mọi sự kiện syslog từ FortiGate và agent daemon từ các máy chủ nội bộ.
+                Tích hợp AI Agent tương quan đa nguồn và tự động phát lệnh Active Response.
             </p>
+        </section>
+        <section class="evidence-section">
+            <h3>Thao tác Quản trị</h3>
+            <button type="button" class="btn btn-action-fim btn--block" onclick="window.openWazuhApiInspectorModal()">
+                Mở Wazuh REST API Inspector
+            </button>
         </section>`;
 }
+
+function renderFirewallDetail() {
+    const panel = document.getElementById("device-detail-panel");
+    if (!panel) return;
+    panel.innerHTML = `
+        <div class="device-detail-header">
+            <img src="${ICON_MAP["firewall"]}" class="device-type-icon-lg" alt="Firewall">
+            <div class="device-detail-heading">
+                <div class="device-detail-name">FortiGate 60F</div>
+                <code class="device-detail-ip">192.168.1.1 · Perimeter Gateway</code>
+                <div><span class="badge-pill NORMAL">ONLINE · PROTECTING</span></div>
+            </div>
+        </div>
+        <section class="evidence-section">
+            <h3>Trạng thái Tường lửa biên</h3>
+            <table class="kv-table">
+                <tr><td>Vùng bảo vệ</td><td>WAN ➔ Perimeter ➔ DMZ & LAN</td></tr>
+                <tr><td>Inspection Mode</td><td>Flow-based IPS + Antivirus + Web Filtering</td></tr>
+                <tr><td>Chính sách Dropped</td><td>Tự động nhận diện từ Wazuh Active Response</td></tr>
+                <tr><td>Syslog Forwarding</td><td>Gửi log bảo mật trực tiếp về Wazuh SIEM port 514</td></tr>
+            </table>
+        </section>
+        <section class="evidence-section">
+            <h3>Tác vụ nhanh</h3>
+            <button type="button" class="btn btn-action-fim btn--block" onclick="window.triggerDeviceAction('quick_cmd', '__fortigate_fw__', 'FortiGate 60F', '192.168.1.1', 'diagnose sys status')">
+                Kiểm tra trạng thái Firewall (mxterm)
+            </button>
+        </section>`;
+}
+
+function renderAttackerDetail() {
+    const panel = document.getElementById("device-detail-panel");
+    if (!panel) return;
+    const paths = lastAttackPaths || [];
+    const srcIps = [];
+    paths.forEach(p => (p.source_ips || []).forEach(ip => { if (!srcIps.includes(ip)) srcIps.push(ip); }));
+    const displayIps = srcIps.length > 0 ? srcIps.join(", ") : "203.0.113.45";
+    const techniques = [];
+    paths.forEach(p => (p.techniques || []).forEach(t => { if (!techniques.includes(t)) techniques.push(t); }));
+
+    panel.innerHTML = `
+        <div class="device-detail-header">
+            <img src="${ICON_MAP["unknown"]}" class="device-type-icon-lg" alt="Attacker">
+            <div class="device-detail-heading">
+                <div class="device-detail-name">External Attacker (WAN Threat)</div>
+                <code class="device-detail-ip">${escHtml(displayIps)}</code>
+                <div><span class="badge-pill UNDER_ATTACK">THREAT ACTOR</span></div>
+            </div>
+        </div>
+        <section class="evidence-section">
+            <h3>Thông tin đe dọa từ WAN</h3>
+            <p class="metric-note">Nguồn phát sinh tấn công dò quét cổng, Brute Force SSH, và khai thác lỗ hổng nhắm vào DMZ và Endpoints.</p>
+            ${techniques.length > 0 ? `<p class="metric-note">Kỹ thuật MITRE: <span class="ref">${escHtml(techniques.join(", "))}</span></p>` : ""}
+        </section>
+        <section class="evidence-section">
+            <h3>Hành động phòng thủ khẩn cấp</h3>
+            <button type="button" class="btn btn-action-block btn--block" onclick="window.triggerDeviceAction('block_ip', '__wan_attacker__', 'External Attacker', '${displayIps.split(',')[0].trim()}')">
+                Chặn toàn bộ IP Attacker trên Perimeter FW
+            </button>
+        </section>`;
+}
+
+window.triggerDeviceAction = async function(action, deviceId, deviceName, ip, extraCmd) {
+    let attackerIp = "203.0.113.45";
+    if (lastAttackPaths && lastAttackPaths.length > 0 && lastAttackPaths[0].source_ips && lastAttackPaths[0].source_ips.length > 0) {
+        attackerIp = lastAttackPaths[0].source_ips[0];
+    }
+    const dev = (rawDevices || []).find(d => d.id === deviceId);
+    const agentId = dev ? (dev.agent_id || "001") : "001";
+
+    const payload = {
+        action: action,
+        device_id: deviceId,
+        device_name: deviceName,
+        ip: ip,
+        agent_id: agentId,
+        attacker_ip: attackerIp,
+        command: extraCmd || ""
+    };
+
+    try {
+        const res = await fetch("/api/security-map/action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            credentials: "same-origin"
+        });
+        const data = await res.json();
+        if (res.ok && data.status === "success") {
+            alert(data.message || 'Thao tác thành công!');
+            pollLiveApiLogs();
+        } else {
+            alert('Lỗi thực thi tác chiến: ' + (data.detail || data.message || 'Không xác định'));
+        }
+    } catch (e) {
+        alert('Lỗi kết nối API: ' + e.message);
+    }
+};
+
+window.runQuickChipCmd = function(deviceId, cmdText) {
+    const input = document.getElementById(`mxterm-input-${deviceId}`);
+    if (input) {
+        input.value = cmdText;
+    }
+    const dev = (rawDevices || []).find(d => d.id === deviceId) || { name: deviceId, ip: "127.0.0.1" };
+    window.submitMxtermCmd(deviceId, dev.name, dev.ip);
+};
+
+window.submitMxtermCmd = async function(deviceId, deviceName, ip) {
+    const input = document.getElementById(`mxterm-input-${deviceId}`);
+    const output = document.getElementById(`mxterm-output-${deviceId}`);
+    if (!input || !output) return;
+
+    const cmd = input.value.trim();
+    if (!cmd) return;
+
+    output.innerHTML += `\n<span class="mxterm-prompt">agent@${escHtml(deviceName)}:~$</span> ${escHtml(cmd)}\n<span class="mxterm-dim">Đang thực thi qua Wazuh REST Agent...</span>`;
+    output.scrollTop = output.scrollHeight;
+    input.value = "";
+
+    const dev = (rawDevices || []).find(d => d.id === deviceId);
+    const agentId = dev ? (dev.agent_id || "001") : "001";
+
+    try {
+        const res = await fetch("/api/security-map/action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                action: "quick_cmd",
+                device_id: deviceId,
+                device_name: deviceName,
+                ip: ip,
+                agent_id: agentId,
+                command: cmd
+            }),
+            credentials: "same-origin"
+        });
+        const data = await res.json();
+        const lines = output.innerHTML.split("\n");
+        if (lines[lines.length - 1].includes("Đang thực thi")) {
+            lines.pop();
+        }
+        if (res.ok && data.status === "success") {
+            lines.push(`<span class="mxterm-success">${escHtml(data.output || '')}</span>`);
+        } else {
+            lines.push(`<span class="mxterm-error">Error: ${escHtml(data.detail || data.message || 'Lỗi thực thi')}</span>`);
+        }
+        output.innerHTML = lines.join("\n");
+        output.scrollTop = output.scrollHeight;
+        pollLiveApiLogs();
+    } catch (e) {
+        output.innerHTML += `\n<span class="mxterm-error">Failed: ${escHtml(e.message)}</span>`;
+        output.scrollTop = output.scrollHeight;
+    }
+};
 
 function openInvestigation(id, name, ip, risk) {
     const url = `/drilldown?device_id=${encodeURIComponent(id)}`

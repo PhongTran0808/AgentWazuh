@@ -384,3 +384,147 @@
   .bus-node-label span:not(.bus-node-role) { display: none; }
   .live-log-head .eyebrow span { display: none; }
 }
+
+/* ======================================================= Zone Topology & Active Defense */
+.secmap-zone-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 11px;
+}
+.zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.zone-wan { background: rgba(239, 68, 68, 0.14); border: 1px solid #ef4444; color: #f87171; }
+.zone-perimeter { background: rgba(245, 158, 11, 0.14); border: 1px solid #f59e0b; color: #fbbf24; }
+.zone-lan { background: rgba(59, 130, 246, 0.14); border: 1px solid #3b82f6; color: #60a5fa; }
+.zone-soc { background: rgba(129, 140, 248, 0.14); border: 1px solid #818cf8; color: #a5b4fc; }
+.zone-arrow { color: var(--ink-3); font-weight: bold; }
+.zone-sep { color: var(--rule); margin: 0 4px; }
+
+/* Active Defense Quick Actions Grid */
+.active-defense-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 10px;
+}
+.btn-action-isolate {
+  background: rgba(239, 68, 68, 0.14) !important;
+  border: 1px solid #ef4444 !important;
+  color: #fca5a5 !important;
+  font-size: 11px !important;
+}
+.btn-action-isolate:hover { background: rgba(239, 68, 68, 0.28) !important; }
+.btn-action-block {
+  background: rgba(220, 38, 38, 0.16) !important;
+  border: 1px solid #dc2626 !important;
+  color: #fecaca !important;
+  font-size: 11px !important;
+}
+.btn-action-block:hover { background: rgba(220, 38, 38, 0.3) !important; }
+.btn-action-fim {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border: 1px solid #f59e0b !important;
+  color: #fde68a !important;
+  font-size: 11px !important;
+}
+.btn-action-fim:hover { background: rgba(245, 158, 11, 0.28) !important; }
+.btn-action-ai {
+  background: rgba(99, 102, 241, 0.18) !important;
+  border: 1px solid #6366f1 !important;
+  color: #c7d2fe !important;
+  font-size: 11px !important;
+}
+.btn-action-ai:hover { background: rgba(99, 102, 241, 0.32) !important; }
+
+/* mxterm Mini Diagnostic Shell */
+.mxterm-box {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 12px;
+  font-family: var(--font-mono);
+}
+.mxterm-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 10px;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.mxterm-quick-chips {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.mxterm-chip {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #38bdf8;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mxterm-chip:hover {
+  background: #1e293b;
+  color: #7dd3fc;
+  border-color: #38bdf8;
+}
+.mxterm-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #090d16;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.mxterm-prompt-row span { color: #22c55e; font-weight: bold; font-size: 11px; }
+.mxterm-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+}
+.mxterm-btn-run {
+  background: #2563eb;
+  border: none;
+  color: #ffffff;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.mxterm-output {
+  color: #cbd5e1;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin-top: 6px;
+  font-size: 10.5px;
+  border-top: 1px dashed #1e293b;
+  padding-top: 4px;
+  line-height: 1.4;
+}
+

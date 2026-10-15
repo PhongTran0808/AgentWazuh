@@ -139,6 +139,9 @@
                         <p class="panel__subtitle">Wazuh Manager ở trung tâm; mỗi node là một thiết bị/Agent đang được theo dõi.</p>
                     </div>
                     <div class="panel__tools">
+                        <button type="button" class="btn btn--primary btn--sm" id="btn-toggle-topology-mode" title="Chuyển chế độ: Phân vùng bảo mật (Zone Architecture) hoặc Sơ đồ quạt">
+                            <i class="fa-solid fa-layer-group"></i> <span id="lbl-topo-mode">Phân vùng An ninh (Zones)</span>
+                        </button>
                         <button type="button" class="btn btn--ghost btn--sm" id="btn-zoom-fit" title="Căn vừa khung hình">
                             <i class="fa-solid fa-expand"></i> Fit View
                         </button>
@@ -151,6 +154,15 @@
                         </button>
                     </div>
                 </header>
+                <div id="secmap-zone-legend" class="secmap-zone-legend">
+                    <span class="zone-badge zone-wan"><i class="fa-solid fa-globe"></i> Vùng Ngoài (WAN)</span>
+                    <span class="zone-arrow">➔</span>
+                    <span class="zone-badge zone-perimeter"><i class="fa-solid fa-shield-virus"></i> Vùng Biên (Perimeter FortiGate)</span>
+                    <span class="zone-arrow">➔</span>
+                    <span class="zone-badge zone-lan"><i class="fa-solid fa-network-wired"></i> Vùng Nội Bộ (DMZ &amp; Workstations)</span>
+                    <span class="zone-sep">|</span>
+                    <span class="zone-badge zone-soc"><i class="fa-solid fa-eye"></i> Trung Tâm Giám Sát (Wazuh SIEM)</span>
+                </div>
                 <div id="secmap-vis-container"></div>
             </section>
 

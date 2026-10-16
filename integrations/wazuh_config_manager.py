@@ -96,15 +96,20 @@ def _validate(kind: str, content: str) -> None:
         raise WazuhConfigError("Refusing to write an empty Wazuh configuration")
     if kind in {"rules", "decoders", "ossec"}:
         try:
-            ElementTree.fromstring(content)
+            root = ElementTree.fromstring(content)
         except ElementTree.ParseError as exc:
-            raise WazuhConfigError(f"Invalid XML for {kind}: {exc}") from exc
+            if kind in {"rules", "decoders"}:
+                try:
+                    root = ElementTree.fromstring(f"<root>{content}</root>")
+                except ElementTree.ParseError:
+                    raise WazuhConfigError(f"Invalid XML for {kind}: {exc}") from exc
+            else:
+                raise WazuhConfigError(f"Invalid XML for {kind}: {exc}") from exc
     if kind == "ossec" and "<ossec_config" not in content:
         raise WazuhConfigError("ossec.conf must contain the ossec_config root element")
     if kind == "rules" and "<group" not in content:
         raise WazuhConfigError("local_rules.xml must contain at least one group element")
     if kind == "rules":
-        root = ElementTree.fromstring(content)
         for rule in root.findall(".//rule"):
             rule_id = (rule.get("id") or "unknown").strip()
             if rule.find("frequency") is not None or rule.find("timeframe") is not None:
@@ -292,3 +297,32 @@ def validate_runtime() -> Dict[str, Any]:
             return {"ok": False, "message": str(exc), "command": command}
         return {"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-4000:]}
     return {"ok": False, "message": "No validator configured"}
+
+
+def run_logtest_check(log_line: str, location: str = "stdin") -> Dict[str, Any]:
+    """Run wazuh-logtest via privileged helper or local binary to test log parsing."""
+    if not log_line or not str(log_line).strip():
+        return {"ok": False, "message": "Log event is required for logtest"}
+    if PRIVILEGED_HELPER.exists():
+        try:
+            return _helper({"action": "logtest", "log": str(log_line).strip(), "location": location})
+        except WazuhConfigError as exc:
+            return {"ok": False, "message": str(exc)}
+    try:
+        proc = subprocess.run(
+            ["/var/ossec/bin/wazuh-logtest"],
+            input=str(log_line).strip() + "\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-8000:],
+            "stderr": proc.stderr[-4000:],
+            "log": str(log_line).strip()
+        }
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}

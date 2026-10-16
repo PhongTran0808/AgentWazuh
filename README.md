@@ -196,6 +196,18 @@ Chỉ các target sau được phép thay đổi:
 
 Mỗi lần ghi phải có `approval_id` và `approved=true`. Hệ thống backup, ghi atomic, validate XML và chạy `wazuh-analysisd -t`. Privilege được giới hạn qua `/usr/local/sbin/agentwazuh-wazuh-config` và sudoers rule riêng; không cấp sudo shell tổng quát.
 
+Luồng HITL tạo rule sẽ tra cứu Wazuh Knowledge Base, chạy `wazuh-logtest` để xác minh rule cha, hiển thị XML/diff và chỉ áp dụng sau khi Operator duyệt. Nếu `wazuh-logtest` không xác minh được rule cha, hệ thống từ chối tạo rule tương quan thay vì đoán ID. Sau khi áp dụng, cùng phiên có thể gọi `POST /api/wazuh/rollback-rule` để khôi phục backup. Để bật logtest, cài helper từ `deploy/agentwazuh-wazuh-config` vào `/usr/local/sbin/agentwazuh-wazuh-config` và cấu hình sudoers allow-list tương ứng.
+
+RAG dùng Chroma DB cục bộ tại `docs/wazuh_kb_local/` (không commit DB hoặc bản clone tài liệu). Cài các dependency trong `requirements.txt`; có thể tạo index từ bản Wazuh documentation 4.14 bằng:
+
+```bash
+git clone --depth 1 --branch 4.14 https://github.com/wazuh/wazuh-documentation.git docs/wazuh-documentation
+python docs/wazuh_kb_local.py build --docs docs/wazuh-documentation --rebuild
+python docs/wazuh_kb_local.py local --etc /var/ossec/etc
+```
+
+Khi DB chưa được tạo hoặc unavailable, truy vấn tài liệu dùng handbook cú pháp tích hợp sẵn và rule cục bộ được đọc trực tiếp từ Wazuh Manager.
+
 ## 📊 SoL-Pi evidence pipeline
 
 `POST /api/wazuh/investigate` tạo ObservationPack tại `data/solpi_wazuh/`, gồm snapshot alert/status, receipt có hash và compact context cho AI. Khi cần đọc evidence gốc:

@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
+from xml.etree import ElementTree
 
 from integrations.wazuh_mcp_client import WazuhMCPClient, WazuhMCPError
 from integrations.wazuh_config_manager import WazuhConfigError, apply as apply_wazuh_config
@@ -903,7 +904,12 @@ class ApplyRuleRequest(BaseModel):
     if_sid: Optional[str] = None
     group_name: Optional[str] = "custom_rules,"
     raw_xml: Optional[str] = None
+    form_id: Optional[str] = None
     approved: bool = False
+
+class RollbackRuleRequest(BaseModel):
+    backup_id: str
+    approval_id: str
 
 class DryRunRuleCustomRequest(BaseModel):
     rule_xml: str
@@ -2728,7 +2734,10 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             }
         }
 
-    if is_config_request or (active_form and active_form.get("status") != "applied"):
+    if is_config_request or (
+        active_form
+        and active_form.get("status") in {"in_progress", "collecting", "sandbox_tested", "awaiting_approval"}
+    ):
         rule_defaults = infer_rule_form_defaults(req.query)
         config = {"configurable": {"thread_id": session}, "recursion_limit": 10}
         initial_state = {
@@ -2784,19 +2793,38 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             return {"status": "success", "investigation": result}
 
         # Run LangGraph StateGraph
-        lg_state = config_form_graph.invoke(initial_state, config)
+        try:
+            lg_state = await _investigate_loop.run_in_executor(
+                None, lambda: config_form_graph.invoke(initial_state, config)
+            )
+        except WazuhConfigError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        form_id = f"form_{secrets.token_hex(8)}"
 
         form_session_data = {
+            "form_id": form_id,
             "session_id": session,
             "type": "CONFIG_FORM",
-            "title": "⚙️ Phê Duyệt Cấu Hình Rule Mới (LangGraph HITL Sandbox)",
+            "title": "Phê Duyệt Cấu Hình Rule Mới",
             "form_data": {
+                "form_id": form_id,
+                "rule_id": lg_state.get("rule_id"),
                 "rule_name": lg_state.get("rule_name"),
                 "match_pattern": lg_state.get("match_pattern"),
                 "frequency": lg_state.get("frequency"),
                 "timeframe": lg_state.get("timeframe"),
                 "level": lg_state.get("level"),
-                "draft_xml": lg_state.get("draft_xml")
+                "parent_rule_id": lg_state.get("parent_rule_id"),
+                "group_name": lg_state.get("group_name"),
+                "mitre_id": lg_state.get("mitre_id"),
+                "draft_xml": lg_state.get("draft_xml"),
+                "sample_log": lg_state.get("sample_log"),
+                "logtest_report": lg_state.get("logtest_report"),
+                "rag_evidence": lg_state.get("rag_evidence"),
+                "local_rule_evidence": lg_state.get("local_rule_evidence"),
+                "reasoning_markdown": lg_state.get("reasoning_markdown"),
+                "unified_diff": lg_state.get("unified_diff"),
             },
             "sandbox_result": lg_state.get("sandbox_result"),
             "status": lg_state.get("status"),
@@ -2862,31 +2890,44 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
     if req.raw_xml and req.raw_xml.strip():
         rule_xml = req.raw_xml.strip()
     else:
+        if not req.if_sid or not str(req.if_sid).isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail="Cần cung cấp Rule ID cha dạng số đã xác minh hoặc một XML rule hoàn chỉnh.",
+            )
         grp = req.group_name or "custom_rules,"
-        # Correlation windows must be chained with if_matched_sid in Wazuh;
-        # if_sid is for single-event parent rules and is rejected with
-        # frequency/timeframe by wazuh-analysisd.
-        if_sid_line = f"\n    <if_matched_sid>{req.if_sid or 2501}</if_matched_sid>"
-        rule_xml = f"""<group name="{grp}">
-  <rule id="{new_rule_id}" level="{req.level}" frequency="{req.frequency}" timeframe="{req.timeframe}">""" + if_sid_line + f"""
-    <match>{req.match_pattern}</match>
-    <description>{req.rule_name}</description>
-    <mitre>
-      <id>T1110</id>
-    </mitre>
-  </rule>
-</group>"""
+        group = ElementTree.Element("group", {"name": grp})
+        rule = ElementTree.SubElement(group, "rule", {
+            "id": str(new_rule_id),
+            "level": str(req.level),
+            "frequency": str(req.frequency),
+            "timeframe": str(req.timeframe),
+        })
+        ElementTree.SubElement(rule, "if_matched_sid").text = str(req.if_sid)
+        ElementTree.SubElement(rule, "match").text = req.match_pattern or ""
+        ElementTree.SubElement(rule, "description").text = req.rule_name or "Custom Rule"
+        mitre = ElementTree.SubElement(rule, "mitre")
+        ElementTree.SubElement(mitre, "id").text = "T1110"
+        rule_xml = ElementTree.tostring(group, encoding="unicode")
 
     if req.approved is not True:
         raise HTTPException(status_code=400, detail="Cần xác nhận rõ ràng trước khi ghi rule vào Wazuh Manager.")
 
-    filename = f"rule_applied_{timestamp}.xml"
+    active_form = ACTIVE_FORM_SESSIONS.get(session)
+    if req.form_id and (not active_form or active_form.get("form_id") != req.form_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên phê duyệt rule này.")
+
+    filename = f"rule_applied_{timestamp}_{secrets.token_hex(4)}.xml"
     file_path = PENDING_RULES_DIR / filename
     file_path.write_text(rule_xml, encoding="utf-8")
 
     try:
         _, current_rules = read_wazuh_config_target("rules")
         merged_rules, rule_ids = merge_rule_group(current_rules, rule_xml)
+        if req.form_id:
+            proposed_id = (active_form.get("form_data") or {}).get("rule_id")
+            if proposed_id is not None and str(rule_ids[0]) != str(proposed_id):
+                raise WazuhConfigError("Rule ID không được thay đổi so với đề xuất đã phê duyệt.")
         new_rule_id = int(rule_ids[0]) if rule_ids[0].isdigit() else rule_ids[0]
         approval_id = f"hitl-rule-{timestamp}-{secrets.token_hex(4)}"
         applied = apply_wazuh_config(
@@ -2895,14 +2936,34 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
         validation = validate_wazuh_config_runtime()
         if not validation.get("ok"):
             restore_wazuh_config("rules", applied["backup"], approval_id, approved=True, actor=session)
-            raise WazuhConfigError(f"Wazuh từ chối cấu hình rule; đã rollback: {validation.get('message') or validation.get('stderr') or 'syntax check failed'}")
+            rollback_restart = restart_wazuh_manager()
+            restart_note = "" if rollback_restart.get("ok") else f"; rollback restart lỗi: {rollback_restart.get('message', 'không rõ nguyên nhân')}"
+            raise WazuhConfigError(
+                f"Wazuh từ chối cấu hình rule; đã rollback{restart_note}: "
+                f"{validation.get('message') or validation.get('stderr') or 'syntax check failed'}"
+            )
         restarted = restart_wazuh_manager()
         if not restarted.get("ok"):
             restore_wazuh_config("rules", applied["backup"], approval_id, approved=True, actor=session)
-            restart_wazuh_manager()
-            raise WazuhConfigError(f"Không thể restart wazuh-manager; đã rollback: {restarted.get('message', 'restart failed')}")
+            rollback_restart = restart_wazuh_manager()
+            restart_note = "" if rollback_restart.get("ok") else f"; rollback restart lỗi: {rollback_restart.get('message', 'không rõ nguyên nhân')}"
+            raise WazuhConfigError(
+                f"Không thể restart wazuh-manager; đã rollback{restart_note}: "
+                f"{restarted.get('message', 'restart failed')}"
+            )
     except WazuhConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not active_form:
+        active_form = {"form_id": req.form_id or f"form_{secrets.token_hex(8)}"}
+        ACTIVE_FORM_SESSIONS[session] = active_form
+    active_form.update({
+        "status": "applied",
+        "backup_id": applied.get("backup"),
+        "approval_id": approval_id,
+        "rule_id": new_rule_id,
+        "target": "rules",
+    })
 
     return {
         "status": "success",
@@ -2912,8 +2973,53 @@ async def apply_rule_hitl(req: ApplyRuleRequest, session: str = Depends(require_
         "message": f"✔ Đã ghi Rule {new_rule_id} vào /var/ossec/etc/rules/local_rules.xml và restart wazuh-manager thành công.",
         "target": applied["path"],
         "backup": applied.get("backup"),
+        "backup_id": applied.get("backup"),
+        "approval_id": approval_id,
+        "form_id": active_form["form_id"],
         "validation": validation,
         "reloaded_wazuh": True,
+    }
+
+@app.post("/api/wazuh/rollback-rule")
+async def rollback_rule_hitl(req: RollbackRuleRequest, session: str = Depends(require_authenticated_session)):
+    active_form = ACTIVE_FORM_SESSIONS.get(session)
+    if (
+        not active_form
+        or active_form.get("status") != "applied"
+        or active_form.get("backup_id") != req.backup_id
+        or active_form.get("approval_id") != req.approval_id
+        or active_form.get("rolled_back")
+    ):
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản backup hợp lệ cho phiên này.")
+
+    try:
+        restored = restore_wazuh_config(
+            "rules", req.backup_id, req.approval_id, approved=True, actor=session,
+        )
+        validation = validate_wazuh_config_runtime()
+        if not validation.get("ok"):
+            raise WazuhConfigError(
+                f"Đã khôi phục backup nhưng kiểm tra Wazuh thất bại: "
+                f"{validation.get('message') or validation.get('stderr') or 'syntax check failed'}"
+            )
+        restarted = restart_wazuh_manager()
+        if not restarted.get("ok"):
+            raise WazuhConfigError(
+                f"Đã khôi phục backup nhưng không thể restart wazuh-manager: "
+                f"{restarted.get('message', 'restart failed')}"
+            )
+    except WazuhConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    active_form["rolled_back"] = True
+    active_form["status"] = "rolled_back"
+    return {
+        "status": "success",
+        "rule_id": active_form.get("rule_id"),
+        "restored_from": restored.get("restored_from", req.backup_id),
+        "validation": validation,
+        "reloaded_wazuh": True,
+        "message": "Đã hoàn tác rule và khởi động lại wazuh-manager thành công.",
     }
 
 @app.post("/api/rules/dry-run")

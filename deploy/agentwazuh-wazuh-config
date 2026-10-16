@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -64,7 +65,7 @@ def write_config(kind: str, content: str, approval_id: str) -> None:
     path = target_path(kind)
     validate(kind, content)
     BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
-    backup = BACKUPS / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{path.name}"
+    backup = BACKUPS / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{uuid.uuid4().hex}-{path.name}"
     shutil.copy2(path, backup)
     stat = path.stat()
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent), text=True)
@@ -149,6 +150,33 @@ def restart_manager() -> None:
     raise SystemExit(0 if active.returncode == 0 else 1)
 
 
+def run_logtest(log_line: str, location: str = "stdin") -> None:
+    if not log_line or not str(log_line).strip():
+        fail("Log event is required for logtest")
+    if location != "stdin":
+        fail("Only stdin logtest input is supported")
+    cmd = ["/var/ossec/bin/wazuh-logtest"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=str(log_line).strip() + "\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        print(json.dumps({
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-8000:],
+            "stderr": proc.stderr[-4000:],
+            "log": str(log_line).strip()
+        }, ensure_ascii=False))
+        raise SystemExit(0 if proc.returncode == 0 else 1)
+    except Exception as exc:
+        fail(f"wazuh-logtest failed: {exc}")
+
+
 try:
     request = json.load(sys.stdin)
 except Exception as exc:
@@ -160,6 +188,8 @@ if action == "read":
     read_config(kind)
 elif action == "validate":
     validate_runtime()
+elif action == "logtest":
+    run_logtest(request.get("log", ""), request.get("location", "stdin"))
 elif action == "write":
     if request.get("approved") is not True or not request.get("approval_id"):
         fail("Explicit approval_id and approved=true are required")

@@ -1129,6 +1129,39 @@ pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--
 .hitl-fields { display: flex; flex-direction: column; gap: var(--space-2xs); }
 .hitl-row { display: flex; gap: var(--space-2xs); }
 .hitl-row > * { flex: 1 1 0; min-width: 0; }
+.hitl-evidence, .hitl-logtest, .hitl-diff {
+  margin: var(--space-2xs) 0;
+  padding: var(--space-2xs);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  background: var(--paper-1);
+}
+.hitl-evidence summary, .hitl-logtest summary, .hitl-diff summary {
+  cursor: pointer;
+  color: var(--ink-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.hitl-evidence__body { color: var(--ink-2); font-size: var(--text-xs); }
+.hitl-evidence pre, .hitl-logtest pre, .hitl-diff pre, .hitl-xml {
+  max-width: 100%;
+  max-height: 280px;
+  margin: var(--space-2xs) 0;
+  padding: var(--space-2xs);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+.hitl-xml { width: 100%; min-height: 220px; resize: vertical; }
+.btn--rollback { border: 1px solid #f59e0b; color: #fbbf24; }
+.btn--rollback:hover { background: rgba(245, 158, 11, 0.12); }
+.btn--rollback.is-complete { border-color: var(--ok); color: var(--ok); }
 
 .artifact-block {
   position: relative;

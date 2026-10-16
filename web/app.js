@@ -1260,49 +1260,82 @@ document.addEventListener("DOMContentLoaded", () => {
         if (configForm && configForm.form_data) {
             const f = configForm.form_data;
             const formCardHtml = `
-                <div class="hitl-card" id="hitl_card_${f.form_id}">
+                <div class="hitl-card" id="hitl_card_${escapeHtml(f.form_id)}">
                     <div class="hitl-card__head">
                         <h4>
-                            <i class="fa-solid fa-sliders"></i> ${configForm.title || "Human-In-The-Loop Interactive Form"}
+                            <i class="fa-solid fa-sliders"></i> ${escapeHtml(configForm.title || "Phê duyệt cấu hình Wazuh")}
                         </h4>
                         <span class="status-pill pill-secure"><i class="fa-solid fa-shield"></i> HITL Guarded</span>
                     </div>
 
-                    <p class="hitl-card__desc">${configForm.description || "Vui lòng kiểm tra và duyệt thông số cấu hình bên dưới trước khi áp dụng lên Wazuh Manager."}</p>
+                    <p class="hitl-card__desc">${escapeHtml(configForm.description || "Kiểm tra bằng chứng, kết quả thử nghiệm và XML trước khi áp dụng.")}</p>
+
+                    <details class="hitl-evidence" open>
+                        <summary>Bằng chứng & căn cứ đề xuất</summary>
+                        <div class="hitl-evidence__body">
+                            <p><strong>MITRE ATT&amp;CK:</strong> ${escapeHtml(f.mitre_id || "Chưa xác định")} ·
+                               <strong>Rule cha:</strong> ${escapeHtml(f.parent_rule_id ?? "Chưa xác minh")}</p>
+                            <pre>${escapeHtml(f.reasoning_markdown || f.rag_evidence || "Không có nội dung RAG.")}</pre>
+                            <p><strong>RAG:</strong></p>
+                            <pre>${escapeHtml(f.rag_evidence || "Không tìm thấy tài liệu liên quan.")}</pre>
+                            <p><strong>Rule cục bộ tương tự:</strong></p>
+                            <pre>${escapeHtml(f.local_rule_evidence || "Không tìm thấy rule cục bộ tương tự.")}</pre>
+                        </div>
+                    </details>
+
+                    <details class="hitl-logtest" open>
+                        <summary>Kết quả wazuh-logtest</summary>
+                        <div class="hitl-evidence__body">
+                            <p><strong>Log mẫu:</strong> <code>${escapeHtml(f.sample_log || f.logtest_report?.tested_log || "N/A")}</code></p>
+                            <p>${escapeHtml(f.logtest_report?.summary || "Không có kết quả kiểm thử.")}</p>
+                            <pre>${escapeHtml(f.logtest_report?.raw_output || "")}</pre>
+                        </div>
+                    </details>
 
                     <div class="hitl-fields">
                         <div>
-                            <label class="field-label" for="hitl_input_name_${f.form_id}">Tên quy tắc cảnh báo:</label>
-                            <input type="text" id="hitl_input_name_${f.form_id}" value="${f.rule_name || ''}" class="input-setting-control">
+                            <label class="field-label">Rule ID được cấp:</label>
+                            <input type="text" value="${escapeHtml(f.rule_id ?? "")}" class="input-setting-control" readonly>
+                        </div>
+                        <div>
+                            <label class="field-label" for="hitl_input_name_${escapeHtml(f.form_id)}">Tên quy tắc cảnh báo:</label>
+                            <input type="text" id="hitl_input_name_${escapeHtml(f.form_id)}" value="${escapeHtml(f.rule_name || '')}" class="input-setting-control">
                         </div>
 
                         <div>
-                            <label class="field-label" for="hitl_input_match_${f.form_id}">Chuỗi nhận diện Log Match:</label>
-                            <input type="text" id="hitl_input_match_${f.form_id}" value="${f.match_pattern || ''}" class="input-setting-control">
+                            <label class="field-label" for="hitl_input_match_${escapeHtml(f.form_id)}">Chuỗi nhận diện Log Match:</label>
+                            <input type="text" id="hitl_input_match_${escapeHtml(f.form_id)}" value="${escapeHtml(f.match_pattern || '')}" class="input-setting-control">
                         </div>
 
                         <div class="hitl-row">
                             <div>
-                                <label class="field-label" for="hitl_input_freq_${f.form_id}">Ngưỡng số lần:</label>
-                                <input type="number" id="hitl_input_freq_${f.form_id}" value="${f.frequency || 5}" class="input-setting-control">
+                                <label class="field-label" for="hitl_input_freq_${escapeHtml(f.form_id)}">Ngưỡng số lần:</label>
+                                <input type="number" id="hitl_input_freq_${escapeHtml(f.form_id)}" value="${escapeHtml(f.frequency || 5)}" class="input-setting-control">
                             </div>
                             <div>
-                                <label class="field-label" for="hitl_input_time_${f.form_id}">Thời gian (giây):</label>
-                                <input type="number" id="hitl_input_time_${f.form_id}" value="${f.timeframe || 60}" class="input-setting-control">
+                                <label class="field-label" for="hitl_input_time_${escapeHtml(f.form_id)}">Thời gian (giây):</label>
+                                <input type="number" id="hitl_input_time_${escapeHtml(f.form_id)}" value="${escapeHtml(f.timeframe || 60)}" class="input-setting-control">
                             </div>
                             <div>
-                                <label class="field-label" for="hitl_input_level_${f.form_id}">Mức độ Rule Level:</label>
-                                <select id="hitl_input_level_${f.form_id}" class="input-setting-control">
-                                    <option value="5" ${f.level === 5 ? 'selected' : ''}>Level 5 - Low</option>
-                                    <option value="7" ${f.level === 7 ? 'selected' : ''}>Level 7 - Medium</option>
-                                    <option value="10" ${f.level === 10 ? 'selected' : ''}>Level 10 - High</option>
-                                    <option value="12" ${f.level === 12 ? 'selected' : ''}>Level 12 - Critical</option>
+                                <label class="field-label" for="hitl_input_level_${escapeHtml(f.form_id)}">Mức độ Rule Level:</label>
+                                <select id="hitl_input_level_${escapeHtml(f.form_id)}" class="input-setting-control">
+                                    ${Array.from({ length: 16 }, (_, index) => index + 1).map(level => `<option value="${level}" ${Number(f.level) === level ? "selected" : ""}>Level ${level}</option>`).join("")}
                                 </select>
                             </div>
                         </div>
 
-                        <button id="hitl_btn_apply_${f.form_id}" class="btn btn--primary btn--block btn--lg">
-                            <i class="fa-solid fa-bolt"></i> Áp Dụng Vào Wazuh Manager
+                        <label class="field-label" for="hitl_xml_${escapeHtml(f.form_id)}">XML đề xuất (có thể chỉnh sửa):</label>
+                        <textarea id="hitl_xml_${escapeHtml(f.form_id)}" class="hitl-xml" spellcheck="false">${escapeHtml(f.draft_xml || "")}</textarea>
+                        <button type="button" id="hitl_btn_copy_${escapeHtml(f.form_id)}" class="btn btn--secondary">Sao chép XML</button>
+                        <details class="hitl-diff" open>
+                            <summary>Unified diff</summary>
+                            <pre>${escapeHtml(f.unified_diff || "Không thể tạo diff cấu hình.")}</pre>
+                        </details>
+                        <button id="hitl_btn_apply_${escapeHtml(f.form_id)}" class="btn btn--primary btn--block btn--lg" ${configForm.status === "applied" || configForm.status === "rolled_back" ? "disabled" : ""}>
+                            ${configForm.status === "rolled_back" ? '<i class="fa-solid fa-circle-check"></i> Rule đã được hoàn tác' : configForm.status === "applied" ? '<i class="fa-solid fa-circle-check"></i> Rule đã được áp dụng' : '<i class="fa-solid fa-bolt"></i> Áp Dụng Vào Wazuh Manager'}
+                        </button>
+                        <button type="button" id="hitl_btn_rollback_${escapeHtml(f.form_id)}" class="btn btn--rollback btn--block" ${configForm.backup_id ? "" : "hidden"} ${configForm.rolled_back ? "disabled" : ""}>
+                            ${configForm.rolled_back ? '<i class="fa-solid fa-circle-check"></i> Đã hoàn tác' : '<i class="fa-solid fa-rotate-left"></i> Rollback (Hoàn Tác)'}
                         </button>
                     </div>
                 </div>
@@ -1318,6 +1351,23 @@ document.addEventListener("DOMContentLoaded", () => {
             const f = configForm.form_data;
             setTimeout(() => {
                 const btnApply = document.getElementById(`hitl_btn_apply_${f.form_id}`);
+                const btnCopy = document.getElementById(`hitl_btn_copy_${f.form_id}`);
+                const btnRollback = document.getElementById(`hitl_btn_rollback_${f.form_id}`);
+                const xmlEditor = document.getElementById(`hitl_xml_${f.form_id}`);
+                if (btnRollback && configForm.backup_id) {
+                    btnRollback.dataset.backupId = configForm.backup_id;
+                    btnRollback.dataset.approvalId = configForm.approval_id || "";
+                }
+                if (btnCopy && xmlEditor) {
+                    btnCopy.addEventListener("click", async () => {
+                        try {
+                            await navigator.clipboard.writeText(xmlEditor.value);
+                            btnCopy.textContent = "Đã sao chép XML";
+                        } catch (err) {
+                            alert(`Không thể sao chép XML: ${err.message || err}`);
+                        }
+                    });
+                }
                 if (btnApply) {
                     btnApply.addEventListener("click", async () => {
                         const rule_name = document.getElementById(`hitl_input_name_${f.form_id}`).value.trim();
@@ -1325,9 +1375,27 @@ document.addEventListener("DOMContentLoaded", () => {
                         const frequency = parseInt(document.getElementById(`hitl_input_freq_${f.form_id}`).value) || 5;
                         const timeframe = parseInt(document.getElementById(`hitl_input_time_${f.form_id}`).value) || 60;
                         const level = parseInt(document.getElementById(`hitl_input_level_${f.form_id}`).value) || 10;
-                        const draftXml = f.draft_xml || "";
+                        const draftXml = xmlEditor?.value || "";
                         const draftIdMatch = draftXml.match(/<rule\s+[^>]*\bid=["'](\d+)["']/i);
-                        const draftRuleId = draftIdMatch ? parseInt(draftIdMatch[1], 10) : null;
+                        const draftRuleId = draftIdMatch ? parseInt(draftIdMatch[1], 10) : f.rule_id;
+                        let approvedXml = draftXml;
+                        try {
+                            const xmlDoc = new DOMParser().parseFromString(draftXml, "application/xml");
+                            if (xmlDoc.querySelector("parsererror")) throw new Error("XML không hợp lệ.");
+                            const rule = xmlDoc.querySelector("rule");
+                            if (!rule) throw new Error("XML phải có một thẻ <rule>.");
+                            rule.setAttribute("level", String(level));
+                            rule.setAttribute("frequency", String(frequency));
+                            rule.setAttribute("timeframe", String(timeframe));
+                            const description = rule.querySelector("description");
+                            if (description) description.textContent = rule_name;
+                            const match = rule.querySelector("match");
+                            if (match) match.textContent = match_pattern;
+                            approvedXml = new XMLSerializer().serializeToString(xmlDoc);
+                        } catch (err) {
+                            alert(`XML đề xuất không hợp lệ: ${err.message || err}`);
+                            return;
+                        }
 
                         btnApply.disabled = true;
                         btnApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp rule & khởi động lại Wazuh Manager...';
@@ -1343,7 +1411,8 @@ document.addEventListener("DOMContentLoaded", () => {
                                     timeframe,
                                     level,
                                     rule_id: draftRuleId,
-                                    raw_xml: draftXml || null,
+                                    raw_xml: approvedXml || null,
+                                    form_id: f.form_id,
                                     approved: true
                                 }),
                                 credentials: "same-origin"
@@ -1358,6 +1427,12 @@ document.addEventListener("DOMContentLoaded", () => {
                                 btnApply.style.width = "100%";
                                 btnApply.style.padding = "0.7rem";
                                 btnApply.innerHTML = `<i class="fa-solid fa-circle-check"></i> ✔ Đã áp dụng thành công Rule [${data.rule_id}] vào Wazuh Manager (Level ${level})`;
+                                btnApply.disabled = true;
+                                if (btnRollback) {
+                                    btnRollback.hidden = false;
+                                    btnRollback.dataset.backupId = data.backup_id || "";
+                                    btnRollback.dataset.approvalId = data.approval_id || "";
+                                }
                             } else {
                                 alert("🔴 Lỗi áp dụng Rule: " + (data.detail || data.message || "Không rõ nguyên nhân."));
                                 btnApply.disabled = false;
@@ -1367,6 +1442,33 @@ document.addEventListener("DOMContentLoaded", () => {
                             alert("Không thể kết nối đến API Wazuh Manager.");
                             btnApply.disabled = false;
                             btnApply.innerHTML = '<i class="fa-solid fa-bolt"></i> Thử lại Áp Dụng Vào Wazuh';
+                        }
+                    });
+                }
+                if (btnRollback) {
+                    btnRollback.addEventListener("click", async () => {
+                        btnRollback.disabled = true;
+                        btnRollback.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang rollback...';
+                        try {
+                            const res = await fetch("/api/wazuh/rollback-rule", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    backup_id: btnRollback.dataset.backupId,
+                                    approval_id: btnRollback.dataset.approvalId
+                                }),
+                                credentials: "same-origin"
+                            });
+                            const data = await res.json();
+                            if (!res.ok || data.status !== "success") {
+                                throw new Error(data.detail || data.message || "Rollback thất bại.");
+                            }
+                            btnRollback.innerHTML = '<i class="fa-solid fa-circle-check"></i> Đã hoàn tác';
+                            btnRollback.classList.add("is-complete");
+                        } catch (err) {
+                            alert(`Không thể rollback rule: ${err.message || err}`);
+                            btnRollback.disabled = false;
+                            btnRollback.innerHTML = '<i class="fa-solid fa-rotate-left"></i> Thử lại Rollback';
                         }
                     });
                 }

@@ -12,3 +12,12 @@ python-telegram-bot>=21.0,<23.0
 cryptography>=47.0.0,<49.0.0
 networkx>=3.2,<4.0
 laya>=0.4.0
+
+
+# --- Wazuh KB & RAG Dependencies ---
+chromadb>=0.4.0,<1.0.0          # Vector database để lưu trữ embeddings
+rank-bm25>=0.2.2                # Thư viện tìm kiếm từ khóa BM25 cho Hybrid Search
+
+# --- Local Embedding Dependencies ---
+sentence-transformers>=2.2.0
+torch>=2.0.0

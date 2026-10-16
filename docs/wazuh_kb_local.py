@@ -168,7 +168,11 @@ def count_tokens(texts):
 def chroma():
     global _chroma
     if _chroma is None:
-        _chroma = chromadb.PersistentClient(path=DB_PATH)
+        from chromadb.config import Settings
+        _chroma = chromadb.PersistentClient(
+            path=DB_PATH,
+            settings=Settings(anonymized_telemetry=False),
+        )
     return _chroma
 
 

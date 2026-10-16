@@ -198,6 +198,12 @@ Mỗi lần ghi phải có `approval_id` và `approved=true`. Hệ thống backu
 
 Luồng HITL tạo rule sẽ tra cứu Wazuh Knowledge Base, chạy `wazuh-logtest` để xác minh rule cha, hiển thị XML/diff và chỉ áp dụng sau khi Operator duyệt. Nếu `wazuh-logtest` không xác minh được rule cha, hệ thống từ chối tạo rule tương quan thay vì đoán ID. Sau khi áp dụng, cùng phiên có thể gọi `POST /api/wazuh/rollback-rule` để khôi phục backup. Để bật logtest, cài helper từ `deploy/agentwazuh-wazuh-config` vào `/usr/local/sbin/agentwazuh-wazuh-config` và cấu hình sudoers allow-list tương ứng.
 
+Sau khi cập nhật phiên bản AgentWazuh, cập nhật privileged helper để nó chấp nhận cấu hình Wazuh nhiều `<group>` cấp cao nhất:
+
+```bash
+sudo install -o root -g root -m 750 deploy/agentwazuh-wazuh-config /usr/local/sbin/agentwazuh-wazuh-config
+```
+
 RAG dùng Chroma DB cục bộ tại `docs/wazuh_kb_local/` (không commit DB hoặc bản clone tài liệu). Cài các dependency trong `requirements.txt`; có thể tạo index từ bản Wazuh documentation 4.14 bằng:
 
 ```bash

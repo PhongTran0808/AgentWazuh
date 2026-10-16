@@ -33,7 +33,10 @@ def generate_canonical_sample_log(query: str) -> str:
     if "ssh" in lowered or "sshd" in lowered:
         return f"Oct 16 12:00:00 server sshd[1234]: Failed password for invalid user admin from {target_ip} port 22 ssh2"
     elif "ftp" in lowered or "vsftpd" in lowered:
-        return f"Oct 16 12:00:00 server vsftpd[5432]: FAIL LOGIN: Client \"{target_ip}\""
+        return (
+            "Oct 16 12:00:00 server vsftpd[5432]: pam_unix(vsftpd:auth): "
+            f"authentication failure; logname= uid=0 euid=0 tty= ruser=admin rhost={target_ip}"
+        )
     elif "rdp" in lowered or "4625" in lowered or "windows" in lowered:
         return f"Oct 16 12:00:00 win-server Microsoft-Windows-Security-Auditing[4625]: An account failed to log on. Account Name: Administrator, IpAddress: {target_ip}, FailureReason: Unknown user name or bad password."
     elif any(k in lowered for k in ["web", "http", "apache", "nginx", "403", "401", "sqli", "xss"]):

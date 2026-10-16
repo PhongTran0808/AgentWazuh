@@ -7,6 +7,7 @@ command; only the three local Wazuh configuration targets are accepted.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,16 +44,41 @@ def validate(kind: str, content: str) -> None:
     if not content.strip():
         fail("Refusing to write empty content")
     try:
-        ElementTree.fromstring(content)
+        root = ElementTree.fromstring(content)
     except ElementTree.ParseError as exc:
-        fail(f"Invalid XML: {exc}")
-    required = {
-        "rules": "<group",
-        "decoders": "<decoder",
-        "ossec": "<ossec_config",
-    }[kind]
-    if required not in content:
-        fail(f"Expected {required} in {kind} configuration")
+        if kind not in {"rules", "decoders"}:
+            fail(f"Invalid XML: {exc}")
+        fragment = re.sub(r"<\?xml[^?]*\?>", "", content, count=1).strip()
+        try:
+            root = ElementTree.fromstring(f"<root>{fragment}</root>")
+        except ElementTree.ParseError:
+            fail(f"Invalid XML: {exc}")
+
+    if kind == "rules":
+        groups = [root] if root.tag == "group" else root.findall(".//group")
+        if not groups:
+            fail("Rules configuration must contain at least one <group>")
+        for rule in root.findall(".//rule"):
+            rule_id = (rule.get("id") or "unknown").strip()
+            if rule.find("frequency") is not None or rule.find("timeframe") is not None:
+                fail(f"Rule {rule_id}: frequency/timeframe must be rule attributes")
+            frequency = (rule.get("frequency") or "").strip()
+            timeframe = (rule.get("timeframe") or "").strip()
+            if frequency or timeframe:
+                if not frequency or not timeframe:
+                    fail(f"Rule {rule_id}: both frequency and timeframe are required")
+                try:
+                    if int(frequency) <= 0 or int(timeframe) <= 0:
+                        raise ValueError
+                except ValueError:
+                    fail(f"Rule {rule_id}: frequency/timeframe must be positive integers")
+                if rule.find("if_matched_sid") is None and rule.find("if_matched_group") is None:
+                    fail(f"Rule {rule_id}: correlation requires if_matched_sid or if_matched_group")
+    elif kind == "decoders":
+        if root.tag != "decoder" and not root.findall(".//decoder"):
+            fail("Decoder configuration must contain at least one <decoder>")
+    elif kind == "ossec" and root.tag != "ossec_config":
+        fail("ossec.conf must have an <ossec_config> root")
 
 
 def read_config(kind: str) -> None:
@@ -177,28 +203,33 @@ def run_logtest(log_line: str, location: str = "stdin") -> None:
         fail(f"wazuh-logtest failed: {exc}")
 
 
-try:
-    request = json.load(sys.stdin)
-except Exception as exc:
-    fail(f"Invalid JSON request: {exc}")
+def main() -> None:
+    try:
+        request = json.load(sys.stdin)
+    except Exception as exc:
+        fail(f"Invalid JSON request: {exc}")
 
-action = request.get("action")
-kind = request.get("target")
-if action == "read":
-    read_config(kind)
-elif action == "validate":
-    validate_runtime()
-elif action == "logtest":
-    run_logtest(request.get("log", ""), request.get("location", "stdin"))
-elif action == "write":
-    if request.get("approved") is not True or not request.get("approval_id"):
-        fail("Explicit approval_id and approved=true are required")
-    write_config(kind, request.get("content", ""), request["approval_id"])
-elif action == "restore":
-    if request.get("approved") is not True or not request.get("approval_id"):
-        fail("Explicit approval_id and approved=true are required")
-    restore_config(kind, request.get("backup", ""), request["approval_id"])
-elif action == "restart":
-    restart_manager()
-else:
-    fail("Unsupported action")
+    action = request.get("action")
+    kind = request.get("target")
+    if action == "read":
+        read_config(kind)
+    elif action == "validate":
+        validate_runtime()
+    elif action == "logtest":
+        run_logtest(request.get("log", ""), request.get("location", "stdin"))
+    elif action == "write":
+        if request.get("approved") is not True or not request.get("approval_id"):
+            fail("Explicit approval_id and approved=true are required")
+        write_config(kind, request.get("content", ""), request["approval_id"])
+    elif action == "restore":
+        if request.get("approved") is not True or not request.get("approval_id"):
+            fail("Explicit approval_id and approved=true are required")
+        restore_config(kind, request.get("backup", ""), request["approval_id"])
+    elif action == "restart":
+        restart_manager()
+    else:
+        fail("Unsupported action")
+
+
+if __name__ == "__main__":
+    main()

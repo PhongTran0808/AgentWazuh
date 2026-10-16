@@ -1,10 +1,12 @@
 import unittest
+import runpy
 from unittest.mock import patch
 from xml.etree import ElementTree
 
 from integrations.wazuh_config_manager import WazuhConfigError, _validate
 from services.rule_generator import generate_rule_proposal
 from services.wazuh_logtest_service import parse_logtest_output
+from services.wazuh_logtest_service import generate_canonical_sample_log
 
 
 class RuleGeneratorTests(unittest.TestCase):
@@ -88,6 +90,28 @@ class RuleGeneratorTests(unittest.TestCase):
         parsed = parse_logtest_output(output)
         self.assertEqual(parsed["decoder_name"], "sshd")
         self.assertEqual(parsed["matched_rule_id"], 5716)
+
+    def test_ftp_canonical_log_matches_installed_wazuh_parent_rule(self):
+        sample = generate_canonical_sample_log("Tạo rule phát hiện FTP brute-force")
+        self.assertIn("pam_unix(vsftpd:auth)", sample)
+        self.assertIn("authentication failure", sample)
+
+    def test_privileged_helper_accepts_multi_group_wazuh_rules_file(self):
+        helper = runpy.run_path("deploy/agentwazuh-wazuh-config")
+        helper["validate"](
+            "rules",
+            '''<!-- Existing local rules -->
+<group name="local,"><rule id="100001" level="5"><description>Existing</description></rule></group>
+<group name="custom,"><rule id="100002" level="10" frequency="5" timeframe="60"><if_matched_sid>5503</if_matched_sid></rule></group>''',
+        )
+
+    def test_privileged_helper_rejects_malformed_multi_group_xml(self):
+        helper = runpy.run_path("deploy/agentwazuh-wazuh-config")
+        with self.assertRaises(SystemExit):
+            helper["validate"](
+                "rules",
+                '<group name="one,"></group><group name="two,"><rule></group>',
+            )
 
 
 if __name__ == "__main__":

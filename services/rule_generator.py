@@ -61,7 +61,7 @@ def _extract_intent_parameters(query: str) -> Dict[str, Any]:
         mitre_id = "T1110"
         group_name = "vsftpd,authentication_failures"
         scenario = "FTP Brute Force"
-        pattern = "FAIL LOGIN"
+        pattern = "authentication failure"
     elif "rdp" in lowered or "4625" in lowered or "windows" in lowered:
         mitre_id = "T1110"
         group_name = "windows,authentication_failures"

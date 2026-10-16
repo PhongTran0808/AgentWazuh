@@ -79,13 +79,16 @@ def get_next_free_rule_id(etc_dir: str = "/var/ossec/etc") -> int:
 def _fallback_next_rule_id(etc_dir: str) -> int:
     used = set()
     readable_source = False
-    for rules_file in Path(etc_dir).glob("rules/*.xml"):
-        try:
-            text = rules_file.read_text(encoding="utf-8", errors="ignore")
-            used.update(int(x) for x in re.findall(r'<rule\s[^>]*?\bid=["\'](\d+)["\']', text))
-            readable_source = True
-        except OSError as exc:
-            logger.warning("Could not read rule file %s: %s", rules_file, exc)
+    try:
+        for rules_file in Path(etc_dir).glob("rules/*.xml"):
+            try:
+                text = rules_file.read_text(encoding="utf-8", errors="ignore")
+                used.update(int(x) for x in re.findall(r'<rule\s[^>]*?\bid=["\'](\d+)["\']', text))
+                readable_source = True
+            except OSError as exc:
+                logger.debug("Could not read rule file %s: %s", rules_file, exc)
+    except OSError as exc:
+        logger.debug("Could not list Wazuh rule files under %s: %s", etc_dir, exc)
 
     try:
         from integrations.wazuh_config_manager import _read_target

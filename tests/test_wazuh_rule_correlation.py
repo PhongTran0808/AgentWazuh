@@ -43,6 +43,27 @@ class WazuhRuleCorrelationTests(unittest.TestCase):
         with self.assertRaises(WazuhConfigError):
             _validate("rules", invalid)
 
+    def test_merge_supports_multiple_top_level_groups(self):
+        current = '''<!-- Local rules -->
+<group name="local,">
+  <rule id="100001" level="5"><description>Existing</description></rule>
+</group>
+<group name="custom,">
+  <rule id="100002" level="5"><description>Also existing</description></rule>
+</group>'''
+        candidate = '''<group name="new,">
+  <rule id="100003" level="5"><description>New rule</description></rule>
+</group>'''
+        merged, rule_ids = merge_rule_group(current, candidate)
+        wrapped = ElementTree.fromstring(f"<root>{merged}</root>")
+        self.assertEqual(rule_ids, ["100003"])
+        self.assertEqual([rule.get("id") for rule in wrapped.findall(".//rule")], [
+            "100001", "100002", "100003",
+        ])
+        self.assertEqual(wrapped.findall(".//rule")[-1].findtext("group"), "new,")
+        self.assertIn("<!-- Local rules -->", merged)
+        _validate("rules", merged)
+
 
 if __name__ == "__main__":
     unittest.main()

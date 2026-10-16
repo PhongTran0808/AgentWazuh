@@ -197,7 +197,10 @@ def apply(kind: str, content: str, approval_id: str, approved: bool = False, act
 def merge_rule_group(current: str, candidate: str) -> tuple[str, list[str]]:
     """Merge a rule-group draft into local_rules.xml without duplicating IDs."""
     try:
-        current_root = ElementTree.fromstring(current)
+        try:
+            current_root = ElementTree.fromstring(current)
+        except ElementTree.ParseError:
+            current_root = ElementTree.fromstring(f"<root>{current}</root>")
         candidate_root = ElementTree.fromstring(candidate)
     except ElementTree.ParseError as exc:
         raise WazuhConfigError(f"Invalid rule XML: {exc}") from exc
@@ -207,11 +210,27 @@ def merge_rule_group(current: str, candidate: str) -> tuple[str, list[str]]:
     candidate_rules = candidate_root.findall(".//rule")
     if not candidate_rules:
         raise WazuhConfigError("Rule draft does not contain a <rule> element")
+    inherited_groups = [
+        group.strip()
+        for group in (candidate_root.get("name") or "").split(",")
+        if group.strip()
+    ]
     candidate_ids = []
     for rule in candidate_rules:
         rule_id = (rule.get("id") or "").strip()
         if not rule_id:
             raise WazuhConfigError("Every rule must have an id")
+        rule_groups = rule.find("group")
+        existing_groups = [
+            group.strip()
+            for group in (rule_groups.text if rule_groups is not None and rule_groups.text else "").split(",")
+            if group.strip()
+        ]
+        merged_groups = list(dict.fromkeys(inherited_groups + existing_groups))
+        if merged_groups:
+            if rule_groups is None:
+                rule_groups = ElementTree.SubElement(rule, "group")
+            rule_groups.text = ",".join(merged_groups) + ","
         # Wazuh requires an if_matched_* clause for frequency/timeframe.
         # Normalize older drafts that incorrectly used if_sid so analysisd
         # does not reject the complete local_rules.xml file.
@@ -247,16 +266,18 @@ def merge_rule_group(current: str, candidate: str) -> tuple[str, list[str]]:
     if duplicates:
         raise WazuhConfigError(f"Rule ID already exists in local_rules.xml: {', '.join(duplicates)}")
 
-    # The installed Wazuh file uses a single <group> root. Inject the draft's
-    # rule elements as text so existing comments and formatting stay intact.
-    if current_root.tag == "group" and current.rstrip().endswith("</group>"):
+    # Wazuh local_rules.xml may contain multiple top-level groups. Add to the
+    # last group as text so existing comments and formatting stay intact.
+    groups = current_root.findall(".//group")
+    if current_root.tag == "group":
+        groups.insert(0, current_root)
+    last_group_close = current.rfind("</group>")
+    if groups and last_group_close >= 0:
         pieces = [ElementTree.tostring(rule, encoding="unicode") for rule in candidate_rules]
         insertion = "\n\n" + "\n\n".join(pieces) + "\n"
-        merged = current.rstrip()[:-len("</group>")] + insertion + "</group>\n"
+        merged = current[:last_group_close] + insertion + current[last_group_close:]
     else:
-        for rule in candidate_rules:
-            current_root.append(rule)
-        merged = ElementTree.tostring(current_root, encoding="unicode") + "\n"
+        raise WazuhConfigError("local_rules.xml must contain at least one <group> element")
     _validate("rules", merged)
     return merged, candidate_ids
 

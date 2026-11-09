@@ -660,7 +660,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 select.innerHTML = "";
                 const auto = document.createElement("option");
                 auto.value = "auto";
-                auto.textContent = select.id === "chat-model-select" ? "Auto (CLI model)" : "Auto (tự chọn model tương thích)";
+                auto.textContent = select.id === "chat-model-select" ? "Auto (Tự động chọn & Fallback đa tầng)" : "Auto (tự chọn model tương thích)";
                 select.appendChild(auto);
                 data.models.forEach((model) => {
                     const option = document.createElement("option");
@@ -1044,8 +1044,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.querySelectorAll(".alert-card").forEach(c => c.classList.remove("selected"));
                 card.classList.add("selected");
                 
-                // Trích xuất alert đầu tiên đại diện
-                const repAlert = group.alerts && group.alerts.length > 0 ? group.alerts[0] : null;
+                // Trích xuất alert đại diện: ưu tiên alert có rule level cao nhất
+                let repAlert = null;
+                if (group.alerts && group.alerts.length > 0) {
+                    repAlert = group.alerts.reduce((prev, curr) => {
+                        const prevLvl = Number(prev?.rule?.level) || 0;
+                        const currLvl = Number(curr?.rule?.level) || 0;
+                        return currLvl > prevLvl ? curr : prev;
+                    }, group.alerts[0]);
+                }
                 const queryMsg = `Phân tích nhóm sự cố ${group.group_id} (Điểm: ${score}/100)`;
                 appendUserBubble(queryMsg);
                 investigateAlert(queryMsg, repAlert, group);
@@ -1118,12 +1125,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const chatModelEl = document.getElementById("chat-model-select");
             const selectedModel = chatModelEl ? chatModelEl.value : "auto";
             const incidentId = incidentGroup?.incident_id || incidentGroup?.group_id || null;
+            const activeSessionId = current_session_id || await ensureChatSession(query);
 
             const res = await fetch("/api/wazuh/investigate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     query: query,
+                    chat_session_id: activeSessionId,
                     // The incident snapshot, not a refresh-sensitive preview ID,
                     // is authoritative when opening a correlated group.
                     alert_id: incidentId ? null : (alertObj ? alertObj.id : null),
@@ -1501,8 +1510,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const tClass = inv.threat_classification || "INFORMATIONAL";
         let riskBadge = `<span class="risk-badge risk-low">${tClass}</span>`;
-        if (tClass === "TRUE_THREAT") riskBadge = `<span class="risk-badge risk-critical">${tClass}</span>`;
-        else if (tClass === "SUSPICIOUS") riskBadge = `<span class="risk-badge risk-high">${tClass}</span>`;
+        if (tClass === "TRUE_THREAT" || tClass === "CRITICAL") riskBadge = `<span class="risk-badge risk-critical">${tClass}</span>`;
+        else if (tClass === "SUSPICIOUS" || tClass === "HIGH") riskBadge = `<span class="risk-badge risk-high">${tClass}</span>`;
+        else if (tClass === "LOW_RISK" || tClass === "MEDIUM") riskBadge = `<span class="risk-badge risk-medium">${tClass}</span>`;
 
         evidenceDetail.innerHTML = `
             <div class="evidence-section evidence-pipeline-intro">
@@ -1521,7 +1531,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <h3><i class="fa-solid fa-shield-cat"></i> Threat Assessment</h3>
                 <p><strong>Classification:</strong> ${riskBadge}</p>
                 <p><strong>AI Engine Used:</strong> <code>${inv.model_used || "Cloud API Engine"}</code></p>
-                <p><strong>MITRE Technique:</strong> <code>${inv.layer_1_static_lookup?.technique_id || "T1110"}</code></p>
+                <p><strong>MITRE Technique:</strong> <code>${inv.layer_1_static_lookup?.technique_id || "N/A (Dynamic RAG)"}</code></p>
             </div>
         `;
     }

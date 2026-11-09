@@ -28,6 +28,9 @@ SECURITY_SCOPE_MARKERS = (
 CONTEXTUAL_FOLLOWUP_MARKERS = (
     "cảnh báo trên", "log trên", "alert trên", "rule trên", "sự cố trên", "điều này", "cái này",
     "nó là gì", "nó có nghĩa", "vừa nói", "vừa rồi", "ở trên", "this", "that", "above",
+    "tại sao", "vì sao", "nguyên nhân", "lý do", "như thế nào", "làm sao", "nguy hiểm",
+    "giải thích thêm", "chi tiết hơn", "nói rõ hơn", "tiếp tục", "tiếp theo", "khắc phục",
+    "xử lý thế nào", "máy nào", "ip nào", "thiết bị nào", "từ đâu",
 )
 
 
@@ -43,7 +46,7 @@ def is_security_related_query(query: str) -> bool:
 def is_contextual_security_followup(query: str) -> bool:
     """Allow short references to an already selected alert/security topic."""
     text = (query or "").strip().lower()
-    return len(text) <= 120 and any(marker in text for marker in CONTEXTUAL_FOLLOWUP_MARKERS)
+    return len(text) <= 200 and any(marker in text for marker in CONTEXTUAL_FOLLOWUP_MARKERS)
 
 
 GREETING_WORDS = {

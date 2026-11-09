@@ -166,6 +166,8 @@ def match_wazuh_kb_topic(query: str) -> Optional[Dict[str, Any]]:
             score += 5
         elif tid == "wazuh_cli_cheatsheet" and any(w in q for w in ("lệnh wazuh", "câu lệnh", "cli", "cheatsheet", "bảng lệnh", "wazuh-control")):
             score += 6
+        elif tid == "wazuh_overview" and any(w in q for w in ("wazuh là gì", "wazuh là cái gì", "giới thiệu wazuh", "tổng quan wazuh", "what is wazuh", "wazuh siem", "khái niệm wazuh", "wazuh dùng để làm gì")):
+            score += 10
         elif tid == "architecture_ports" and any(w in q for w in ("cổng", "port", "1514", "1515", "55000", "9200", "kiến trúc")):
             score += 5
         elif tid == "wazuh_daemons_explained" and any(w in q for w in ("daemon", "tiến trình", "wazuh-analysisd", "wazuh-remoted", "wazuh-modulesd", "wazuh-db")):

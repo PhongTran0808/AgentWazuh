@@ -1,8 +1,10 @@
 import unittest
+from unittest.mock import patch, MagicMock
 
 from core.server import _alert_matches_scope, _select_analysis_alerts
 from services.chat_intent import classify_chat_intent, is_security_related_query
 from services.incident_assistant import IncidentAssistant
+from services.ollama_client import OllamaError
 
 
 def _alert(alert_id, timestamp, rule_id, level, agent_id="009", agent_name="WIN-01"):
@@ -178,6 +180,236 @@ class ScopedInvestigationTests(unittest.TestCase):
             },
         )
         self.assertIn("12", result["summary"])
+
+    def test_incident_group_threat_classification_and_mitre_extraction(self):
+        assistant = IncidentAssistant()
+        assistant._call_pi_agent = lambda *args, **kwargs: "INCIDENT_ANALYSIS"
+
+        alert1 = _alert("TT8kv6EBeVFFFqmMuiJr", "2026-11-09T14:10:12+0700", "554", 5)
+        alert2 = _alert("Tj8kv6EBeVFFFqmMuiJr", "2026-11-09T14:10:14+0700", "100050", 12)
+        alert2["rule"]["mitre"] = {
+            "id": ["T1204.002"],
+            "tactic": ["Execution"],
+            "technique": ["Malicious File"],
+        }
+        incident_group = {
+            "incident_id": "INC-B710C3B40CFD",
+            "priority_score": 63,
+            "risk_score": 63,
+            "alerts": [alert1, alert2],
+        }
+
+        # Even if alert_data passed is alert1 (level 5), the incident analysis must evaluate the full group
+        result = assistant.investigate_incident(
+            "Phân tích nhóm sự cố INC-B710C3B40CFD (Điểm: 63/100)",
+            alert_data=alert1,
+            incident_group=incident_group,
+            recent_alerts=[alert1, alert2],
+            system_context={"status": "online", "host": "100.69.72.103", "agents": [], "alert_stats": {}},
+        )
+
+        self.assertEqual(result["threat_classification"], "TRUE_THREAT")
+        self.assertNotEqual(result["threat_classification"], "FALSE_POSITIVE")
+        self.assertEqual(result["opensearch_payload"]["wazuh_ai_analysis"]["threat_classification"], "TRUE_THREAT")
+        self.assertLessEqual(result["opensearch_payload"]["wazuh_ai_analysis"]["false_positive_score"], 0.05)
+        self.assertEqual(result["opensearch_payload"]["wazuh_ai_analysis"]["mitre_technique"], "T1204.002")
+
+        # Check reasoning steps
+        steps = result["reasoning_steps"]
+        step1 = next(s for s in steps if s["step"] == 1)
+        self.assertIn("INC-B710C3B40CFD", step1["detail"])
+        self.assertIn("2 alerts", step1["detail"])
+
+        step2 = next(s for s in steps if s["step"] == 2)
+        self.assertEqual(step2["detail"], "Technique: T1204.002")
+
+        step3 = next(s for s in steps if s["step"] == 3)
+        self.assertEqual(step3["detail"], "TRUE_THREAT")
+
+    def test_low_level_alert_is_not_classified_as_false_positive(self):
+        assistant = IncidentAssistant()
+        assistant._call_pi_agent = lambda *args, **kwargs: "ANALYSIS"
+
+        low_alert = _alert("low_1", "2026-11-09T14:10:12+0700", "554", 5)
+        result = assistant.investigate_incident(
+            "Phân tích alert low_1",
+            alert_data=low_alert,
+            recent_alerts=[low_alert],
+            system_context={"status": "online", "host": "100.69.72.103", "agents": [], "alert_stats": {}},
+        )
+
+        # Level 5 should be LOW_RISK, NOT FALSE_POSITIVE
+        self.assertEqual(result["threat_classification"], "LOW_RISK")
+        self.assertNotEqual(result["threat_classification"], "FALSE_POSITIVE")
+
+    def test_multiturn_followup_with_history_allowed_and_injected(self):
+        assistant = IncidentAssistant()
+        captured = {}
+
+        def fake_call(*args, **kwargs):
+            captured["system_prompt"] = args[0]
+            captured["user_prompt"] = args[1]
+            return "FOLLOWUP_RESPONSE"
+
+        assistant._call_pi_agent = fake_call
+        history = [
+            {"role": "user", "content": "Phân tích nhóm sự cố INC-B710C3B40CFD (Điểm: 63/100)"},
+            {"role": "ai", "content": "Phát hiện mã độc VirusTotal trên WIN-01. Cần cách ly thiết bị."},
+        ]
+
+        # Follow-up query without explicit security keywords, relying on session memory
+        result = assistant.investigate_incident(
+            "tại sao lại như vậy?",
+            conversation_history=history,
+            system_context={"status": "online", "host": "100.69.72.103", "agents": [], "alert_stats": {}},
+        )
+
+        self.assertEqual(result["layer_2_llm_reasoning"], "FOLLOWUP_RESPONSE")
+        self.assertIn("LỊCH SỬ HỘI THOẠI GẦN NHẤT", captured["user_prompt"])
+        self.assertIn("INC-B710C3B40CFD", captured["user_prompt"])
+        self.assertIn("Mạch đàm thoại đa lượt", captured["system_prompt"])
+
+    @patch("services.incident_assistant.subprocess.run")
+    @patch("services.incident_assistant.requests.post")
+    def test_auto_model_fallback_pi_failure_to_gemini_api(self, mock_post, mock_subproc):
+        # Pi CLI fails (e.g. exit code 1 or rate limit error)
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = "Error: rate limit exceeded"
+        proc_mock.stderr = "quota 429"
+        mock_subproc.return_value = proc_mock
+
+        # Direct Gemini API succeeds
+        gemini_resp = MagicMock()
+        gemini_resp.status_code = 200
+        gemini_resp.json.return_value = {
+            "candidates": [
+                {"content": {"parts": [{"text": "Báo cáo phân tích từ Gemini API Fallback"}]}}
+            ]
+        }
+        mock_post.return_value = gemini_resp
+
+        assistant = IncidentAssistant()
+        meta = {}
+        result = assistant._call_pi_agent(
+            "System prompt",
+            "User query",
+            alert_count=1,
+            has_internal_ip=False,
+            model_override="auto",
+            execution_meta=meta,
+        )
+
+        self.assertEqual(result, "Báo cáo phân tích từ Gemini API Fallback")
+        self.assertTrue(meta.get("fallback_used"))
+        self.assertIn("Gemini API (Cloud Fallback)", meta.get("model_used"))
+
+    @patch("services.incident_assistant.subprocess.run")
+    @patch("services.incident_assistant.requests.post")
+    @patch("services.incident_assistant.OllamaClient.generate")
+    def test_auto_model_fallback_pi_and_cloud_failure_to_ollama(self, mock_ollama_gen, mock_post, mock_subproc):
+        # Pi CLI fails
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = "Pi CLI timeout"
+        mock_subproc.return_value = proc_mock
+
+        # Cloud APIs fail (HTTP 500 or network error)
+        mock_post.side_effect = Exception("Cloud network unreachable")
+
+        # Local Ollama succeeds
+        mock_ollama_gen.return_value = "Báo cáo phân tích từ Ollama local fallback"
+
+        assistant = IncidentAssistant()
+        meta = {}
+        result = assistant._call_pi_agent(
+            "System prompt",
+            "User query",
+            alert_count=1,
+            has_internal_ip=False,
+            model_override="auto",
+            execution_meta=meta,
+        )
+
+        self.assertEqual(result, "Báo cáo phân tích từ Ollama local fallback")
+        self.assertTrue(meta.get("fallback_used"))
+        self.assertIn("Ollama (Local Fallback)", meta.get("model_used"))
+
+    @patch("services.incident_assistant.subprocess.run")
+    @patch("services.incident_assistant.requests.post")
+    @patch("services.incident_assistant.OllamaClient.generate")
+    def test_auto_model_fallback_all_llms_failure_to_deterministic(self, mock_ollama_gen, mock_post, mock_subproc):
+        # Pi CLI fails
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = "Pi CLI error"
+        mock_subproc.return_value = proc_mock
+
+        # Cloud APIs fail
+        mock_post.side_effect = Exception("Cloud network unreachable")
+
+        # Local Ollama fails
+        mock_ollama_gen.side_effect = OllamaError("Ollama connection refused")
+
+        assistant = IncidentAssistant()
+        result = assistant.investigate_incident(
+            "Phân tích sự cố IP 100.69.72.103",
+            model_override="auto",
+            system_context={"status": "online", "host": "100.69.72.103", "agents": [], "alert_stats": {}},
+        )
+
+        self.assertTrue(result.get("fallback_used"))
+        self.assertEqual(result.get("model_used"), "Deterministic SOC Rule Engine (Local Fallback)")
+        self.assertEqual(result["pipeline_evidence"]["ai_analysis"]["model_used"], "Deterministic SOC Rule Engine (Local Fallback)")
+        self.assertTrue(result["pipeline_evidence"]["ai_analysis"]["fallback_used"])
+        self.assertTrue(len(result["layer_2_llm_reasoning"]) > 0)
+
+    def test_wazuh_la_gi_knowledge_base_match(self):
+        from services.wazuh_kb import render_wazuh_kb_answer
+        ans = render_wazuh_kb_answer("wazuh là gì?")
+        self.assertIsNotNone(ans)
+        self.assertEqual(ans["topic_id"], "wazuh_overview")
+        self.assertIn("SIEM", ans["markdown"])
+        self.assertIn("XDR", ans["markdown"])
+
+    def test_wazuh_la_gi_fallback_does_not_leak_agents_list(self):
+        assistant = IncidentAssistant()
+        system_context = {
+            "status": "online",
+            "host": "100.69.72.103",
+            "agents": [
+                {"id": "000", "name": "xinloihuy", "status": "active"},
+                {"id": "001", "name": "SRV-01", "status": "active"},
+            ],
+            "alert_stats": {"total_24h": 0},
+        }
+        user_prompt_with_context = (
+            "Bối cảnh Wazuh SIEM Dữ Liệu Thật:\n"
+            "- Registered Active Agents Count: 2\n"
+            "- DANH SÁCH THIẾT BỊ GIÁM SÁT CHÍNH THỨC\n\n"
+            "Câu hỏi Analyst: wazuh là gì?"
+        )
+        res = assistant._generate_truthful_fallback(user_prompt_with_context, system_context)
+        self.assertNotIn("BÁO CÁO DANH SÁCH WAZUH AGENT", res)
+        self.assertIn("Wazuh", res)
+        self.assertTrue("SIEM" in res or "nền tảng" in res)
+
+    def test_investigate_incident_wazuh_la_gi(self):
+        assistant = IncidentAssistant()
+        result = assistant.investigate_incident(
+            "wazuh là gì?",
+            system_context={
+                "status": "online",
+                "host": "100.69.72.103",
+                "agents": [
+                    {"id": "000", "name": "xinloihuy", "status": "active"},
+                ],
+                "alert_stats": {"total_24h": 0},
+            },
+        )
+        self.assertNotIn("BÁO CÁO DANH SÁCH WAZUH AGENT", result["summary"])
+        self.assertIn("Wazuh", result["summary"])
+        self.assertIn("SIEM", result["summary"])
 
 
 if __name__ == "__main__":

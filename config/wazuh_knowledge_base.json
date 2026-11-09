@@ -3,6 +3,18 @@
   "description": "Kho tri thức cục bộ Wazuh SIEM (Tái cấu trúc cho Giám sát viên SOC - Trả lời tức thì 0 Token, kèm ảnh minh họa SVG)",
   "topics": [
     {
+      "id": "wazuh_overview",
+      "title": "🛡️ Tổng Quan: Wazuh SIEM & XDR Là Gì?",
+      "image_url": "/static/assets/kb/wz_overview_annotated.png",
+      "keywords": [
+        "wazuh là gì", "wazuh là cái gì", "giới thiệu wazuh", "tổng quan wazuh",
+        "what is wazuh", "wazuh siem là gì", "khái niệm wazuh", "wazuh xdr là gì",
+        "tìm hiểu về wazuh", "wazuh dùng để làm gì", "vai trò của wazuh"
+      ],
+      "quick_summary": "Wazuh là nền tảng an ninh mã nguồn mở kết hợp SIEM (quản lý thông tin và sự kiện an ninh) và XDR (phát hiện và phản ứng mở rộng) trên Endpoint & Cloud.",
+      "answer_markdown": "### 🛡️ Tổng Quan: Wazuh SIEM & XDR Là Gì?\n\n![Ảnh chụp thật giao diện điều hành Wazuh Server](/static/assets/kb/wz_overview_annotated.png)\n\n#### 1. Khái Niệm Wazuh\n**Wazuh** là một nền tảng giám sát an ninh mạng mã nguồn mở hàng đầu thế giới, kết hợp chặt chẽ giữa hai giải pháp trọng yếu:\n- **SIEM (Security Information and Event Management)**: Thu thập, chuẩn hóa, phân tích tập trung nhật ký (log) từ máy chủ, máy trạm, thiết bị mạng (Firewall, Switch) và ứng dụng theo thời gian thực.\n- **XDR (Extended Detection and Response)**: Giám sát toàn diện điểm cuối (Endpoint Security), phát hiện mối đe dọa nâng cao, phân tích hành vi bất thường và tự động phản ứng ngăn chặn tấn công (Active Response).\n\n#### 2. Các Trụ Cột Năng Lực Cốt Lõi\n1. **Phát Hiện Mối Đe Dọa (Threat Detection)**: So khớp log với hơn 4000+ quy tắc (Ruleset) tích hợp sẵn, ánh xạ chuẩn ma trận **MITRE ATT&CK**.\n2. **Giám Sát Toàn Vẹn Tệp Tin (FIM - File Integrity Monitoring)**: Cảnh báo ngay lập tức khi tệp hệ thống quan trọng, registry hoặc cấu hình bị chỉnh sửa trái phép.\n3. **Đánh Giá Lỗ Hổng & Tuân Thủ (Vulnerability & SCA)**: Quét CVE định kỳ trên phần mềm đã cài đặt và chấm điểm tuân thủ CIS Benchmarks.\n4. **Phản Ứng Tự Động (Active Response)**: Tự động khóa IP tấn công (brute force), cách ly tiến trình độc hại ngay khi phát hiện.\n\n#### 3. Mô Hình Kiến Trúc 3 Thành Phần Chính\n- **Wazuh Agent**: Cài trên máy trạm/máy chủ (Linux, Windows, macOS) để thu thập log, FIM và thực thi phản ứng.\n- **Wazuh Server (Manager)**: Trung tâm giải mã log (`analysisd`), so khớp luật và điều khiển toàn hệ thống (`https://{host}`).\n- **Wazuh Indexer & Dashboard**: Hệ thống lưu trữ OpenSearch chỉ mục cao cấp và giao diện trực quan hóa dữ liệu SOC."
+    },
+    {
       "id": "ui_buttons_guide",
       "title": "🖥️ Giải Thích Các Nút & Khu Vực Chức Năng Trên Giao Diện SOC",
       "image_url": "/static/assets/kb/dashboard_buttons_guide.svg",

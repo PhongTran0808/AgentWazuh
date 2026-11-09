@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const auto = document.createElement("option");
             auto.value = "auto";
-            auto.textContent = "Auto (CLI model)";
+            auto.textContent = "Auto (Tự động chọn & Fallback đa tầng)";
             chatModelSelect.appendChild(auto);
 
             data.models.forEach((model) => {

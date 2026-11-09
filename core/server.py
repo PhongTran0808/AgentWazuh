@@ -551,12 +551,21 @@ def _resolve_investigation_evidence(
                     (item for item in analysis_alerts if str(item.get("id")) == str(alert_id)),
                     None,
                 ) if alert_id else None
-                # The incident is the requested object. A stale representative
-                # ID must not make the frozen incident impossible to open.
+                anchor_alert = exact
+                if not anchor_alert:
+                    def _anchor_sort_key(a: Dict[str, Any]):
+                        lvl = 0
+                        try:
+                            lvl = int(a.get("rule", {}).get("level") or 0)
+                        except (ValueError, TypeError):
+                            lvl = 0
+                        ts = _alert_timestamp(a)
+                        return (lvl, ts.timestamp() if ts else float("-inf"))
+                    anchor_alert = max(analysis_alerts, key=_anchor_sort_key)
                 return (
                     incident_group,
                     analysis_alerts,
-                    exact or analysis_alerts[0],
+                    anchor_alert,
                     "incident_snapshot" if exact or not alert_id else "incident_snapshot_fallback",
                 )
 
@@ -2590,7 +2599,15 @@ async def investigate(req: InvestigateRequest, session: str = Depends(require_au
             if req.alert_id and str(req.alert_id) in hydrated_by_id:
                 alert_to_use = hydrated_by_id[str(req.alert_id)]
             elif analysis_alerts:
-                alert_to_use = analysis_alerts[0]
+                def _hydrated_anchor_key(a: Dict[str, Any]):
+                    lvl = 0
+                    try:
+                        lvl = int(a.get("rule", {}).get("level") or 0)
+                    except (ValueError, TypeError):
+                        lvl = 0
+                    ts = _alert_timestamp(a)
+                    return (lvl, ts.timestamp() if ts else float("-inf"))
+                alert_to_use = max(analysis_alerts, key=_hydrated_anchor_key)
             evidence_source = "incident_snapshot+opensearch_ids"
 
     # Standalone alerts may legitimately leave the preview cache between render

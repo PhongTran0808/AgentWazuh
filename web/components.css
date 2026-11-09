@@ -375,6 +375,7 @@ textarea.input-setting-control,
   text-transform: uppercase;
 }
 .risk-low      { background: var(--ok-soft);       color: var(--ok); }
+.risk-medium   { background: var(--warning-soft, rgba(234, 179, 8, 0.15)); color: var(--warning, #eab308); }
 .risk-high     { background: var(--medium-soft);   color: var(--medium); }
 .risk-critical { background: var(--critical-soft); color: var(--critical); }
 

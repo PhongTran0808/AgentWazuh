@@ -94,6 +94,7 @@ class OllamaClient:
         options = {
             "temperature": temperature,
             "num_predict": max(int(num_predict), 128),
+            "num_ctx": 4096,
         }
 
         if endpoint.endswith("/v1/chat/completions"):

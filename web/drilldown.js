@@ -1,7 +1,18 @@
 // AgentWazuh Drill-down Dedicated Page Controller (Prompt 2)
 document.addEventListener("DOMContentLoaded", () => {
+    // Safe Mermaid initialization with global error suppression
     if (window.mermaid) {
-        mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+        try {
+            mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+            if (typeof mermaid.setParseErrorHandler === "function") {
+                mermaid.setParseErrorHandler((err) => console.warn("Suppressed Mermaid syntax parse error:", err));
+            }
+            mermaid.parseError = function(err) {
+                console.warn("Suppressed Mermaid parseError:", err);
+            };
+        } catch (e) {
+            console.warn("Mermaid init error:", e);
+        }
     }
 
     const urlParams = new URLSearchParams(window.location.search);

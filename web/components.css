@@ -1080,6 +1080,20 @@ textarea.input-setting-control,
 .mermaid-container svg { max-width: 100%; height: auto; }
 pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-2); }
 
+/* Prevent Mermaid from injecting default syntax error bomb SVGs into body */
+body > [id^="dmermaid"],
+body > [id^="dattack_graph"],
+body > [id^="dtest"],
+body > svg.error-icon,
+body > div[id^="d"]:has(svg text) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+}
+
 .msg-text { overflow-wrap: anywhere; }
 .msg-text > :first-child { margin-top: 0; }
 .msg-text > :last-child { margin-bottom: 0; }

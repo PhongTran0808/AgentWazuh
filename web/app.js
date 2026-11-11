@@ -1,8 +1,27 @@
 // AgentWazuh Dashboard Controller (Version 16.0 Strict API-Driven & User Chat Render Release)
 document.addEventListener("DOMContentLoaded", () => {
-    if (window.mermaid) {
-        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+    // Safe Mermaid initialization with global error suppression
+    function initMermaidSafe() {
+        if (!window.mermaid) return;
+        try {
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'dark',
+                securityLevel: 'loose'
+            });
+            if (typeof mermaid.setParseErrorHandler === "function") {
+                mermaid.setParseErrorHandler((err) => {
+                    console.warn("Suppressed Mermaid syntax parse error:", err);
+                });
+            }
+            mermaid.parseError = function(err) {
+                console.warn("Suppressed Mermaid parseError:", err);
+            };
+        } catch (e) {
+            console.warn("Mermaid init error:", e);
+        }
     }
+    initMermaidSafe();
 
     let globalState = {
         network_topology: [],
@@ -352,23 +371,78 @@ document.addEventListener("DOMContentLoaded", () => {
         return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
+    window.cleanupMermaidJunk = function(targetId) {
+        try {
+            if (targetId) {
+                document.getElementById(`d${targetId}`)?.remove();
+            }
+            document.querySelectorAll('body > [id^="d"]').forEach(el => {
+                const text = el.textContent || "";
+                if (text.includes("Syntax error in text") || text.includes("mermaid version")) {
+                    el.remove();
+                }
+            });
+        } catch (_) {}
+    };
+
     window.normalizeMermaidDefinition = function(source) {
-        const quoteLabel = (value) => String(value || "")
-            .replace(/"/g, "'")
-            .replace(/[\r\n]+/g, " ")
+        if (!source) return 'graph TD\n    empty["Không có dữ liệu"]';
+        
+        let clean = String(source)
+            .replace(/^```[a-zA-Z]*\s*/i, "")
+            .replace(/\s*```$/, "")
             .trim();
-        const lines = String(source || "").trim().split(/\r?\n/);
+        let lines = clean.split(/\r?\n/);
+
         if (!lines.length || !/^\s*(?:graph|flowchart)\s+(?:TD|TB|BT|LR|RL)\b/i.test(lines[0])) {
             lines.unshift("graph TD");
         }
-        return lines.map((line, index) => {
-            if (index === 0 || /^\s*(?:classDef|class|style|linkStyle|subgraph|end)\b/.test(line)) return line;
-            // Repair the common model output: emoji[label] -->[action] emoji[target].
-            const legacy = line.match(/^\s*[^\[]*\[([^\]]+)\]\s*-->\s*\[([^\]]+)\]\s*[^\[]*\[([^\]]+)\]\s*$/u);
-            if (legacy) {
-                return `    source_node["${quoteLabel(legacy[1])}"] --> action_node["${quoteLabel(legacy[2])}"] --> target_node["${quoteLabel(legacy[3])}"]`;
-            }
-            return line;
+
+        return lines.map((line, idx) => {
+            if (idx === 0) return line.trim();
+            if (/^\s*(?:classDef|class|style|linkStyle|subgraph|end)\b/.test(line)) return line;
+
+            let l = line;
+            // Fix legacy arrow action: -->[action] into -->|"action"|
+            l = l.replace(/-->\s*\[([^\]]+)\]/g, (m, action) => {
+                const cleanAction = action.replace(/"/g, "'").trim();
+                return `-->|"${cleanAction}"|`;
+            });
+
+            // Wrap edge labels with quotes if they contain parens, colons, or spaces: -->|label| -> -->|"label"|
+            l = l.replace(/-->\s*\|([^"|\n\r]+)\|/g, (m, label) => {
+                const cleanLabel = label.replace(/"/g, "'").trim();
+                return `-->|"${cleanLabel}"|`;
+            });
+
+            // Fix node IDs starting with numbers or containing dots/slashes/colons before [ or (
+            // e.g. 10.10.40.10[...] -> node_10_10_40_10[...]
+            l = l.replace(/^(\s*)([0-9a-zA-Z_.:\/-]+)(\s*[\[\(\{])/g, (m, indent, id, bracket) => {
+                const safeId = id.replace(/[^a-zA-Z0-9_]/g, "_");
+                const finalId = /^[0-9]/.test(safeId) ? "node_" + safeId : safeId;
+                return indent + finalId + bracket;
+            });
+
+            // Also fix node IDs on right side of arrows: --> 10.10.40.10[...]
+            l = l.replace(/(-->\s*|-->\|[^|]+\|\s*)([0-9a-zA-Z_.:\/-]+)(\s*[\[\(\{])/g, (m, arrow, id, bracket) => {
+                const safeId = id.replace(/[^a-zA-Z0-9_]/g, "_");
+                const finalId = /^[0-9]/.test(safeId) ? "node_" + safeId : safeId;
+                return arrow + finalId + bracket;
+            });
+
+            // Quote unquoted square brackets: id[Some text] -> id["Some text"]
+            l = l.replace(/([a-zA-Z0-9_]+)\[(?!")([^\]]+)\]/g, (m, id, label) => {
+                const cleanLabel = label.replace(/"/g, "'").replace(/[\r\n]+/g, " ").trim();
+                return `${id}["${cleanLabel}"]`;
+            });
+
+            // Quote unquoted parentheses: id(Some text) -> id("Some text")
+            l = l.replace(/([a-zA-Z0-9_]+)\((?!")([^\)]+)\)/g, (m, id, label) => {
+                const cleanLabel = label.replace(/"/g, "'").replace(/[\r\n]+/g, " ").trim();
+                return `${id}["${cleanLabel}"]`;
+            });
+
+            return l;
         }).join("\n");
     };
 
@@ -376,8 +450,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!window.mermaid || typeof window.mermaid.parse !== "function") return false;
         try {
             await window.mermaid.parse(source, { suppressErrors: true });
+            window.cleanupMermaidJunk();
             return true;
         } catch (_) {
+            window.cleanupMermaidJunk();
             return false;
         }
     };
@@ -1180,6 +1256,7 @@ document.addEventListener("DOMContentLoaded", () => {
         root.querySelectorAll("pre code.language-mermaid").forEach((codeBlock, idx) => {
             const mermaidContent = window.normalizeMermaidDefinition(codeBlock.textContent);
             const containerId = `mermaid_diag_${Date.now()}_${idx}`;
+            const renderId = `${containerId}_svg`;
             const mermaidDiv = document.createElement("div");
             mermaidDiv.className = "mermaid-container";
             mermaidDiv.id = containerId;
@@ -1191,10 +1268,11 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             window.mermaidIsValid(mermaidContent).then(valid => {
                 if (!valid) throw new Error("Invalid Mermaid syntax");
-                return mermaid.render(containerId + "_svg", mermaidContent);
+                return mermaid.render(renderId, mermaidContent);
             }).then(renderResult => {
-                    mermaidDiv.innerHTML = renderResult.svg;
+                mermaidDiv.innerHTML = renderResult.svg;
             }).catch(() => {
+                window.cleanupMermaidJunk(renderId);
                 mermaidDiv.innerHTML = `<pre class="mermaid">${escapeHtml(mermaidContent)}</pre>`;
             });
         });
@@ -2016,13 +2094,14 @@ window.applyXmlRule = async function() {
                 if (!valid) throw new Error("Invalid Mermaid syntax");
                 return window.mermaid.render(renderId, mermaidCode);
             }).then(res => {
-                        canvas.innerHTML = `<div class="attack-graph-stage">${res.svg}</div>`;
-                        canvas._applyGraphTransform?.();
+                canvas.innerHTML = `<div class="attack-graph-stage">${res.svg}</div>`;
+                canvas._applyGraphTransform?.();
             }).catch(err => {
-                            canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div></div>`;
+                window.cleanupMermaidJunk(renderId);
+                canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre><div class="danger-text" style="font-size:11px; margin-top:8px;">Lỗi render Mermaid: ${String(err.message || err).replace(/</g, "&lt;")}</div></div>`;
             });
         } else {
-                    canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
+            canvas.innerHTML = `<div class="attack-graph-stage"><pre class="mermaid" style="text-align:left;">${mermaidCode.replace(/</g, "&lt;")}</pre></div>`;
         }
     }
 };

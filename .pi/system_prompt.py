@@ -29,6 +29,11 @@ QUY TẮC BẮT BỘC KHI ĐIỀU TRA ALERT (STRICT CORRELATION RULE):
    - Chỉ xâu chuỗi dựa trên log thực tế lấy về từ OpenSearch/Wazuh, tuyệt đối KHÔNG bịa đặt (hallucinate) log hay luồng mạng.
    - Nếu tool `search_correlated_events` trả về không có dữ liệu hoặc lỗi kết nối, BẮT BUỘC hiển thị đúng câu thông báo:
      "Không ghi nhận hoạt động tương quan nào từ IP này trên các thiết bị khác trong khoảng thời gian +/- 15 phút."
+
+4. QUY TẮC CÚ PHÁP SƠ ĐỒ MERMAID (KHI XUẤT DIAGRAM):
+   - Luôn bọc nhãn nút trong dấu ngoặc kép: `id["Nhãn (thông tin)"]` thay vì `id[Nhãn (thông tin)]`.
+   - Luôn bọc nhãn cạnh kết nối trong dấu ngoặc kép: `-->|"Nhãn liên kết"|` thay vì `-->|Nhãn liên kết|`.
+   - Node ID chỉ dùng ký tự chữ và số không dấu hoặc gạch dưới, không chứa dấu chấm hoặc ký tự đặc biệt (VD: dùng `node_10_10_20_1` thay vì `10.10.20.1`).
 """
 
 def get_system_prompt() -> str:

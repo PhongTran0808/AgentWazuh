@@ -1080,18 +1080,26 @@ textarea.input-setting-control,
 .mermaid-container svg { max-width: 100%; height: auto; }
 pre.mermaid { overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-2); }
 
-/* Prevent Mermaid from injecting default syntax error bomb SVGs into body */
+/* Prevent Mermaid temporary rendering staging containers from flickering or overflowing.
+   CRITICAL: Do NOT use display:none or visibility:hidden here, otherwise getBBox() /
+   getBoundingClientRect() will return 0x0 during text measurement, causing all nodes
+   to collapse into 15x15px dummy boxes that blow up into giant red squares! */
 body > [id^="dmermaid"],
 body > [id^="dattack_graph"],
-body > [id^="dtest"],
-body > svg.error-icon,
-body > div[id^="d"]:has(svg text) {
-  display: none !important;
-  visibility: hidden !important;
+body > [id^="dtest"] {
+  position: fixed !important;
+  top: -99999px !important;
+  left: -99999px !important;
+  width: auto !important;
+  height: auto !important;
+  opacity: 0 !important;
   pointer-events: none !important;
-  height: 0 !important;
-  width: 0 !important;
-  overflow: hidden !important;
+  z-index: -9999 !important;
+}
+
+/* Suppress only genuine Mermaid error icons / bombs injected into body */
+body > svg.error-icon {
+  display: none !important;
 }
 
 .msg-text { overflow-wrap: anywhere; }
@@ -1199,6 +1207,8 @@ body > div[id^="d"]:has(svg text) {
 .chat-bubble.system { width: min(100%, 980px); }
 .chat-bubble.user { width: min(82%, 760px); }
 .chat-bubble.system .bubble-content {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   padding: var(--space-sm) var(--space-md);
   background: linear-gradient(145deg, var(--paper-3), oklch(0.235 0.008 260));
@@ -1270,20 +1280,34 @@ body > div[id^="d"]:has(svg text) {
   color: var(--ink-2);
 }
 
-/* Markdown tables are evidence blocks: align data to the top, emphasize the
-   header, and allow wide forensic fields to scroll without stretching chat. */
-.msg-text table {
-  display: block;
+/* Markdown tables are evidence blocks: keep true table layout so columns fill
+   100% of the available width (no blank right gap when resizing the dock), and
+   scroll horizontally inside .msg-table-wrap when wider than the viewport. */
+.msg-table-wrap {
   width: 100%;
-  min-width: 620px;
+  max-width: 100%;
   margin: var(--space-sm) 0 var(--space-md);
   overflow-x: auto;
   border: 1px solid var(--rule);
   border-radius: var(--radius-sm);
+  background: var(--paper-sunk);
+}
+.msg-text table {
+  display: table;
+  width: 100%;
+  margin: var(--space-sm) 0 var(--space-md);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
   border-spacing: 0;
+  border-collapse: separate;
   background: var(--paper-sunk);
   font-size: var(--text-xs);
   line-height: 1.55;
+}
+.msg-text .msg-table-wrap table {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
 }
 .msg-text thead th {
   position: sticky;
@@ -1299,7 +1323,7 @@ body > div[id^="d"]:has(svg text) {
 }
 .msg-text th,
 .msg-text td {
-  min-width: 92px;
+  min-width: 0;
   padding: var(--space-2xs) var(--space-xs);
   border-right: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
@@ -1430,7 +1454,6 @@ body > div[id^="d"]:has(svg text) {
   .chat-bubble.system .bubble-content { padding: var(--space-xs); }
   .msg-text h1 { font-size: var(--text-lg); }
   .msg-text h2 { font-size: var(--text-md); }
-  .msg-text table { min-width: 560px; }
 }
 
 .status-pill.pill-secure { background: var(--ok-soft);   color: var(--ok);   border-color: transparent; }

@@ -245,6 +245,17 @@ document.addEventListener("DOMContentLoaded", () => {
         return id;
     }
 
+    function wrapTables(root) {
+        if (!root) return;
+        root.querySelectorAll("table").forEach((tbl) => {
+            if (tbl.closest(".msg-table-wrap")) return;
+            const wrap = document.createElement("div");
+            wrap.className = "msg-table-wrap";
+            tbl.parentNode.insertBefore(wrap, tbl);
+            wrap.appendChild(tbl);
+        });
+    }
+
     function updateChatBot(id, markdownText) {
         const div = document.getElementById(id);
         if (!div) return;
@@ -253,6 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const text = String(markdownText ?? "");
         const parsedHtml = window.marked ? marked.parse(text) : escapeHtml(text).replace(/\n/g, "<br>");
         content.innerHTML = parsedHtml;
+        wrapTables(content);
         if (chatStream) chatStream.scrollTop = chatStream.scrollHeight;
         persistChatMessage("ai", text);
     }
@@ -329,6 +341,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 div.className = `chat-bubble ${msg.role === "user" ? "user" : "system"}`;
                 const content = msg.role === "user" ? escapeHtml(msg.content) : (window.marked ? marked.parse(msg.content || "") : escapeHtml(msg.content || "").replace(/\n/g, "<br>"));
                 div.innerHTML = `<i class="fa-solid ${msg.role === "user" ? "fa-user" : "fa-robot"} avatar"></i><div class="bubble-content"><strong>${msg.role === "user" ? "Analyst" : "AgentWazuh AI"}:</strong><div class="msg-text">${content}</div></div>`;
+                wrapTables(div.querySelector(".msg-text"));
                 chatStream.appendChild(div);
             });
             chatStream.scrollTop = chatStream.scrollHeight;

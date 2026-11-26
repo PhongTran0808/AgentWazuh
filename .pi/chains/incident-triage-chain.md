@@ -9,11 +9,15 @@ Thực hiện thu thập, tương quan sự kiện và tạo báo cáo **SOC Inc
 - **Tên sự cố**: [Mô tả ngắn gọn]
 - **Mức độ nguy hiểm**: Level X ([Critical / High / Medium / Low]) | **Điểm rủi ro (Risk Score)**: X/100
 - **MITRE ATT&CK**: [ID - Tên kỹ thuật] ([Tactic])
-- **Đối tượng liên quan**: `IP Nguồn (Attacker)` ➔ `Thiết bị / Tài khoản Đích`
+- **Đối tượng liên quan**: `IP Nguồn / Endpoint` ➔ `Thiết bị / File / Đích`
+- **IOC & Threat Intel (nếu có)**: `File Path` | `MD5 / SHA1` | `VirusTotal: X/Y` | `[Link VirusTotal](permalink)` | `Download URL (nếu có)`
 
 ### Phần 2: Chuỗi Sự kiện Thực tế (Attack Timeline & Entity Correlation)
-- **Luồng tấn công**: Sơ đồ mũi tên ngắn gọn (hoặc khối `mermaid` flowchart):
-  `🌐 [IP Nguồn] ➔ 🖥️ [Target Host: User]`
+- **Luồng tấn công**: Khối `mermaid` dùng **ID node thuần ASCII** (`EXT`, `WIN01`, `ZIP`, `TXT`, `VT`), không bao giờ đặt emoji làm ID node, luôn bọc nhãn trong `"..."`:
+  ```mermaid
+  graph TD
+      EXT["🌐 Nguồn tải / IP"] -->|"Tải tệp"| WIN01["🖥️ WIN-01: User"]
+  ```
 - **Bảng tổng hợp sự kiện log liên quan**:
   | Timestamp | Rule ID | Level | Nội dung tóm tắt | User / Port |
   |---|---|---|---|---|

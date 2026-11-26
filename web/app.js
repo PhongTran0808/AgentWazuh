@@ -375,7 +375,14 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             if (targetId) {
                 document.getElementById(`d${targetId}`)?.remove();
+                document.getElementById(targetId)?.remove();
             }
+            document.querySelectorAll('body > [id^="dattack_graph"], body > [id^="dmermaid"]').forEach(el => {
+                el.remove();
+            });
+            document.querySelectorAll('body > svg.error-icon').forEach(el => {
+                el.remove();
+            });
             document.querySelectorAll('body > [id^="d"]').forEach(el => {
                 const text = el.textContent || "";
                 if (text.includes("Syntax error in text") || text.includes("mermaid version")) {
@@ -398,6 +405,17 @@ document.addEventListener("DOMContentLoaded", () => {
             lines.unshift("graph TD");
         }
 
+        const invalidIdMap = new Map();
+        let nextInvalidIdx = 1;
+        const mapInvalidId = (rawId) => {
+            const key = String(rawId || "").trim();
+            if (!key) return "node_auto";
+            if (!invalidIdMap.has(key)) {
+                invalidIdMap.set(key, `n_${nextInvalidIdx++}`);
+            }
+            return invalidIdMap.get(key);
+        };
+
         return lines.map((line, idx) => {
             if (idx === 0) return line.trim();
             if (/^\s*(?:classDef|class|style|linkStyle|subgraph|end)\b/.test(line)) return line;
@@ -414,6 +432,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 const cleanLabel = label.replace(/"/g, "'").trim();
                 return `-->|"${cleanLabel}"|`;
             });
+
+            // Sanitize non-ASCII / emoji node IDs (e.g. 🌐[Gofile.io / Internet] -> n_1["🌐 Gofile.io / Internet"])
+            l = l.replace(/^(\s*)([^\s\[\(\{\-\|>]+)(\s*[\[\(\{])/gu, (m, indent, id, bracket) => {
+                if (/^[a-zA-Z0-9_.:\/-]+$/.test(id)) return m;
+                const mapped = mapInvalidId(id);
+                return `${indent}${mapped}${bracket}`;
+            });
+            l = l.replace(/(-->\s*|-.->\s*|-->\|[^|]+\|\s*|-\.->\|[^|]+\|\s*)([^\s\[\(\{\-\|>]+)(\s*[\[\(\{])/gu, (m, arrow, id, bracket) => {
+                if (/^[a-zA-Z0-9_.:\/-]+$/.test(id)) return m;
+                const mapped = mapInvalidId(id);
+                return `${arrow}${mapped}${bracket}`;
+            });
+
+            // Replace standalone non-ASCII node references on arrow edges
+            for (const [rawId, asciiId] of invalidIdMap.entries()) {
+                const esc = rawId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                l = l.replace(new RegExp(`(^|\\s)${esc}(\\s*(?:-->|-.->|$))`, "gu"), `$1${asciiId}$2`);
+                l = l.replace(new RegExp(`(-->\\s*|-.->\\s*|\\|\\s*)${esc}(\\s*$)`, "gu"), `$1${asciiId}$2`);
+            }
 
             // Fix node IDs starting with numbers or containing dots/slashes/colons before [ or (
             // e.g. 10.10.40.10[...] -> node_10_10_40_10[...]
@@ -1253,6 +1290,14 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderAssistantArtifacts(root) {
         if (!root) return;
 
+        root.querySelectorAll("table").forEach((tbl) => {
+            if (tbl.closest(".msg-table-wrap")) return;
+            const wrap = document.createElement("div");
+            wrap.className = "msg-table-wrap";
+            tbl.parentNode.insertBefore(wrap, tbl);
+            wrap.appendChild(tbl);
+        });
+
         root.querySelectorAll("pre code.language-mermaid").forEach((codeBlock, idx) => {
             const mermaidContent = window.normalizeMermaidDefinition(codeBlock.textContent);
             const containerId = `mermaid_diag_${Date.now()}_${idx}`;
@@ -1270,6 +1315,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!valid) throw new Error("Invalid Mermaid syntax");
                 return mermaid.render(renderId, mermaidContent);
             }).then(renderResult => {
+                window.cleanupMermaidJunk(renderId);
                 mermaidDiv.innerHTML = renderResult.svg;
             }).catch(() => {
                 window.cleanupMermaidJunk(renderId);
@@ -2074,6 +2120,13 @@ window.applyXmlRule = async function() {
                 canvas.dataset.controlsBound = "true";
             }
 
+    if (canvas && canvas._graphState) {
+        canvas._graphState.scale = 1;
+        canvas._graphState.x = 0;
+        canvas._graphState.y = 0;
+        canvas._applyGraphTransform?.();
+    }
+
     if (copyBtn) {
         copyBtn.onclick = () => {
             navigator.clipboard.writeText(mermaidCode);
@@ -2094,6 +2147,7 @@ window.applyXmlRule = async function() {
                 if (!valid) throw new Error("Invalid Mermaid syntax");
                 return window.mermaid.render(renderId, mermaidCode);
             }).then(res => {
+                window.cleanupMermaidJunk(renderId);
                 canvas.innerHTML = `<div class="attack-graph-stage">${res.svg}</div>`;
                 canvas._applyGraphTransform?.();
             }).catch(err => {

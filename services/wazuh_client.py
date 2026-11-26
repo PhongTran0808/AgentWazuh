@@ -691,6 +691,7 @@ class WazuhClient:
                         "rule": h.get("_source", {}).get("rule", {}),
                         "agent": h.get("_source", {}).get("agent", {}),
                         "data": h.get("_source", {}).get("data", {}),
+                        "syscheck": h.get("_source", {}).get("syscheck", {}),
                         "location": h.get("_source", {}).get("location", ""),
                         "full_log": h.get("_source", {}).get("full_log", "")
                     }
@@ -719,7 +720,10 @@ class WazuhClient:
             "_source": [
                 "timestamp", "id",
                 "rule.id", "rule.level", "rule.description", "rule.groups",
+                "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
                 "agent.id", "agent.name", "agent.ip",
+                "syscheck.path", "syscheck.event", "syscheck.md5_after",
+                "syscheck.sha1_after", "syscheck.sha256_after", "syscheck.uname_after",
                 "data", "location", "full_log"
             ]
         }
@@ -735,7 +739,10 @@ class WazuhClient:
             "_source": [
                 "timestamp", "id",
                 "rule.id", "rule.level", "rule.description", "rule.groups",
+                "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
                 "agent.id", "agent.name", "agent.ip",
+                "syscheck.path", "syscheck.event", "syscheck.md5_after",
+                "syscheck.sha1_after", "syscheck.sha256_after", "syscheck.uname_after",
                 "data", "location", "full_log",
             ],
         })
@@ -754,6 +761,8 @@ class WazuhClient:
                 "rule.id", "rule.level", "rule.description", "rule.groups",
                 "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
                 "agent.id", "agent.name", "agent.ip",
+                "syscheck.path", "syscheck.event", "syscheck.md5_after",
+                "syscheck.sha1_after", "syscheck.sha256_after", "syscheck.uname_after",
                 "data", "location", "full_log",
             ],
         }, timeout=10)
@@ -787,11 +796,16 @@ class WazuhClient:
                 "rule.id", "rule.level", "rule.description", "rule.groups",
                 "rule.mitre.id", "rule.mitre.tactic", "rule.mitre.technique",
                 "agent.id", "agent.name", "agent.ip",
+                "syscheck.path", "syscheck.event", "syscheck.md5_after",
+                "syscheck.sha1_after", "syscheck.sha256_after", "syscheck.uname_after",
                 "data.srcip", "data.dstip", "data.src_ip", "data.dst_ip",
                 "data.source.ip", "data.destination.ip",
                 "data.srcport", "data.dstport", "data.srcuser", "data.dstuser",
                 "data.user", "data.username", "data.hostname", "data.host", "data.devname",
-                "data.process", "data.process.name", "data.win.eventdata.targetUserName",
+                "data.action", "data.duration", "data.sentbyte", "data.rcvdbyte",
+                "data.logid", "data.service", "data.policyname", "data.url", "data.qname",
+                "data.virustotal", "data.vulnerability",
+                "data.process", "data.process.name", "data.win.eventdata",
                 "location", "full_log"
             ]
         }

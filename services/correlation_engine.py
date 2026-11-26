@@ -5,8 +5,11 @@ import math
 import re
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
+
+LOCAL_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 try:
     import networkx as nx
@@ -71,10 +74,255 @@ def _first_value(data: Dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _extract_virustotal_info(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract normalized VirusTotal metadata from data.virustotal or JSON full_log."""
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    vt = data.get("virustotal")
+    if not isinstance(vt, dict):
+        vt = {}
+        raw_log = str(alert.get("full_log") or "").strip()
+        if raw_log.startswith("{") and "virustotal" in raw_log:
+            try:
+                parsed = json.loads(raw_log)
+                if isinstance(parsed, dict) and isinstance(parsed.get("virustotal"), dict):
+                    vt = parsed["virustotal"]
+            except Exception:
+                vt = {}
+    if not vt:
+        return {}
+    source = vt.get("source") if isinstance(vt.get("source"), dict) else {}
+    return {
+        "file": _clean_scalar(source.get("file")),
+        "md5": _clean_scalar(source.get("md5")).lower(),
+        "sha1": _clean_scalar(vt.get("sha1") or source.get("sha1")).lower(),
+        "positives": _safe_int(vt.get("positives"), 0),
+        "total": _safe_int(vt.get("total"), 0),
+        "permalink": _clean_scalar(vt.get("permalink")),
+        "scan_date": _clean_scalar(vt.get("scan_date")),
+        "found": _safe_int(vt.get("found"), 0),
+        "malicious": _safe_int(vt.get("malicious"), 0),
+    }
+
+
+def _extract_file_path(alert: Dict[str, Any]) -> str:
+    """Extract normalized file path across syscheck, VirusTotal, Sysmon, and FIM full_log."""
+    syscheck = alert.get("syscheck") if isinstance(alert.get("syscheck"), dict) else {}
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    vt_info = _extract_virustotal_info(alert)
+
+    for candidate in (
+        _clean_scalar(syscheck.get("path")),
+        vt_info.get("file", ""),
+        _first_value(data, "win.eventdata.targetFilename", "win.eventdata.TargetFilename", "path", "file"),
+    ):
+        if candidate:
+            return candidate
+
+    full_log = str(alert.get("full_log") or "")
+    m = re.search(r"File\s+'([^']+)'", full_log)
+    if m:
+        return m.group(1).strip()
+
+    desc = str(rule.get("description") or "")
+    m_desc = re.search(r"monitored directory:\s*(.+)$", desc, flags=re.IGNORECASE)
+    if m_desc:
+        return m_desc.group(1).strip()
+    return ""
+
+
+def _file_stem_and_basename(path: str) -> Tuple[str, str]:
+    """Return (basename, stem) normalizing Windows and POSIX path separators."""
+    norm = _clean_scalar(path).replace("\\", "/")
+    if not norm:
+        return "", ""
+    basename = norm.rsplit("/", 1)[-1].strip()
+    if "." in basename:
+        stem = basename.rsplit(".", 1)[0]
+    else:
+        stem = basename
+    return basename, stem
+
+
+def _short_display_path(path: str) -> str:
+    """Return compact parent/basename path suitable for UI and Mermaid labels."""
+    norm = _clean_scalar(path).replace("\\", "/")
+    if not norm:
+        return ""
+    parts = [p for p in norm.split("/") if p]
+    if len(parts) >= 2:
+        return "/".join(parts[-2:])
+    return parts[-1] if parts else norm
+
+
+def _extract_cve(alert: Dict[str, Any]) -> str:
+    """Extract CVE identifier from vulnerability payload, rule description, or full_log."""
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    cve = _first_value(data, "vulnerability.cve", "cve")
+    if cve:
+        return cve.upper()
+    rule_desc = str((alert.get("rule") or {}).get("description") or "")
+    full_log = str(alert.get("full_log") or "")
+    for text in (rule_desc, full_log):
+        m = re.search(r"\b(CVE-\d{4}-\d{4,7})\b", text, flags=re.IGNORECASE)
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def _extract_fortigate_meta(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract FortiGate traffic/UTM metadata from alert.data or kv pairs in full_log."""
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    full_log = str(alert.get("full_log") or "")
+
+    def _kv(key: str) -> str:
+        val = _first_value(data, key)
+        if val:
+            return val
+        if not full_log:
+            return ""
+        m = re.search(rf'\b{re.escape(key)}=(?:"([^"]*)"|([^\s"]+))', full_log)
+        if m:
+            return (m.group(1) if m.group(1) is not None else m.group(2) or "").strip()
+        return ""
+
+    return {
+        "devname": _kv("devname"),
+        "logid": _kv("logid"),
+        "action": _kv("action").lower(),
+        "duration": _safe_int(_kv("duration"), 0),
+        "sentbyte": _safe_int(_kv("sentbyte"), 0),
+        "rcvdbyte": _safe_int(_kv("rcvdbyte"), 0),
+        "service": _kv("service"),
+        "policyname": _kv("policyname"),
+        "policyid": _kv("policyid"),
+        "qname": _kv("qname"),
+        "hostname": _kv("hostname"),
+        "url": _kv("url"),
+        "srcip": _valid_ip(_first_value(data, "srcip", "src_ip", "source.ip") or _kv("srcip")),
+        "dstip": _valid_ip(_first_value(data, "dstip", "dst_ip", "destination.ip") or _kv("dstip")),
+        "dstport": _first_value(data, "dstport", "dst_port", "destination.port") or _kv("dstport"),
+    }
+
+
+def _is_vulnerability_posture_alert(alert: Dict[str, Any]) -> bool:
+    """Return True for static vulnerability-detector posture findings."""
+    loc = _clean_scalar(alert.get("location")).lower()
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    groups = {str(g).lower() for g in (rule.get("groups") or [])}
+    rule_id = _clean_scalar(rule.get("id"))
+    return loc == "vulnerability-detector" or "vulnerability-detector" in groups or rule_id in {"23503", "23504", "23505", "23506"}
+
+
+def _is_browser_temp_file(path: str) -> bool:
+    """Return True for transient browser download artifacts."""
+    basename, _ = _file_stem_and_basename(path)
+    lower = basename.lower()
+    return lower.endswith((".tmp", ".crdownload", ".part", ".partial"))
+
+
+def _is_benign_fim_artifact(alert: Dict[str, Any]) -> bool:
+    """Return True for noisy FIM housekeeping (tmp file deletion or mtime/archive-only change)."""
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    rule_id = _clean_scalar(rule.get("id"))
+    file_path = _extract_file_path(alert)
+    if rule_id in {"550", "553"} and _is_browser_temp_file(file_path):
+        return True
+    if rule_id == "550":
+        full_log = str(alert.get("full_log") or "")
+        if "Changed attributes: mtime,attributes" in full_log and "checksum" not in full_log.lower():
+            return True
+    return False
+
+
+def _device_display_name(alert: Dict[str, Any]) -> str:
+    """Resolve clean device name; prefer FortiGate devname when relayed through manager (000)."""
+    agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    agent_id = _clean_scalar(agent.get("id"))
+    agent_name = _clean_scalar(agent.get("name"))
+    fg_meta = _extract_fortigate_meta(alert)
+    devname = fg_meta.get("devname", "")
+    if (agent_id == "000" or agent_name.lower() in {"", "wazuh-server", "localhost"}) and devname:
+        return devname
+    if devname and agent_name and "fortigate" in {str(g).lower() for g in ((alert.get("rule") or {}).get("groups") or [])}:
+        if agent_id == "000" or not agent_ip_present(agent):
+            return devname
+    return agent_name or devname
+
+
+def agent_ip_present(agent: Dict[str, Any]) -> bool:
+    return bool(_valid_ip(agent.get("ip")))
+
+
+def _effective_event_epoch(alert: Dict[str, Any]) -> float:
+    """Return effective start epoch (adjusting FortiGate session-close logs by duration)."""
+    ts = parse_wazuh_time(alert.get("first_seen") or alert.get("timestamp", ""))
+    if ts <= 0:
+        return 0.0
+    fg_meta = _extract_fortigate_meta(alert)
+    if fg_meta.get("logid") == "0000000020" and 0 < fg_meta.get("duration", 0) <= 86400:
+        return max(0.0, ts - fg_meta["duration"])
+    return ts
+
+
+def _is_private_ip(ip_str: str) -> bool:
+    try:
+        return ipaddress.ip_address(_clean_scalar(ip_str)).is_private
+    except ValueError:
+        return False
+
+
+def _is_low_level_fg_noise(alert: Dict[str, Any]) -> bool:
+    """Identify low-level FortiGate implicit deny or generic public DNS background traffic."""
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    level = _safe_int(rule.get("level"), 0)
+    groups = {str(g).lower() for g in (rule.get("groups") or [])}
+    if level > 3 or "fortigate" not in groups:
+        return False
+    fg = _extract_fortigate_meta(alert)
+    if fg.get("action") == "deny":
+        return True
+    if fg.get("dstport") == "53" and fg.get("dstip") in {"1.1.1.1", "8.8.8.8", "8.8.4.4", "9.9.9.9"} and not fg.get("qname"):
+        return True
+    return False
+
+
+def _extract_sysmon_meta(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract Sysmon Event ID, HostUrl (MOTW), QueryName (DNS), Image, and TargetFilename."""
+    data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    groups = {str(g).lower() for g in (rule.get("groups") or [])}
+    full_log = str(alert.get("full_log") or "")
+    event_id = _first_value(data, "win.system.eventID", "win.system.eventid")
+    if not event_id:
+        for g in groups:
+            m = re.match(r"sysmon_event_?(\d+)$", g)
+            if m:
+                event_id = m.group(1)
+                break
+    host_url = _first_value(data, "win.eventdata.contents", "url")
+    if not host_url:
+        m_url = re.search(r"HostUrl\s*=\s*(https?://[^\s\r\n\"'<>]+)", full_log, flags=re.IGNORECASE)
+        if m_url:
+            host_url = m_url.group(1).strip()
+    qname = _first_value(data, "win.eventdata.queryName", "qname")
+    target_file = _first_value(data, "win.eventdata.targetFilename", "win.eventdata.TargetFilename")
+    image = _first_value(data, "win.eventdata.image", "process.name", "process")
+    return {
+        "event_id": event_id,
+        "host_url": host_url,
+        "qname": qname,
+        "target_file": target_file,
+        "image": image,
+        "is_sysmon": any(g.startswith("sysmon") for g in groups) or bool(event_id and "sysmon" in str(alert.get("location") or "").lower()),
+    }
+
+
 def extract_entities(alert: Dict[str, Any]) -> Set[str]:
     """Return normalized, typed entities that can support a correlation edge."""
     data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
     agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    syscheck = alert.get("syscheck") if isinstance(alert.get("syscheck"), dict) else {}
     entities: Set[str] = set()
 
     for key in ("srcip", "src_ip", "source.ip"):
@@ -86,12 +334,20 @@ def extract_entities(alert: Dict[str, Any]) -> Set[str]:
         if value:
             entities.add(f"ip:{value}")
 
+    fg_meta = _extract_fortigate_meta(alert)
+    if fg_meta["srcip"]:
+        entities.add(f"ip:{fg_meta['srcip']}")
+    if fg_meta["dstip"]:
+        entities.add(f"ip:{fg_meta['dstip']}")
+
     agent_id = _clean_scalar(agent.get("id"))
     if agent_id and agent_id != "000":
         entities.add(f"agent-id:{agent_id.lower()}")
     agent_name = _clean_scalar(agent.get("name"))
+    devname = fg_meta.get("devname") or _first_value(data, "hostname", "host", "devname")
     if agent_name and agent_name.lower() not in {"wazuh-server", "localhost"}:
-        entities.add(f"agent:{agent_name.lower()}")
+        if not (agent_id == "000" and devname):
+            entities.add(f"agent:{agent_name.lower()}")
     agent_ip = _valid_ip(agent.get("ip"))
     if agent_ip:
         entities.add(f"ip:{agent_ip}")
@@ -103,9 +359,33 @@ def extract_entities(alert: Dict[str, Any]) -> Set[str]:
         if value and value.lower() not in {"-", "unknown", "system", "root"}:
             entities.add(f"user:{value.lower()}")
 
-    hostname = _first_value(data, "hostname", "host", "devname")
+    hostname = _first_value(data, "hostname", "host", "devname") or devname
     if hostname:
         entities.add(f"host:{hostname.lower()}")
+
+    file_path = _extract_file_path(alert)
+    if file_path and not _is_browser_temp_file(file_path):
+        basename, stem = _file_stem_and_basename(file_path)
+        if basename:
+            entities.add(f"file:{basename.lower()}")
+        if stem and len(stem) >= 4:
+            entities.add(f"stem:{stem.lower()}")
+
+    vt_info = _extract_virustotal_info(alert)
+    for h_val in (
+        vt_info.get("md5", ""),
+        vt_info.get("sha1", ""),
+        _clean_scalar(syscheck.get("md5_after")).lower(),
+        _clean_scalar(syscheck.get("sha1_after")).lower(),
+    ):
+        if h_val:
+            entities.add(f"hash:{h_val}")
+
+    sysmon_meta = _extract_sysmon_meta(alert)
+    for dom in (fg_meta.get("qname"), sysmon_meta.get("qname")):
+        if dom:
+            entities.add(f"domain:{dom.lower()}")
+
     return entities
 
 
@@ -141,22 +421,30 @@ def get_entity(alert: Dict[str, Any]) -> str:
 
 
 def _dedup_fingerprint(alert: Dict[str, Any]) -> str:
-    """Fingerprint one event without collapsing the same rule across different assets."""
+    """Fingerprint one event without collapsing distinct files, CVEs, or assets."""
     rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
     data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
     agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    vt_info = _extract_virustotal_info(alert)
+    fg_meta = _extract_fortigate_meta(alert)
+    sysmon_meta = _extract_sysmon_meta(alert)
     fields = {
         "rule": _clean_scalar(rule.get("id")),
         "agent_id": _clean_scalar(agent.get("id")),
         "agent_name": _clean_scalar(agent.get("name")).lower(),
         "location": _clean_scalar(alert.get("location")).lower(),
-        "src": _first_value(data, "srcip", "src_ip", "source.ip"),
-        "dst": _first_value(data, "dstip", "dst_ip", "destination.ip"),
+        "src": _first_value(data, "srcip", "src_ip", "source.ip") or fg_meta.get("srcip", ""),
+        "dst": _first_value(data, "dstip", "dst_ip", "destination.ip") or fg_meta.get("dstip", ""),
         "src_port": _first_value(data, "srcport", "src_port", "source.port"),
-        "dst_port": _first_value(data, "dstport", "dst_port", "destination.port"),
+        "dst_port": _first_value(data, "dstport", "dst_port", "destination.port") or fg_meta.get("dstport", ""),
         "user": _first_value(data, "srcuser", "dstuser", "user", "username", "win.eventdata.targetUserName").lower(),
-        "process": _first_value(data, "process", "process.name", "win.eventdata.image").lower(),
-        "device": _first_value(data, "devname", "hostname", "host").lower(),
+        "process": (_first_value(data, "process", "process.name", "win.eventdata.image") or sysmon_meta.get("image", "")).lower(),
+        "device": (_first_value(data, "devname", "hostname", "host") or fg_meta.get("devname", "")).lower(),
+        "file_path": _extract_file_path(alert).lower(),
+        "cve": _extract_cve(alert).upper(),
+        "vt_sha1": vt_info.get("sha1", "").lower(),
+        "domain": (fg_meta.get("qname") or fg_meta.get("hostname") or sysmon_meta.get("qname") or "").lower(),
+        "host_url": sysmon_meta.get("host_url", "").lower(),
         # Preserve event-specific fields (file path, command, registry key, URL,
         # Windows event data, etc.).  Missing these fields causes different
         # security events on one agent to collapse merely because Rule ID matches.
@@ -173,11 +461,16 @@ def extract_alert_entities(alert: Dict[str, Any]) -> Dict[str, Any]:
     - Tên/ID Agent (agents)
     - Tài khoản người dùng (users)
     - Tên thiết bị mạng (devnames)
+    - File lineage (files, stems, hashes, domains)
     - Rule ID, Rule Level, Rule Description, Timestamp
     """
     data = alert.get("data", {})
     agent = alert.get("agent", {})
     rule = alert.get("rule", {})
+    syscheck = alert.get("syscheck", {}) if isinstance(alert.get("syscheck"), dict) else {}
+    fg_meta = _extract_fortigate_meta(alert)
+    vt_info = _extract_virustotal_info(alert)
+    sysmon_meta = _extract_sysmon_meta(alert)
 
     exclude_ips = {"0.0.0.0", "127.0.0.1", "::1", "255.255.255.255", ""}
 
@@ -186,18 +479,24 @@ def extract_alert_entities(alert: Dict[str, Any]) -> Dict[str, Any]:
         v = data.get(k)
         if v and str(v).strip() not in exclude_ips:
             src_ips.add(str(v).strip())
+    if fg_meta["srcip"] and fg_meta["srcip"] not in exclude_ips:
+        src_ips.add(fg_meta["srcip"])
 
     dst_ips = set()
     for k in ["dstip", "dst_ip"]:
         v = data.get(k)
         if v and str(v).strip() not in exclude_ips:
             dst_ips.add(str(v).strip())
+    if fg_meta["dstip"] and fg_meta["dstip"] not in exclude_ips:
+        dst_ips.add(fg_meta["dstip"])
 
     agents = set()
     a_name = agent.get("name")
-    if a_name and a_name not in ["wazuh-server", "localhost", ""]:
-        agents.add(str(a_name).strip())
     a_id = str(agent.get("id", "")).strip()
+    dev = data.get("devname") or fg_meta.get("devname")
+    if a_name and a_name not in ["wazuh-server", "localhost", ""]:
+        if not (a_id == "000" and dev):
+            agents.add(str(a_name).strip())
     if a_id and a_id not in ["000", ""]:
         agents.add(f"agent-{a_id}")
 
@@ -206,16 +505,36 @@ def extract_alert_entities(alert: Dict[str, Any]) -> Dict[str, Any]:
         u = data.get(k)
         if u and str(u).strip() not in ["", "-", "unknown"]:
             users.add(str(u).strip())
-    syscheck = alert.get("syscheck", {})
-    if isinstance(syscheck, dict):
-        uname = syscheck.get("uname")
-        if uname and str(uname).strip() not in ["", "-"]:
-            users.add(str(uname).strip())
+    uname = syscheck.get("uname") or syscheck.get("uname_after")
+    if uname and str(uname).strip() not in ["", "-"]:
+        users.add(str(uname).strip())
 
     devnames = set()
-    dev = data.get("devname")
     if dev and str(dev).strip():
         devnames.add(str(dev).strip())
+
+    files = set()
+    stems = set()
+    file_path = _extract_file_path(alert)
+    if file_path and not _is_browser_temp_file(file_path):
+        bname, stem = _file_stem_and_basename(file_path)
+        if bname:
+            files.add(bname.lower())
+        if stem and len(stem) >= 4:
+            stems.add(stem.lower())
+
+    hashes = {
+        h for h in (
+            vt_info.get("md5", ""),
+            vt_info.get("sha1", ""),
+            _clean_scalar(syscheck.get("md5_after")).lower(),
+            _clean_scalar(syscheck.get("sha1_after")).lower(),
+        ) if h
+    }
+
+    domains = {
+        d.lower() for d in (fg_meta.get("qname"), sysmon_meta.get("qname")) if d
+    }
 
     return {
         "src_ips": sorted(src_ips),
@@ -223,10 +542,14 @@ def extract_alert_entities(alert: Dict[str, Any]) -> Dict[str, Any]:
         "agents": sorted(agents),
         "users": sorted(users),
         "devnames": sorted(devnames),
+        "files": sorted(files),
+        "stems": sorted(stems),
+        "hashes": sorted(hashes),
+        "domains": sorted(domains),
         "rule_id": str(rule.get("id", "")),
         "rule_level": int(rule.get("level", 0)),
         "rule_desc": str(rule.get("description", "")),
-        "timestamp": parse_wazuh_time(alert.get("timestamp", ""))
+        "timestamp": _effective_event_epoch(alert) or parse_wazuh_time(alert.get("timestamp", ""))
     }
 
 
@@ -355,42 +678,96 @@ def calculate_incident_confidence(
     return min(max(round(total), 20), 98)
 
 
+def _format_local_hhmmss(epoch: float) -> str:
+    if epoch <= 0:
+        return ""
+    return datetime.fromtimestamp(epoch, tz=LOCAL_TZ).strftime("%H:%M:%S")
+
+
 def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> str:
     """
     Sinh Mermaid attack graph theo chiều dọc.
 
-    Các cảnh báo liên tiếp có cùng rule và nội dung được gom thành một bước
-    ``N lần`` để sơ đồ giữ được thông tin nhưng không biến thành một chuỗi
-    ngang rất dài, khó đọc ở mức zoom mặc định.
+    - Giữ nguyên thứ tự thời gian thực (có hiệu chỉnh session_start cho FortiGate close log).
+    - Phân biệt hướng Inbound Attacker vs Outbound Endpoint Download/Execution.
+    - Smart Step Retention: không bao giờ cắt bỏ cảnh báo mức cao (Level >= 10) vào nút rút gọn.
+    - Tách lỗ hổng Host (CVE posture) sang node ngữ cảnh nét đứt.
     """
     alerts = incident_group.get("alerts", [])
     if not alerts:
         return "graph TD\n    empty[\"Không có dữ liệu cảnh báo\"]"
 
-    sorted_alerts = sorted(alerts, key=lambda a: parse_wazuh_time(a.get("timestamp", "")))
+    sorted_alerts = sorted(
+        alerts,
+        key=lambda a: (
+            _effective_event_epoch(a) or parse_wazuh_time(a.get("timestamp", "")),
+            parse_wazuh_time(a.get("timestamp", "")),
+        ),
+    )
 
     lines = [
         "graph TD",
         "    classDef attacker fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fecaca;",
+        "    classDef victim fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#dbeafe;",
         "    classDef step fill:#1e293b,stroke:#3b82f6,stroke-width:1.5px,color:#e2e8f0;",
         "    classDef repeated fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;",
+        "    classDef critical fill:#7f1d1d,stroke:#f87171,stroke-width:2.5px,color:#fee2e2;",
+        "    classDef context fill:#334155,stroke:#94a3b8,stroke-dasharray:5 5,color:#cbd5e1;",
         "    classDef target fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#bbf7d0;"
     ]
 
     def clean_text(s: Any) -> str:
-        text = str(s or "").replace('"', "'").replace("[", "(").replace("]", ")").replace("<", "(").replace(">", ")").replace("&", " và ")
+        text = str(s or "").replace('"', "'").replace("[", "(").replace("]", ")").replace("<", "(").replace(">", ")").replace("&", " và ").replace("\\", "/")
         return re.sub(r'[\r\n]+', ' ', text).strip()
 
     src_ips = incident_group.get("source_ips", [])
     dst_ips = incident_group.get("destination_ips", [])
-    devices = incident_group.get("devices", [])
+    devices = [
+        d for d in (incident_group.get("devices") or [])
+        if d and d not in {"xinloihuy", "wazuh-server", "localhost"}
+    ]
+    if not devices:
+        devices = sorted({_device_display_name(a) for a in sorted_alerts} - {"", "xinloihuy", "wazuh-server", "localhost"})
     primary_entity = incident_group.get("entity", "Unknown-Target")
 
     semantics = [derive_alert_semantics(alert) for alert in sorted_alerts]
     semantic_source_ips = [item.get("source_ip") for item in semantics if item.get("source_ip")]
+    has_web_scan = any(item.get("category") == "web_scan" for item in semantics)
+    endpoint_agents = [
+        _clean_scalar((a.get("agent") or {}).get("name"))
+        for a in sorted_alerts
+        if _clean_scalar((a.get("agent") or {}).get("id")) != "000"
+        and _clean_scalar((a.get("agent") or {}).get("name")).lower() not in {"", "wazuh-server", "localhost"}
+    ]
+    endpoint_ips = {
+        _valid_ip((a.get("agent") or {}).get("ip"))
+        for a in sorted_alerts
+        if _valid_ip((a.get("agent") or {}).get("ip"))
+    }
+    primary_src_ip = src_ips[0] if src_ips else (semantic_source_ips[0] if semantic_source_ips else "")
+    has_external_dst = any(ip and not _is_private_ip(ip) for ip in dst_ips)
+    has_file_or_vt = any(
+        item.get("category") in {"virustotal_malware", "virustotal_no_record", "fim_file_event", "sysmon_motw_download"}
+        for item in semantics
+    )
+    is_outbound_endpoint = (
+        not has_web_scan
+        and bool(endpoint_agents)
+        and (
+            (primary_src_ip and _is_private_ip(primary_src_ip) and (primary_src_ip in endpoint_ips or has_external_dst or has_file_or_vt))
+            or (not primary_src_ip and has_file_or_vt)
+        )
+    )
+
     src_node_id = "src_node"
-    src_label = clean_text(src_ips[0] if src_ips else (semantic_source_ips[0] if semantic_source_ips else "Nguồn chưa xác định"))
-    lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
+    if is_outbound_endpoint:
+        ep_name = clean_text(endpoint_agents[0])
+        ep_ip = clean_text(primary_src_ip or next(iter(endpoint_ips), ""))
+        src_label = f"Endpoint {ep_name} ({ep_ip})" if ep_ip else f"Endpoint {ep_name}"
+        lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::victim')
+    else:
+        src_label = clean_text(primary_src_ip or (devices[0] if devices else "Nguồn chưa xác định"))
+        lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
 
     def alert_signature(alert: Dict[str, Any]) -> Tuple[str, str, str]:
         rule = alert.get("rule", {}) or {}
@@ -411,49 +788,108 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
         else:
             grouped_steps.append({"signature": signature, "alerts": [alert]})
 
-    max_steps = 10
-    displayed_steps = grouped_steps[:max_steps]
-    prev_node_id = src_node_id
+    max_steps = 12
+    if len(grouped_steps) <= max_steps:
+        selected_indices = list(range(len(grouped_steps)))
+    else:
+        # Smart Step Retention: never truncate critical/high alerts (Lvl >= 10)
+        critical_indices = {
+            idx for idx, st in enumerate(grouped_steps)
+            if max(_safe_int((a.get("rule") or {}).get("level"), 0) for a in st["alerts"]) >= 10
+        }
+        selected = set(critical_indices)
+        # Fill remaining slots in chronological order, prioritizing tail (latest attack actions) and head
+        remaining_slots = max(0, max_steps - len(selected))
+        non_crit = [idx for idx in range(len(grouped_steps)) if idx not in selected]
+        for idx in reversed(non_crit):
+            if remaining_slots <= 0:
+                break
+            selected.add(idx)
+            remaining_slots -= 1
+        selected_indices = sorted(selected)
 
-    for i, step in enumerate(displayed_steps):
+    omitted_count = 0
+    if len(grouped_steps) > max_steps:
+        selected_set = set(selected_indices)
+        omitted_count = sum(
+            sum(max(1, _safe_int(item.get("occurrence_count"), 1)) for item in grouped_steps[idx]["alerts"])
+            for idx in range(len(grouped_steps)) if idx not in selected_set
+        )
+
+    prev_node_id = src_node_id
+    if omitted_count and selected_indices and selected_indices[0] > 0:
+        more_id = "step_omitted"
+        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo mức thấp trước đó …"]:::step')
+        lines.append(f'    {prev_node_id} --> {more_id}')
+        prev_node_id = more_id
+        omitted_count = 0
+
+    for step_num, orig_idx in enumerate(selected_indices):
+        step = grouped_steps[orig_idx]
         a = step["alerts"][0]
-        step_id = f"step_{i}"
+        step_id = f"step_{step_num}"
         r_id = a.get("rule", {}).get("id", "Rule")
-        r_lvl = a.get("rule", {}).get("level", 0)
-        r_desc = clean_text(derive_alert_semantics(a)["label"])[:80]
+        r_lvl = _safe_int(a.get("rule", {}).get("level"), 0)
+        sem = derive_alert_semantics(a)
+        r_desc = clean_text(sem["label"])[:110]
+        eff_epoch = _effective_event_epoch(a)
+        ts_short = _format_local_hhmmss(eff_epoch)
+        time_prefix = f"[{ts_short}] " if ts_short else ""
         count = sum(max(1, _safe_int(item.get("occurrence_count"), 1)) for item in step["alerts"])
         if count > 1:
-            step_label = f"Bước {i+1}: Rule {r_id} ×{count}<br/>{r_desc} (Lvl {r_lvl})<br/>{count} cảnh báo tương tự được gom"
-            node_class = "repeated"
+            step_label = f"Bước {step_num+1}: Rule {r_id} ×{count}<br/>{time_prefix}{r_desc} (Lvl {r_lvl})<br/>{count} cảnh báo tương tự được gom"
+            node_class = "critical" if r_lvl >= 12 else "repeated"
         else:
-            step_label = f"Bước {i+1}: Rule {r_id}<br/>{r_desc} (Lvl {r_lvl})"
-            node_class = "step"
+            step_label = f"Bước {step_num+1}: Rule {r_id}<br/>{time_prefix}{r_desc} (Lvl {r_lvl})"
+            node_class = "critical" if r_lvl >= 12 else "step"
         lines.append(f'    {step_id}["{step_label}"]:::{node_class}')
         lines.append(f'    {prev_node_id} --> {step_id}')
         prev_node_id = step_id
 
-    omitted_steps = grouped_steps[max_steps:]
-    omitted_alerts = sum(len(step["alerts"]) for step in omitted_steps)
-    if omitted_alerts:
+    if omitted_count:
         more_id = "step_more"
-        lines.append(f'    {more_id}["… +{omitted_alerts} cảnh báo tiếp theo …"]:::step')
+        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo tiếp theo …"]:::step')
         lines.append(f'    {prev_node_id} --> {more_id}')
         prev_node_id = more_id
 
     dst_node_id = "dst_node"
     target_names = []
-    if devices:
-        target_names.extend(devices[:2])
-    if dst_ips:
+    if is_outbound_endpoint:
+        malware_files = [
+            _short_display_path(sem.get("file_path", ""))
+            for sem in semantics
+            if sem.get("category") == "virustotal_malware" and sem.get("file_path")
+        ]
+        if malware_files:
+            target_names.append(f"Malware: {malware_files[-1]}")
+        for d in devices:
+            if d not in target_names and d not in endpoint_agents:
+                target_names.append(d)
         for ip in dst_ips[:2]:
             if ip not in target_names:
                 target_names.append(ip)
-    if not target_names:
-        target_names = [clean_text(primary_entity)]
+        if not target_names:
+            target_names.extend(devices[:2] or [primary_entity])
+    else:
+        if devices:
+            target_names.extend(devices[:2])
+        if dst_ips:
+            for ip in dst_ips[:2]:
+                if ip not in target_names:
+                    target_names.append(ip)
+        if not target_names:
+            target_names = [clean_text(primary_entity)]
 
     target_label = clean_text(", ".join(target_names))
     lines.append(f'    {dst_node_id}["Mục Tiêu: {target_label}"]:::target')
     lines.append(f'    {prev_node_id} --> {dst_node_id}')
+
+    host_vulns = incident_group.get("host_vulnerabilities") or []
+    if host_vulns:
+        cve_list = [clean_text(v.get("cve") or v.get("rule_id")) for v in host_vulns if v.get("cve") or v.get("rule_id")]
+        cve_preview = ", ".join(list(dict.fromkeys(cve_list))[:4])
+        lines.append(f'    vuln_ctx["Ngữ cảnh lỗ hổng Host: {cve_preview} (tách khỏi chuỗi runtime)"]:::context')
+        lines.append(f'    vuln_ctx -.-> {src_node_id}')
 
     return "\n".join(lines)
 
@@ -483,7 +919,131 @@ def derive_alert_semantics(alert: Dict[str, Any]) -> Dict[str, Any]:
             "mitre_tactics": ["Reconnaissance"],
             "raw_log_count": len(logs),
         }
+
     rule = alert.get("rule") or {}
+    rule_id = _clean_scalar(rule.get("id"))
+    groups = {str(g).lower() for g in (rule.get("groups") or [])}
+    vt_info = _extract_virustotal_info(alert)
+    file_path = _extract_file_path(alert)
+    short_path = _short_display_path(file_path)
+
+    if rule_id in {"100050", "87105"} or (vt_info and (vt_info.get("malicious", 0) > 0 or vt_info.get("positives", 0) > 0)):
+        pos = vt_info.get("positives", 0)
+        tot = vt_info.get("total", 0)
+        ratio = f" ({pos}/{tot})" if tot else ""
+        label = f"Malware VT{ratio}: {short_path}" if short_path else f"Malware detected by VirusTotal{ratio}"
+        return {
+            "category": "virustotal_malware",
+            "label": label,
+            "incident_type": "Phát hiện tệp mã độc qua VirusTotal",
+            "source_ip": None,
+            "paths": [file_path] if file_path else paths,
+            "file_path": file_path,
+            "vt_permalink": vt_info.get("permalink", ""),
+            "md5": vt_info.get("md5", ""),
+            "sha1": vt_info.get("sha1", ""),
+            "positives": pos,
+            "total": tot,
+            "mitre_techniques": ["T1204.002"],
+            "mitre_tactics": ["Execution"],
+            "raw_log_count": len(logs),
+        }
+
+    if rule_id == "87103":
+        label = f"VirusTotal: Chưa có bản ghi hash ({short_path})" if short_path else "VirusTotal: Chưa có bản ghi hash (file nén/mới)"
+        return {
+            "category": "virustotal_no_record",
+            "label": label,
+            "incident_type": "Truy vấn VirusTotal chưa có bản ghi",
+            "source_ip": None,
+            "paths": [file_path] if file_path else paths,
+            "file_path": file_path,
+            "mitre_techniques": [],
+            "mitre_tactics": [],
+            "raw_log_count": len(logs),
+        }
+
+    sysmon_meta = _extract_sysmon_meta(alert)
+    if sysmon_meta["is_sysmon"] and (sysmon_meta["event_id"] == "15" or rule_id == "100051"):
+        url_or_file = sysmon_meta["host_url"] or short_path or "Downloads"
+        return {
+            "category": "sysmon_motw_download",
+            "label": f"Tải từ URL (MOTW): {url_or_file}",
+            "incident_type": "Ghi nhận URL tải tệp (Zone.Identifier MOTW)",
+            "source_ip": None,
+            "paths": [file_path] if file_path else paths,
+            "host_url": sysmon_meta["host_url"],
+            "mitre_techniques": ["T1105"],
+            "mitre_tactics": ["Command and Control"],
+            "raw_log_count": len(logs),
+        }
+
+    if sysmon_meta["is_sysmon"] and (sysmon_meta["event_id"] == "22" or rule_id == "100052"):
+        qname = sysmon_meta["qname"] or "domain"
+        return {
+            "category": "sysmon_dns",
+            "label": f"Truy vấn DNS: {qname}",
+            "incident_type": "Truy vấn DNS từ tiến trình endpoint",
+            "source_ip": None,
+            "paths": paths,
+            "domain": qname,
+            "mitre_techniques": ["T1071.004"],
+            "mitre_tactics": ["Command and Control"],
+            "raw_log_count": len(logs),
+        }
+
+    if rule_id in {"554", "553", "550"} or "syscheck" in groups:
+        if rule_id == "554":
+            verb = "Thêm tệp"
+        elif rule_id == "553":
+            verb = "Xóa tệp tạm tải xuống" if _is_browser_temp_file(file_path) else "Xóa tệp"
+        elif rule_id == "550":
+            verb = "Đổi thuộc tính tệp" if "Changed attributes: mtime,attributes" in corpus else "Sửa đổi tệp"
+        else:
+            verb = str(rule.get("description") or "Sự kiện FIM").strip()
+        if _is_browser_temp_file(file_path) and rule_id == "554":
+            verb = "Tạo tệp tạm tải xuống"
+        label = f"{verb}: {short_path}" if short_path else str(rule.get("description") or verb).strip()
+        return {
+            "category": "fim_file_event",
+            "label": label,
+            "incident_type": "Biến động tệp trên hệ thống (FIM)",
+            "source_ip": None,
+            "paths": [file_path] if file_path else paths,
+            "file_path": file_path,
+            "mitre_techniques": [],
+            "mitre_tactics": [],
+            "raw_log_count": len(logs),
+        }
+
+    if "fortigate" in groups:
+        fg = _extract_fortigate_meta(alert)
+        dev = fg.get("devname") or "FGT-SOC"
+        svc = fg.get("service") or (f"port {fg['dstport']}" if fg.get("dstport") else "traffic")
+        src = fg.get("srcip") or "?"
+        dst = fg.get("dstip") or "?"
+        port_sfx = f":{fg['dstport']}" if fg.get("dstport") else ""
+        action = fg.get("action") or "log"
+        notes = [action]
+        if fg.get("logid") == "0000000020" and fg.get("duration", 0) > 0:
+            start_hhmmss = _format_local_hhmmss(_effective_event_epoch(alert))
+            if start_hhmmss:
+                notes.append(f"bắt đầu {start_hhmmss}")
+        if fg.get("rcvdbyte", 0) >= 1024:
+            notes.append(f"nhận {round(fg['rcvdbyte'] / 1024, 1)}KB")
+        domain_part = f" [{fg['qname'] or fg['hostname']}]" if (fg.get("qname") or fg.get("hostname")) else ""
+        label = f"{dev}: {svc} {src} ➔ {dst}{port_sfx}{domain_part} ({', '.join(notes)})"
+        return {
+            "category": "fortigate_traffic",
+            "label": label,
+            "incident_type": "Lưu lượng mạng qua Firewall FortiGate",
+            "source_ip": fg.get("srcip") or None,
+            "paths": paths,
+            "mitre_techniques": [],
+            "mitre_tactics": [],
+            "raw_log_count": len(logs),
+        }
+
     return {
         "category": "rule_event",
         "label": str(rule.get("description") or "Cảnh báo bảo mật").strip(),
@@ -609,7 +1169,8 @@ def _mitre_values(alert: Dict[str, Any], mitre_mapping: Optional[Dict[str, Any]]
         scalar = _clean_scalar(value)
         return {scalar} if scalar else set()
 
-    techniques = values(native.get("id")) | values(native.get("technique"))
+    native_ids = values(native.get("id"))
+    techniques = native_ids if native_ids else values(native.get("technique"))
     tactics = values(native.get("tactic"))
     mapping = (mitre_mapping or {}).get(_clean_scalar(rule.get("id")), {})
     if isinstance(mapping, dict):
@@ -626,10 +1187,19 @@ def _edge_reasons(a1: Dict[str, Any], a2: Dict[str, Any], semantic_score: float 
     shared_ip = any(item.startswith("ip:") for item in shared)
     shared_asset = any(item.startswith(("agent:", "agent-id:", "host:")) for item in shared)
     shared_user = any(item.startswith("user:") for item in shared)
+    shared_file = any(item.startswith(("file:", "stem:")) for item in shared)
+    shared_hash = any(item.startswith("hash:") for item in shared)
+    shared_domain = any(item.startswith("domain:") for item in shared)
     if shared_ip:
         reasons.add("shared_ip")
     if shared_user:
         reasons.add("shared_user")
+    if shared_file:
+        reasons.add("shared_file_lineage")
+    if shared_hash:
+        reasons.add("shared_hash")
+    if shared_domain:
+        reasons.add("shared_domain")
 
     rule_obj1 = a1.get("rule") or {}
     rule_obj2 = a2.get("rule") or {}
@@ -641,10 +1211,10 @@ def _edge_reasons(a1: Dict[str, Any], a2: Dict[str, Any], semantic_score: float 
 
     # Same-host temporal proximity is supporting context, not enough evidence
     # by itself. Require a repeated rule, a material rule sequence, MITRE
-    # continuity, or semantic support before creating an incident edge.
+    # continuity, file/hash lineage, or semantic support before creating an incident edge.
     if shared_asset and rule1 and rule1 == rule2:
         reasons.update({"shared_asset", "repeated_rule"})
-    if rule1 and rule2 and rule1 != rule2 and (shared_ip or shared_user or (shared_asset and max_level >= 7)):
+    if rule1 and rule2 and rule1 != rule2 and (shared_ip or shared_user or shared_file or shared_hash or (shared_asset and max_level >= 7)):
         reasons.add("rule_sequence")
         if shared_asset:
             reasons.add("shared_asset")
@@ -681,7 +1251,11 @@ def _iso_from_epoch(value: float) -> str:
 
 
 def _alert_start_epoch(alert: Dict[str, Any]) -> float:
-    return parse_wazuh_time(alert.get("first_seen") or alert.get("timestamp", ""))
+    eff = _effective_event_epoch(alert)
+    raw = parse_wazuh_time(alert.get("first_seen") or alert.get("timestamp", ""))
+    if eff and raw:
+        return min(eff, raw)
+    return raw or eff
 
 
 def _alert_end_epoch(alert: Dict[str, Any]) -> float:
@@ -700,6 +1274,103 @@ def _interval_gap_seconds(a1: Dict[str, Any], a2: Dict[str, Any]) -> float:
     return 0.0
 
 
+def _collect_extracted_iocs(alerts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Collect deduplicated IOCs (files, hashes, VirusTotal links, external IPs, domains) from group alerts."""
+    files: List[str] = []
+    md5s: List[str] = []
+    sha1s: List[str] = []
+    vt_links: List[str] = []
+    ext_ips: List[str] = []
+    domains: List[str] = []
+    motw_urls: List[str] = []
+
+    for a in alerts:
+        events = [a] + [ev for ev in (a.get("evidence_events") or []) if isinstance(ev, dict)]
+        for ev in events:
+            fp = _extract_file_path(ev)
+            if fp and not _is_browser_temp_file(fp) and fp not in files:
+                files.append(fp)
+            vt = _extract_virustotal_info(ev)
+            if vt.get("md5") and vt["md5"] not in md5s:
+                md5s.append(vt["md5"])
+            if vt.get("sha1") and vt["sha1"] not in sha1s:
+                sha1s.append(vt["sha1"])
+            if vt.get("permalink") and vt["permalink"] not in vt_links:
+                vt_links.append(vt["permalink"])
+            syscheck = ev.get("syscheck") if isinstance(ev.get("syscheck"), dict) else {}
+            if syscheck.get("md5_after") and syscheck["md5_after"].lower() not in md5s:
+                md5s.append(syscheck["md5_after"].lower())
+            if syscheck.get("sha1_after") and syscheck["sha1_after"].lower() not in sha1s:
+                sha1s.append(syscheck["sha1_after"].lower())
+            fg = _extract_fortigate_meta(ev)
+            for ip in (fg.get("srcip"), fg.get("dstip")):
+                if ip and not _is_private_ip(ip) and ip not in ext_ips:
+                    ext_ips.append(ip)
+            sm = _extract_sysmon_meta(ev)
+            if sm.get("host_url") and sm["host_url"] not in motw_urls:
+                motw_urls.append(sm["host_url"])
+            for dom in (fg.get("qname"), fg.get("hostname"), sm.get("qname")):
+                if dom and dom not in domains:
+                    domains.append(dom)
+
+    return {
+        "files": files,
+        "hashes": {"md5": md5s, "sha1": sha1s},
+        "virustotal_links": vt_links,
+        "external_ips": ext_ips,
+        "domains": domains,
+        "motw_urls": motw_urls,
+    }
+
+
+def _match_host_vulnerabilities(sub_alerts: List[Dict[str, Any]], posture_alerts: List[Dict[str, Any]], max_span_sec: float) -> List[Dict[str, Any]]:
+    """Attach same-host CVE posture alerts within span without mixing them into runtime steps."""
+    if not posture_alerts:
+        return []
+    group_agents = {
+        _clean_scalar((a.get("agent") or {}).get("name")).lower()
+        for a in sub_alerts
+        if _clean_scalar((a.get("agent") or {}).get("id")) != "000"
+    } - {""}
+    group_ips = {
+        _valid_ip((a.get("agent") or {}).get("ip"))
+        for a in sub_alerts
+        if _valid_ip((a.get("agent") or {}).get("ip"))
+    }
+    start_t = min(_alert_start_epoch(a) for a in sub_alerts)
+    end_t = max(_alert_end_epoch(a) for a in sub_alerts)
+
+    matched: List[Dict[str, Any]] = []
+    seen_cves: Set[str] = set()
+    for pa in posture_alerts:
+        ev_list = [pa] + [ev for ev in (pa.get("evidence_events") or []) if isinstance(ev, dict)]
+        for ev in ev_list:
+            ag = ev.get("agent") or {}
+            ag_name = _clean_scalar(ag.get("name")).lower()
+            ag_ip = _valid_ip(ag.get("ip"))
+            if not ((ag_name and ag_name in group_agents) or (ag_ip and ag_ip in group_ips)):
+                continue
+            ts = parse_wazuh_time(ev.get("timestamp", ""))
+            if ts and start_t and end_t and (ts < start_t - max_span_sec or ts > end_t + max_span_sec):
+                continue
+            cve = _extract_cve(ev)
+            rule = ev.get("rule") or {}
+            key = cve or _clean_scalar(ev.get("id"))
+            if key in seen_cves:
+                continue
+            seen_cves.add(key)
+            matched.append({
+                "id": _clean_scalar(ev.get("id")),
+                "timestamp": _clean_scalar(ev.get("timestamp")),
+                "rule_id": _clean_scalar(rule.get("id")),
+                "level": _safe_int(rule.get("level"), 0),
+                "cve": cve,
+                "description": _clean_scalar(rule.get("description")),
+                "agent": _clean_scalar(ag.get("name")),
+            })
+    return matched
+
+
 def correlate_alerts(
     alerts: List[Dict[str, Any]],
     time_window_minutes: int = 15,
@@ -708,14 +1379,21 @@ def correlate_alerts(
 ) -> List[Dict[str, Any]]:
     """
     Tương quan Đa Nguồn & Graph-based Kill-Chain Analysis (Wazuh Agent + FortiGate Syslog):
-    - Sử dụng NetworkX graph để nối các nút alert nếu dùng chung entity (src_ip/dst_ip/user).
+    - Tách cảnh báo lỗ hổng tĩnh (vulnerability-detector) khỏi luồng sự kiện runtime.
+    - Sử dụng NetworkX graph để nối các nút alert nếu dùng chung entity (src_ip/dst_ip/user/file/hash).
+    - Chống bắc cầu nhiễu Firewall Level <= 3 (implicit deny / public DNS 1.1.1.1).
     - Sử dụng TF-IDF Cosine Similarity (Scikit-Learn) để phát hiện hành vi tương tự qua mô tả log text.
-    - Phân tách các connected components thành từng Incident Group hoàn chỉnh.
     """
     if not alerts:
         return []
 
-    alerts_sorted = sorted(alerts, key=_alert_start_epoch)
+    posture_alerts = [a for a in alerts if _is_vulnerability_posture_alert(a)]
+    runtime_alerts = [a for a in alerts if not _is_vulnerability_posture_alert(a)]
+    if not runtime_alerts:
+        runtime_alerts = posture_alerts
+        posture_alerts = []
+
+    alerts_sorted = sorted(runtime_alerts, key=_alert_start_epoch)
     time_window_sec = max(time_window_minutes, 1) * 60
     max_span_sec = max(max_incident_span_minutes, time_window_minutes) * 60
 
@@ -754,8 +1432,18 @@ def correlate_alerts(
                 start2 = _alert_start_epoch(a2)
                 if end1 and start2 and start2 - end1 > time_window_sec:
                     break
-                if _interval_gap_seconds(a1, a2) > time_window_sec:
+                gap_sec = _interval_gap_seconds(a1, a2)
+                if gap_sec > time_window_sec:
                     continue
+                # Prevent low-level FortiGate implicit deny or public DNS background traffic
+                # from acting as a bridge between separate sessions.
+                if _is_low_level_fg_noise(a1) or _is_low_level_fg_noise(a2):
+                    fg1 = _extract_fortigate_meta(a1)
+                    fg2 = _extract_fortigate_meta(a2)
+                    if fg1.get("action") == "deny" or fg2.get("action") == "deny":
+                        continue
+                    if gap_sec > 30:
+                        continue
                 semantic_score = float(similarity_matrix[i][j]) if similarity_matrix is not None else 0.0
                 upstream_reasons = _edge_reasons(a1, a2, semantic_score)
                 weight, weighted_reasons = compute_correlation_weight(e1, e2, time_window_sec, semantic_score)
@@ -792,12 +1480,18 @@ def correlate_alerts(
             total_count = sum(a.get("occurrence_count", 1) for a in sub_alerts)
             rule_ids = sorted({_clean_scalar((a.get("rule") or {}).get("id")) for a in sub_alerts} - {""})
 
-            # Collect unique source/destination IPs and devices across all alerts in group
-            source_ips = sorted({_valid_ip(_first_value(a.get("data") or {}, "srcip", "src_ip", "source.ip"))
-                                 for a in sub_alerts} - {""})
-            dest_ips = sorted({_valid_ip(_first_value(a.get("data") or {}, "dstip", "dst_ip", "destination.ip"))
-                               for a in sub_alerts} - {""})
-            devices = sorted({_clean_scalar((a.get("agent") or {}).get("name")) for a in sub_alerts} - {""})
+            # Collect unique source/destination IPs and clean devices across all alerts in group
+            source_ips = sorted({
+                ip for a in sub_alerts
+                for ip in (_valid_ip(_first_value(a.get("data") or {}, "srcip", "src_ip", "source.ip")), _extract_fortigate_meta(a).get("srcip", ""))
+                if ip
+            })
+            dest_ips = sorted({
+                ip for a in sub_alerts
+                for ip in (_valid_ip(_first_value(a.get("data") or {}, "dstip", "dst_ip", "destination.ip")), _extract_fortigate_meta(a).get("dstip", ""))
+                if ip
+            })
+            devices = sorted({_device_display_name(a) for a in sub_alerts} - {""})
 
             # Determine correlation reason(s) for this component
             corr_reasons: Set[str] = set()
@@ -829,6 +1523,8 @@ def correlate_alerts(
             if "shared_asset" in corr_reasons:
                 confidence += 25
             if "shared_user" in corr_reasons:
+                confidence += 20
+            if "shared_file_lineage" in corr_reasons or "shared_hash" in corr_reasons:
                 confidence += 20
             if "rule_sequence" in corr_reasons:
                 confidence += 15
@@ -863,6 +1559,8 @@ def correlate_alerts(
                         alert_ids.append(alert_id)
             group_id = hashlib.sha256(f"{primary_entity}:{anchor}".encode()).hexdigest()[:12]
             incident_id = f"INC-{group_id.upper()}"
+            host_vulns = _match_host_vulnerabilities(sub_alerts, posture_alerts, max_span_sec)
+            extracted_iocs = _collect_extracted_iocs(sub_alerts)
             group_dict = {
                 "group_id": incident_id,
                 "incident_id": incident_id,
@@ -885,6 +1583,8 @@ def correlate_alerts(
                 "distinct_rule_ids": rule_ids,
                 "mitre_techniques": sorted(all_techniques),
                 "mitre_tactics": sorted(all_tactics),
+                "host_vulnerabilities": host_vulns,
+                "extracted_iocs": extracted_iocs,
                 "time_span": {
                     "start": start_t,
                     "end": end_t
@@ -1028,26 +1728,54 @@ def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any]
     w1_severity = min(max_severity * 3.0, 45)
 
     # 2. MITRE Tactic Bonus
-    mitre_details: Set[str] = set(incident_group.get("mitre_techniques", []))
-    mitre_tactics: Set[str] = set(incident_group.get("mitre_tactics", []))
+    mitre_details: Set[str] = set()
+    mitre_tactics: Set[str] = set()
+    effective_tactics: Set[str] = set()
     for a in alerts:
         techniques, tactics = _mitre_values(a, mitre_mapping)
         mitre_details |= techniques
         mitre_tactics |= tactics
+        if not _is_benign_fim_artifact(a):
+            effective_tactics |= tactics
+    if not mitre_details and incident_group.get("mitre_techniques"):
+        mitre_details |= {t for t in incident_group.get("mitre_techniques", []) if re.match(r"^T\d{4}", str(t))}
+    if not mitre_tactics and incident_group.get("mitre_tactics"):
+        mitre_tactics |= set(incident_group.get("mitre_tactics", []))
+    if not effective_tactics:
+        effective_tactics = set(mitre_tactics)
     w2_mitre = min(len(mitre_details) * 4 + len(mitre_tactics) * 2, 15)
 
     # 3. Logarithmic Occurrence Frequency
     count = _safe_int(incident_group.get("alert_count"), len(alerts))
     w3_occurrence = min(math.log10(max(count, 1)) * 6, 10)
 
-    # 4. Asset Criticality
-    aliases = {incident_group.get("entity", ""), *incident_group.get("source_ips", []), *incident_group.get("destination_ips", [])}
+    # 4. Asset Criticality (match IP, hostname, agent name, and stripped agent- prefix)
+    raw_entity = _clean_scalar(incident_group.get("entity"))
+    aliases = {
+        raw_entity,
+        raw_entity[6:] if raw_entity.lower().startswith("agent-") else raw_entity,
+        *incident_group.get("devices", []),
+        *incident_group.get("source_ips", []),
+        *incident_group.get("destination_ips", []),
+    }
+    for a in alerts:
+        ag = a.get("agent") or {}
+        if ag.get("ip"):
+            aliases.add(_clean_scalar(ag.get("ip")))
+        if ag.get("name"):
+            aliases.add(_clean_scalar(ag.get("name")))
+    aliases_lower = {al.lower() for al in aliases if al}
+
     criticality = 1
     if isinstance(asset_criticality, dict):
-        for alias in aliases:
-            asset = asset_criticality.get(alias, {})
+        lookup_pool = []
+        for k, asset in asset_criticality.items():
             if not isinstance(asset, dict):
                 continue
+            keys = {_clean_scalar(k).lower(), _clean_scalar(asset.get("ip")).lower(), _clean_scalar(asset.get("name")).lower()} - {""}
+            if keys & aliases_lower:
+                lookup_pool.append(asset)
+        for asset in lookup_pool:
             raw = asset.get("criticality", 1)
             if isinstance(raw, str):
                 raw = {"low": 1, "medium": 3, "high": 4, "critical": 5}.get(raw.lower(), 1)
@@ -1069,7 +1797,7 @@ def score_priority(incident_group: Dict[str, Any], mitre_mapping: Dict[str, Any]
         "lateral movement": 8, "collection": 6, "command and control": 8,
         "exfiltration": 10, "impact": 10,
     }
-    kill_chain_bonus = max((tactic_weights.get(tactic.lower(), 0) for tactic in mitre_tactics), default=0)
+    kill_chain_bonus = max((tactic_weights.get(tactic.lower(), 0) for tactic in effective_tactics), default=0)
 
     total_score = w1_severity + w2_mitre + w3_occurrence + w4_asset + w5_correlation + kill_chain_bonus
     final_score = min(round(total_score), 100)

@@ -350,3 +350,83 @@ class WazuhFactualQueryTests(unittest.TestCase):
         self.assertIn("summary", result)
         self.assertIn("ubuntu-dmz", result["summary"])
         self.assertEqual(result["reasoning_steps"][1]["title"], "Ground-Truth Verification")
+
+
+class IncidentReplay6466A39F8546Tests(unittest.TestCase):
+    def test_replay_20_alerts_separates_noise_preserves_zip_extract_order_and_iocs(self):
+        import json
+        from pathlib import Path
+
+        snap_path = Path(__file__).resolve().parent.parent / "data" / "incident_snapshots" / "INC-6466A39F8546.json"
+        if not snap_path.exists():
+            self.skipTest("Snapshot INC-6466A39F8546.json not found")
+
+        snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
+        raw_events = []
+        for a in snapshot["group"]["alerts"]:
+            raw_events.extend(a.get("evidence_events") or [a])
+        self.assertEqual(len(raw_events), 20)
+
+        deduped = engine.deduplicate_alerts(raw_events, dedup_window_seconds=60)
+        # safe-file.zip and safe-file/safe-file.txt must NOT be collapsed into one Rule 554 alert,
+        # and CVE-2023-32047 vs CVE-2023-35374 must NOT collapse into one Rule 23505 alert.
+        rule_554_paths = [
+            engine._extract_file_path(item)
+            for item in deduped
+            if str((item.get("rule") or {}).get("id")) == "554"
+        ]
+        self.assertTrue(any("safe-file.zip" in p.lower() for p in rule_554_paths))
+        self.assertTrue(any("safe-file\\safe-file.txt" in p.lower() or "safe-file/safe-file.txt" in p.lower() for p in rule_554_paths))
+
+        mitre_map = json.loads((Path(__file__).resolve().parent.parent / "config" / "mitre_mapping.json").read_text(encoding="utf-8")).get("mappings", {})
+        known_devs = json.loads((Path(__file__).resolve().parent.parent / "config" / "known_devices.json").read_text(encoding="utf-8"))
+        asset_crit = {d["ip"]: d for d in known_devs if "ip" in d}
+
+        groups = engine.correlate_alerts(deduped, time_window_minutes=5, max_incident_span_minutes=30, mitre_mapping=mitre_map)
+        correlated = [g for g in groups if g.get("is_correlated")]
+
+        # Find the main safe-file.zip -> safe-file.txt malware incident
+        main_group = next(
+            g for g in correlated
+            if any("safe-file\\safe-file.txt" in engine._extract_file_path(a).lower() or "safe-file/safe-file.txt" in engine._extract_file_path(a).lower() for a in g["alerts"])
+        )
+
+        # 1. Paint 3D CVEs (23505) separated into host_vulnerabilities, not runtime alerts
+        self.assertNotIn("23505", main_group["distinct_rule_ids"])
+        self.assertTrue(any(v["cve"] == "CVE-2023-32047" for v in main_group["host_vulnerabilities"]))
+        self.assertTrue(any(v["cve"] == "CVE-2023-35374" for v in main_group["host_vulnerabilities"]))
+
+        # 2. FGT-SOC used instead of xinloihuy, and FortiGate deny (21:53) excluded
+        self.assertIn("FGT-SOC", main_group["devices"])
+        self.assertNotIn("xinloihuy", main_group["devices"])
+        self.assertNotIn("23.33.126.195", main_group["destination_ips"])
+
+        # 3. Session start of 125.234.51.27:443 (~21:59:55) ordered BEFORE 22:00:08 (.zip)
+        ordered_rules = [str((a.get("rule") or {}).get("id")) for a in main_group["alerts"]]
+        idx_81619 = ordered_rules.index("81619")
+        idx_zip = next(
+            i for i, a in enumerate(main_group["alerts"])
+            if "safe-file.zip" in engine._extract_file_path(a).lower()
+        )
+        self.assertLess(idx_81619, idx_zip)
+        self.assertIn("100050", ordered_rules)
+
+        # 4. Mermaid preserves Rule 100050 (8/62) on safe-file.txt, marks WIN-01 as victim, and links vuln_ctx
+        mermaid = main_group["attack_graph_mermaid"]
+        self.assertIn("Endpoint WIN-01 (10.10.10.10)", mermaid)
+        self.assertIn(":::victim", mermaid)
+        self.assertIn("Rule 100050", mermaid)
+        self.assertIn("8/62", mermaid)
+        self.assertIn("safe-file/safe-file.txt", mermaid)
+        self.assertIn("vuln_ctx", mermaid)
+
+        # 5. Extracted IOCs contain MD5, SHA1, and VirusTotal permalink
+        iocs = main_group["extracted_iocs"]
+        self.assertIn("7472f5fddfd0d4218ec5d57aa39c9b19", iocs["hashes"]["md5"])
+        self.assertIn("4206473fa51738e6d713b28fbb6dc28193a1d851", iocs["hashes"]["sha1"])
+        self.assertTrue(any("virustotal.com/gui/file/" in link for link in iocs["virustotal_links"]))
+
+        # 6. MITRE not double-counted and CMDB criticality resolved
+        scoring = engine.score_priority(main_group, mitre_map, asset_crit)
+        self.assertGreaterEqual(scoring["breakdown"]["entity_criticality_level"], 3)
+        self.assertNotIn("Malicious File", scoring["breakdown"]["mitre_techniques_found"])

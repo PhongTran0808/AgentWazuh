@@ -24,6 +24,38 @@
       "level": 14,
       "recommended_action": "CÁCH LY THIẾT BỊ KHỎI MẠNG NGAY LẬP TỨC. Ngắt kết nối các ổ đĩa sao lưu, thu thập dump RAM để phân tích tiến trình mã hóa và khôi phục từ bản backup an toàn."
     },
+    "100050": {
+      "technique_id": "T1204.002",
+      "technique_name": "User Execution: Malicious File",
+      "tactic": "Execution",
+      "severity": "High",
+      "level": 12,
+      "recommended_action": "Cách ly file độc hại (Quarantine), kiểm tra tiến trình thực thi cùng thời điểm (Sysmon Event ID 1) và truy vết nguồn tải về (MOTW Event ID 15 / FortiGate)."
+    },
+    "100051": {
+      "technique_id": "T1105",
+      "technique_name": "Ingress Tool Transfer (MOTW Download)",
+      "tactic": "Command and Control",
+      "severity": "Medium",
+      "level": 8,
+      "recommended_action": "Xác minh URL nguồn tải về (HostUrl trong Zone.Identifier), chặn domain độc hại trên FortiGate và kiểm tra toàn bộ tệp được giải nén từ tệp tải về."
+    },
+    "100052": {
+      "technique_id": "T1071.004",
+      "technique_name": "Application Layer Protocol: DNS",
+      "tactic": "Command and Control",
+      "severity": "Medium",
+      "level": 7,
+      "recommended_action": "Kiểm tra tiến trình thực hiện truy vấn DNS tới tên miền chia sẻ tệp/C2 bất thường và đối chiếu với nhật ký tải tệp trên endpoint."
+    },
+    "87103": {
+      "technique_id": "T1027",
+      "technique_name": "Obfuscated Files or Information (Archive Unknown on VirusTotal)",
+      "tactic": "Defense Evasion",
+      "severity": "Low",
+      "level": 3,
+      "recommended_action": "Theo dõi hành vi giải nén tệp lưu trữ trên endpoint để phát hiện payload bên trong sau khi giải nén."
+    },
     "5716": {
       "technique_id": "T1110",
       "technique_name": "Brute Force",

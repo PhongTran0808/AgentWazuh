@@ -430,3 +430,99 @@ class IncidentReplay6466A39F8546Tests(unittest.TestCase):
         scoring = engine.score_priority(main_group, mitre_map, asset_crit)
         self.assertGreaterEqual(scoring["breakdown"]["entity_criticality_level"], 3)
         self.assertNotIn("Malicious File", scoring["breakdown"]["mitre_techniques_found"])
+
+
+class ExternalInboundKillChainTests(unittest.TestCase):
+    def test_external_kali_port_scan_dir_enum_bruteforce_compromise_correlates(self):
+        import json
+        from pathlib import Path
+
+        mitre_map = json.loads((Path(__file__).resolve().parent.parent / "config" / "mitre_mapping.json").read_text(encoding="utf-8")).get("mappings", {})
+        alerts = [
+            {
+                "id": "ext-1",
+                "timestamp": "2026-11-26T23:50:00+0700",
+                "rule": {"id": "100105", "level": 10, "description": "External Port Scanning detected on FGT-SOC", "groups": ["fortigate", "port_scan"], "mitre": {"id": ["T1046"], "tactic": ["Discovery"]}},
+                "agent": {"id": "000", "name": "xinloihuy"},
+                "data": {"srcip": "203.0.113.10", "dstip": "198.51.100.2", "devname": "FGT-SOC", "action": "deny"},
+                "full_log": "devname=\"FGT-SOC\" srcip=203.0.113.10 dstip=198.51.100.2 dstport=22 action=\"deny\"",
+            },
+            {
+                "id": "ext-2",
+                "timestamp": "2026-11-26T23:50:12+0700",
+                "rule": {"id": "100101", "level": 10, "description": "Phát hiện dò quét đường dẫn web", "groups": ["apache", "web_attack"], "mitre": {"id": ["T1595.001"], "tactic": ["Reconnaissance"]}},
+                "agent": {"id": "008", "name": "WEB-01", "ip": "10.10.30.10"},
+                "data": {"srcip": "203.0.113.10", "dstip": "10.10.30.10"},
+                "full_log": "203.0.113.10 - - \"GET /admin HTTP/1.1\" 200 \"Kali-Audit/1.0\"",
+            },
+            {
+                "id": "ext-3",
+                "timestamp": "2026-11-26T23:50:25+0700",
+                "rule": {"id": "100107", "level": 10, "description": "Credential Brute-Force on Web Portal", "groups": ["web_attack"], "mitre": {"id": ["T1110.001"], "tactic": ["Credential Access"]}},
+                "agent": {"id": "008", "name": "WEB-01", "ip": "10.10.30.10"},
+                "data": {},
+                "full_log": "Nov 26 23:50:25 WEB-01 portal: [AUTH_FAILED] User 'admin' login FAILED from 203.0.113.10",
+            },
+            {
+                "id": "ext-4",
+                "timestamp": "2026-11-26T23:50:32+0700",
+                "rule": {"id": "100108", "level": 12, "description": "Web Portal login succeeded after Brute-Force", "groups": ["web_attack"], "mitre": {"id": ["T1078"], "tactic": ["Initial Access"]}},
+                "agent": {"id": "008", "name": "WEB-01", "ip": "10.10.30.10"},
+                "data": {"srcip": "203.0.113.10"},
+                "full_log": "Nov 26 23:50:32 WEB-01 portal: [AUTH_SUCCESS] User 'admin' login SUCCESS from 203.0.113.10",
+            },
+        ]
+        groups = engine.correlate_alerts(alerts, time_window_minutes=5, max_incident_span_minutes=30, mitre_mapping=mitre_map)
+        self.assertEqual(len(groups), 1)
+        g = groups[0]
+        self.assertTrue(g["is_correlated"])
+        self.assertEqual(g["correlation_type"], "cross_device_rule_sequence")
+        self.assertEqual(g["devices"], ["FGT-SOC", "WEB-01"])
+        self.assertIn("Nguồn: 203.0.113.10", g["attack_graph_mermaid"])
+        self.assertIn(":::attacker", g["attack_graph_mermaid"])
+        for tid in ("T1046", "T1595.001", "T1110.001", "T1078"):
+            self.assertIn(tid, g["mitre_techniques"])
+
+    def test_attack_graph_merges_interleaved_port_scans_and_enforces_max_steps(self):
+        # Simulate interleaved port scans from two sources across multiple target IPs
+        # (like INC-7B4CB40F0CFC) plus >10 distinct critical/high rules.
+        alerts = []
+        for idx in range(6):
+            alerts.append({
+                "id": f"ext-scan-{idx}",
+                "timestamp": f"2026-11-28T00:0{idx}:10+0700",
+                "rule": {"id": "100105", "level": 10, "description": "Port scan", "groups": ["fortigate"]},
+                "data": {"srcip": "203.0.113.10", "dstip": "198.51.100.2", "devname": "FGT-SOC"},
+                "occurrence_count": 5,
+            })
+            alerts.append({
+                "id": f"int-scan-{idx}",
+                "timestamp": f"2026-11-28T00:0{idx}:20+0700",
+                "rule": {"id": "100105", "level": 10, "description": "Port scan", "groups": ["fortigate"]},
+                "data": {"srcip": "10.10.40.10", "dstip": f"10.10.{10 + (idx % 3) * 10}.10", "devname": "FGT-SOC"},
+                "occurrence_count": 2,
+            })
+        # Add 12 distinct level-10/12 rules to test strict max_steps=10 cap
+        for r_idx in range(12):
+            alerts.append({
+                "id": f"crit-{r_idx}",
+                "timestamp": f"2026-11-28T00:1{r_idx:02d}:00+0700" if r_idx < 10 else f"2026-11-28T00:2{r_idx - 10}:00+0700",
+                "rule": {"id": str(100200 + r_idx), "level": 12 if r_idx < 2 else 10, "description": f"Stage {r_idx}"},
+                "agent": {"id": "008", "name": "WEB-01"},
+            })
+
+        mermaid = engine.generate_incident_attack_graph_mermaid({
+            "entity": "10.10.40.10",
+            "devices": ["FGT-SOC", "WEB-01"],
+            "alerts": alerts,
+        })
+        step_lines = [line for line in mermaid.splitlines() if "Bước " in line]
+        self.assertLessEqual(len(step_lines), 10)
+        # Interleaved 203.0.113.10 port scans (6 * 5 = 30) should collapse into 1 node
+        self.assertIn("Rule 100105 ×30", mermaid)
+        # Interleaved 10.10.40.10 port scans across 3 targets (6 * 2 = 12) should collapse into 1 node
+        self.assertIn("Rule 100105 ×12", mermaid)
+        self.assertIn("3 mục tiêu", mermaid)
+        # Level-12 stages must be retained over lower-priority steps
+        self.assertIn("Rule 100200", mermaid)
+        self.assertIn("Rule 100201", mermaid)

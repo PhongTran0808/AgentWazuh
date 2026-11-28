@@ -334,6 +334,15 @@ def extract_entities(alert: Dict[str, Any]) -> Set[str]:
         if value:
             entities.add(f"ip:{value}")
 
+    # Fallback: extract client IP from portal/syslog full_log ("... from 203.0.113.10")
+    full_log_text = str(alert.get("full_log") or "")
+    if full_log_text:
+        m_from = re.search(r"\bfrom\s+((?:\d{1,3}\.){3}\d{1,3})\b", full_log_text, flags=re.IGNORECASE)
+        if m_from:
+            ip_from = _valid_ip(m_from.group(1))
+            if ip_from:
+                entities.add(f"ip:{ip_from}")
+
     fg_meta = _extract_fortigate_meta(alert)
     if fg_meta["srcip"]:
         entities.add(f"ip:{fg_meta['srcip']}")
@@ -769,48 +778,74 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
         src_label = clean_text(primary_src_ip or (devices[0] if devices else "Nguồn chưa xác định"))
         lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::attacker')
 
-    def alert_signature(alert: Dict[str, Any]) -> Tuple[str, str, str]:
+    def step_signature_and_meta(alert: Dict[str, Any], sem: Dict[str, Any]) -> Tuple[Tuple[str, ...], Dict[str, Any]]:
         rule = alert.get("rule", {}) or {}
-        semantic = derive_alert_semantics(alert)
-        return (
-            clean_text(rule.get("id", "Rule")),
-            clean_text(semantic["label"]),
-            clean_text(rule.get("level", 0)),
-        )
+        r_id = clean_text(rule.get("id", "Rule"))
+        r_lvl = clean_text(rule.get("level", 0))
+        cat = sem.get("category") or "rule_event"
+        if cat == "fortigate_port_scan":
+            fg = _extract_fortigate_meta(alert)
+            dev = clean_text(fg.get("devname") or "FGT-SOC")
+            src = clean_text(fg.get("srcip") or sem.get("source_ip") or "External")
+            dst = clean_text(fg.get("dstip") or "WAN VIP")
+            sig = ("fortigate_port_scan", r_id, dev, src, r_lvl)
+            return sig, {"cat": cat, "dev": dev, "src": src, "dst": dst}
+        if cat == "fortigate_traffic":
+            fg = _extract_fortigate_meta(alert)
+            dev = clean_text(fg.get("devname") or "FGT-SOC")
+            svc = clean_text(fg.get("service") or (f"port {fg['dstport']}" if fg.get("dstport") else "traffic"))
+            src = clean_text(fg.get("srcip") or "?")
+            dst = clean_text(fg.get("dstip") or "?")
+            action = clean_text(fg.get("action") or "log")
+            sig = ("fortigate_traffic", r_id, dev, svc, src, action, r_lvl)
+            return sig, {"cat": cat, "dev": dev, "svc": svc, "src": src, "dst": dst, "action": action}
+        sig = ("generic", r_id, clean_text(sem["label"]), r_lvl)
+        return sig, {"cat": cat}
 
-    # Collapse only consecutive events. This preserves meaningful stage order
-    # when the same rule appears again later in the incident.
+    # Global stage deduplication preserving chronological first-appearance order.
+    # Prevents alternating interleaved events (e.g. port scans across targets)
+    # from exploding into dozens of redundant step nodes.
     grouped_steps: List[Dict[str, Any]] = []
-    for alert in sorted_alerts:
-        signature = alert_signature(alert)
-        if grouped_steps and grouped_steps[-1]["signature"] == signature:
-            grouped_steps[-1]["alerts"].append(alert)
-        else:
-            grouped_steps.append({"signature": signature, "alerts": [alert]})
+    grouped_by_sig: Dict[Tuple[str, ...], Dict[str, Any]] = {}
+    for alert, sem in zip(sorted_alerts, semantics):
+        sig, meta = step_signature_and_meta(alert, sem)
+        step = grouped_by_sig.get(sig)
+        if step is None:
+            step = {
+                "signature": sig,
+                "alerts": [],
+                "semantics": [],
+                "meta": meta,
+                "targets": [],
+            }
+            grouped_by_sig[sig] = step
+            grouped_steps.append(step)
+        step["alerts"].append(alert)
+        step["semantics"].append(sem)
+        dst_val = meta.get("dst")
+        if dst_val and dst_val not in step["targets"]:
+            step["targets"].append(dst_val)
 
-    max_steps = 12
+    max_steps = 10
     if len(grouped_steps) <= max_steps:
         selected_indices = list(range(len(grouped_steps)))
     else:
-        # Smart Step Retention: never truncate critical/high alerts (Lvl >= 10)
-        critical_indices = {
-            idx for idx, st in enumerate(grouped_steps)
-            if max(_safe_int((a.get("rule") or {}).get("level"), 0) for a in st["alerts"]) >= 10
-        }
-        selected = set(critical_indices)
-        # Fill remaining slots in chronological order, prioritizing tail (latest attack actions) and head
-        remaining_slots = max(0, max_steps - len(selected))
-        non_crit = [idx for idx in range(len(grouped_steps)) if idx not in selected]
-        for idx in reversed(non_crit):
-            if remaining_slots <= 0:
-                break
-            selected.add(idx)
-            remaining_slots -= 1
-        selected_indices = sorted(selected)
+        # Strict bounded retention: prioritize highest severity, then total occurrences, then chronological order.
+        ranked = sorted(
+            range(len(grouped_steps)),
+            key=lambda idx: (
+                -max(_safe_int((a.get("rule") or {}).get("level"), 0) for a in grouped_steps[idx]["alerts"]),
+                -sum(max(1, _safe_int(a.get("occurrence_count"), 1)) for a in grouped_steps[idx]["alerts"]),
+                idx,
+            ),
+        )
+        selected_indices = sorted(ranked[:max_steps])
 
     omitted_count = 0
+    omitted_steps = 0
     if len(grouped_steps) > max_steps:
         selected_set = set(selected_indices)
+        omitted_steps = len(grouped_steps) - len(selected_set)
         omitted_count = sum(
             sum(max(1, _safe_int(item.get("occurrence_count"), 1)) for item in grouped_steps[idx]["alerts"])
             for idx in range(len(grouped_steps)) if idx not in selected_set
@@ -819,7 +854,7 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     prev_node_id = src_node_id
     if omitted_count and selected_indices and selected_indices[0] > 0:
         more_id = "step_omitted"
-        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo mức thấp trước đó …"]:::step')
+        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo ({omitted_steps} bước) mức thấp trước đó …"]:::step')
         lines.append(f'    {prev_node_id} --> {more_id}')
         prev_node_id = more_id
         omitted_count = 0
@@ -827,14 +862,36 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     for step_num, orig_idx in enumerate(selected_indices):
         step = grouped_steps[orig_idx]
         a = step["alerts"][0]
+        sem = step["semantics"][0]
+        meta = step["meta"]
+        targets = step["targets"]
         step_id = f"step_{step_num}"
         r_id = a.get("rule", {}).get("id", "Rule")
-        r_lvl = _safe_int(a.get("rule", {}).get("level"), 0)
-        sem = derive_alert_semantics(a)
-        r_desc = clean_text(sem["label"])[:110]
-        eff_epoch = _effective_event_epoch(a)
-        ts_short = _format_local_hhmmss(eff_epoch)
-        time_prefix = f"[{ts_short}] " if ts_short else ""
+        r_lvl = max(_safe_int((item.get("rule") or {}).get("level"), 0) for item in step["alerts"])
+
+        if meta.get("cat") == "fortigate_port_scan" and len(targets) > 1:
+            preview = ", ".join(targets[:3]) + (f", +{len(targets) - 3} IP" if len(targets) > 3 else "")
+            r_desc = clean_text(f"{meta['dev']}: Quét cổng trinh sát từ {meta['src']} ➔ {len(targets)} mục tiêu ({preview}) (T1046)")[:115]
+        elif meta.get("cat") == "fortigate_traffic" and len(targets) > 1:
+            preview = ", ".join(targets[:3]) + (f", +{len(targets) - 3} IP" if len(targets) > 3 else "")
+            r_desc = clean_text(f"{meta['dev']}: {meta['svc']} {meta['src']} ➔ {len(targets)} đích ({preview}) ({meta['action']})")[:115]
+        else:
+            r_desc = clean_text(sem["label"])[:115]
+
+        epochs = [
+            _effective_event_epoch(item) or parse_wazuh_time(item.get("timestamp", ""))
+            for item in step["alerts"]
+        ]
+        epochs = [ep for ep in epochs if ep > 0]
+        if epochs:
+            first_ep, last_ep = min(epochs), max(epochs)
+            if last_ep - first_ep >= 5:
+                time_prefix = f"[{_format_local_hhmmss(first_ep)}–{_format_local_hhmmss(last_ep)}] "
+            else:
+                time_prefix = f"[{_format_local_hhmmss(first_ep)}] "
+        else:
+            time_prefix = ""
+
         count = sum(max(1, _safe_int(item.get("occurrence_count"), 1)) for item in step["alerts"])
         if count > 1:
             step_label = f"Bước {step_num+1}: Rule {r_id} ×{count}<br/>{time_prefix}{r_desc} (Lvl {r_lvl})<br/>{count} cảnh báo tương tự được gom"
@@ -848,7 +905,7 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
 
     if omitted_count:
         more_id = "step_more"
-        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo tiếp theo …"]:::step')
+        lines.append(f'    {more_id}["… +{omitted_count} cảnh báo ({omitted_steps} bước) khác được rút gọn …"]:::step')
         lines.append(f'    {prev_node_id} --> {more_id}')
         prev_node_id = more_id
 
@@ -926,6 +983,70 @@ def derive_alert_semantics(alert: Dict[str, Any]) -> Dict[str, Any]:
     vt_info = _extract_virustotal_info(alert)
     file_path = _extract_file_path(alert)
     short_path = _short_display_path(file_path)
+
+    if rule_id == "100105":
+        fg = _extract_fortigate_meta(alert)
+        dev = fg.get("devname") or "FGT-SOC"
+        src = fg.get("srcip") or (source_match.group(1) if source_match else None)
+        dst = fg.get("dstip") or "WAN VIP"
+        return {
+            "category": "fortigate_port_scan",
+            "label": f"{dev}: Quét cổng trinh sát từ {src or 'External'} ➔ {dst} (T1046)",
+            "incident_type": "Quét cổng trinh sát từ bên ngoài (Port Scanning)",
+            "source_ip": src,
+            "paths": paths,
+            "mitre_techniques": ["T1046"],
+            "mitre_tactics": ["Discovery"],
+            "raw_log_count": len(logs),
+        }
+    if rule_id in {"100101", "100106"}:
+        src = _valid_ip(_first_value(alert.get("data") or {}, "srcip", "src_ip")) or (source_match.group(1) if source_match else None)
+        return {
+            "category": "web_scan",
+            "label": "Web scan: dò quét đường dẫn & tài nguyên web (T1595)",
+            "incident_type": "Phát hiện dò quét thư mục và tài nguyên web",
+            "source_ip": src,
+            "paths": paths,
+            "mitre_techniques": ["T1595.001" if rule_id == "100101" else "T1595.003"],
+            "mitre_tactics": ["Reconnaissance"],
+            "raw_log_count": len(logs),
+        }
+    if rule_id in {"100102", "100107", "100110"}:
+        src = _valid_ip(_first_value(alert.get("data") or {}, "srcip", "src_ip")) or (source_match.group(1) if source_match else None)
+        return {
+            "category": "web_bruteforce",
+            "label": "Web Portal: Tấn công dò mật khẩu Brute-Force (T1110)",
+            "incident_type": "Tấn công dò mật khẩu Web Portal (Credential Brute-Force)",
+            "source_ip": src,
+            "paths": paths,
+            "mitre_techniques": ["T1110.001"],
+            "mitre_tactics": ["Credential Access"],
+            "raw_log_count": len(logs),
+        }
+    if rule_id == "100108":
+        src = _valid_ip(_first_value(alert.get("data") or {}, "srcip", "src_ip")) or (source_match.group(1) if source_match else None)
+        return {
+            "category": "web_compromise",
+            "label": "CẢNH BÁO: Đăng nhập Portal thành công sau Brute-Force (T1078)",
+            "incident_type": "Xâm nhập tài khoản Web Portal thành công sau Brute-Force",
+            "source_ip": src,
+            "paths": paths,
+            "mitre_techniques": ["T1078"],
+            "mitre_tactics": ["Initial Access"],
+            "raw_log_count": len(logs),
+        }
+    if rule_id == "100104":
+        src = _valid_ip(_first_value(alert.get("data") or {}, "srcip", "src_ip")) or (source_match.group(1) if source_match else None)
+        return {
+            "category": "web_dos",
+            "label": "Web Server: Tấn công từ chối dịch vụ HTTP Flood (T1498)",
+            "incident_type": "Tấn công từ chối dịch vụ HTTP Flood",
+            "source_ip": src,
+            "paths": paths,
+            "mitre_techniques": ["T1498"],
+            "mitre_tactics": ["Impact"],
+            "raw_log_count": len(logs),
+        }
 
     if rule_id in {"100050", "87105"} or (vt_info and (vt_info.get("malicious", 0) > 0 or vt_info.get("positives", 0) > 0)):
         pos = vt_info.get("positives", 0)
@@ -1018,31 +1139,32 @@ def derive_alert_semantics(alert: Dict[str, Any]) -> Dict[str, Any]:
 
     if "fortigate" in groups:
         fg = _extract_fortigate_meta(alert)
-        dev = fg.get("devname") or "FGT-SOC"
-        svc = fg.get("service") or (f"port {fg['dstport']}" if fg.get("dstport") else "traffic")
-        src = fg.get("srcip") or "?"
-        dst = fg.get("dstip") or "?"
-        port_sfx = f":{fg['dstport']}" if fg.get("dstport") else ""
-        action = fg.get("action") or "log"
-        notes = [action]
-        if fg.get("logid") == "0000000020" and fg.get("duration", 0) > 0:
-            start_hhmmss = _format_local_hhmmss(_effective_event_epoch(alert))
-            if start_hhmmss:
-                notes.append(f"bắt đầu {start_hhmmss}")
-        if fg.get("rcvdbyte", 0) >= 1024:
-            notes.append(f"nhận {round(fg['rcvdbyte'] / 1024, 1)}KB")
-        domain_part = f" [{fg['qname'] or fg['hostname']}]" if (fg.get("qname") or fg.get("hostname")) else ""
-        label = f"{dev}: {svc} {src} ➔ {dst}{port_sfx}{domain_part} ({', '.join(notes)})"
-        return {
-            "category": "fortigate_traffic",
-            "label": label,
-            "incident_type": "Lưu lượng mạng qua Firewall FortiGate",
-            "source_ip": fg.get("srcip") or None,
-            "paths": paths,
-            "mitre_techniques": [],
-            "mitre_tactics": [],
-            "raw_log_count": len(logs),
-        }
+        if fg.get("srcip") or fg.get("dstip") or fg.get("qname") or fg.get("hostname"):
+            dev = fg.get("devname") or "FGT-SOC"
+            svc = fg.get("service") or (f"port {fg['dstport']}" if fg.get("dstport") else "traffic")
+            src = fg.get("srcip") or "?"
+            dst = fg.get("dstip") or "?"
+            port_sfx = f":{fg['dstport']}" if fg.get("dstport") else ""
+            action = fg.get("action") or "log"
+            notes = [action]
+            if fg.get("logid") == "0000000020" and fg.get("duration", 0) > 0:
+                start_hhmmss = _format_local_hhmmss(_effective_event_epoch(alert))
+                if start_hhmmss:
+                    notes.append(f"bắt đầu {start_hhmmss}")
+            if fg.get("rcvdbyte", 0) >= 1024:
+                notes.append(f"nhận {round(fg['rcvdbyte'] / 1024, 1)}KB")
+            domain_part = f" [{fg['qname'] or fg['hostname']}]" if (fg.get("qname") or fg.get("hostname")) else ""
+            label = f"{dev}: {svc} {src} ➔ {dst}{port_sfx}{domain_part} ({', '.join(notes)})"
+            return {
+                "category": "fortigate_traffic",
+                "label": label,
+                "incident_type": "Lưu lượng mạng qua Firewall FortiGate",
+                "source_ip": fg.get("srcip") or None,
+                "paths": paths,
+                "mitre_techniques": [],
+                "mitre_tactics": [],
+                "raw_log_count": len(logs),
+            }
 
     return {
         "category": "rule_event",

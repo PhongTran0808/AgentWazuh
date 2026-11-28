@@ -48,6 +48,62 @@
       "level": 7,
       "recommended_action": "Kiểm tra tiến trình thực hiện truy vấn DNS tới tên miền chia sẻ tệp/C2 bất thường và đối chiếu với nhật ký tải tệp trên endpoint."
     },
+    "100101": {
+      "technique_id": "T1595.001",
+      "technique_name": "Active Scanning: Scanning IP Blocks / Dir Enumeration",
+      "tactic": "Reconnaissance",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Chặn IP nguồn trên FortiGate WAN, rà soát các đường dẫn nhạy cảm đã bị thăm dò trên WEB-01."
+    },
+    "100102": {
+      "technique_id": "T1110",
+      "technique_name": "Brute Force (Web Portal)",
+      "tactic": "Credential Access",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Chặn IP tấn công trên FortiGate, bật rate-limit/khóa tài khoản tạm thời và kiểm tra nhật ký đăng nhập thành công."
+    },
+    "100104": {
+      "technique_id": "T1498",
+      "technique_name": "Network Denial of Service (HTTP Flood)",
+      "tactic": "Impact",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Kích hoạt DoS Policy / giới hạn kết nối trên FortiGate và chặn IP nguồn tấn công."
+    },
+    "100105": {
+      "technique_id": "T1046",
+      "technique_name": "Network Service Discovery (External Port Scan)",
+      "tactic": "Discovery",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Theo dõi hoặc chặn IP nguồn quét cổng trên FGT-SOC, đối chiếu tiếp các yêu cầu HTTP đi qua VIP port 80."
+    },
+    "100106": {
+      "technique_id": "T1595.003",
+      "technique_name": "Active Scanning: Wordlist Scanning (Portal Dir Enum)",
+      "tactic": "Reconnaissance",
+      "severity": "Medium",
+      "level": 8,
+      "recommended_action": "Kiểm tra danh sách tài nguyên bị dò quét trên Portal và chặn IP nguồn nếu tiếp tục leo thang."
+    },
+    "100107": {
+      "technique_id": "T1110.001",
+      "technique_name": "Brute Force: Password Guessing (Portal)",
+      "tactic": "Credential Access",
+      "severity": "High",
+      "level": 10,
+      "recommended_action": "Chặn IP tấn công trên FGT-SOC, kiểm tra xem có cảnh báo đăng nhập thành công (Rule 100108) theo sau hay không."
+    },
+    "100108": {
+      "technique_id": "T1078",
+      "technique_name": "Valid Accounts (Post-Brute-Force Compromise)",
+      "tactic": "Initial Access",
+      "severity": "Critical",
+      "level": 12,
+      "recommended_action": "KHẨN CẤP: Đổi mật khẩu tài khoản bị xâm nhập ngay lập tức, thu hồi phiên đăng nhập và chặn IP nguồn trên FortiGate."
+    },
     "87103": {
       "technique_id": "T1027",
       "technique_name": "Obfuscated Files or Information (Archive Unknown on VirusTotal)",

@@ -18,6 +18,7 @@ from services.chat_intent import (
 )
 from services.laya_intent_router import route_intent
 from services.ollama_client import OllamaClient, OllamaError, model_name_from_selection
+from services.ip_anonymizer import IPAnonymizer
 from services.wazuh_kb import get_compact_kb_context, render_wazuh_kb_answer
 
 logger = logging.getLogger("IncidentAssistant")
@@ -640,19 +641,31 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
                 tool_flags += ["--extension", str(mcp_extension)]
 
             def _try_pi_run(mod_name: Optional[str]) -> Optional[str]:
+                pi_anonymizer = IPAnonymizer()
+                safe_pi_prompt = pi_anonymizer.anonymize_text(full_prompt)
+                safe_pi_path = f"{temp_prompt_path}.safe"
                 try:
+                    with open(safe_pi_path, "w", encoding="utf-8") as sf:
+                        sf.write(safe_pi_prompt)
                     m_flag = ["--model", mod_name] if mod_name else []
-                    cmd = [pi_bin] + tool_flags + m_flag + ["-p", f"@{temp_prompt_path}"]
+                    cmd = [pi_bin] + tool_flags + m_flag + ["-p", f"@{safe_pi_path}"]
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=25, env=env)
                     stdout_str = result.stdout.strip()
                     if result.returncode == 0 and stdout_str and "unsupported_api_for_model" not in stdout_str and not stdout_str.startswith("Error:"):
-                        return stdout_str
+                        execution_meta["ip_anonymized_count"] = len(pi_anonymizer.real_to_alias)
+                        return pi_anonymizer.deanonymize_text(stdout_str)
                     err_msg = (result.stderr or "").strip() or stdout_str[:200]
                     logger.warning(f"Pi CLI with model '{mod_name}' returned code {result.returncode}: {err_msg}")
                     return None
                 except Exception as pi_err:
                     logger.warning(f"Pi CLI execution error for model '{mod_name}': {pi_err}")
                     return None
+                finally:
+                    if os.path.exists(safe_pi_path):
+                        try:
+                            os.remove(safe_pi_path)
+                        except OSError:
+                            pass
 
             # Primary attempt via Pi CLI
             primary_pi_out = _try_pi_run(target_model)
@@ -696,10 +709,12 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
 
                 for g_mod in dedup_gemini:
                     try:
+                        anonymizer = IPAnonymizer()
+                        safe_cloud_prompt = anonymizer.anonymize_text(full_prompt)
                         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_mod}:generateContent?key={clean_g_key}"
                         resp = requests.post(
                             gemini_url,
-                            json={"contents": [{"parts": [{"text": full_prompt}]}]},
+                            json={"contents": [{"parts": [{"text": safe_cloud_prompt}]}]},
                             headers={"Content-Type": "application/json"},
                             timeout=15,
                         )
@@ -709,10 +724,12 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
                             if candidates and candidates[0].get("content", {}).get("parts"):
                                 part_text = candidates[0]["content"]["parts"][0].get("text", "").strip()
                                 if part_text:
+                                    part_text = anonymizer.deanonymize_text(part_text)
                                     execution_meta["model_used"] = f"Gemini API (Cloud Fallback) · {g_mod}"
                                     execution_meta["fallback_used"] = True
                                     execution_meta["fallback_chain"] = list(fallback_history)
                                     execution_meta["provider"] = "gemini_api"
+                                    execution_meta["ip_anonymized_count"] = len(anonymizer.real_to_alias)
                                     return part_text
                         fallback_history.append(f"gemini_api:{g_mod}:http_{resp.status_code}")
                     except Exception as gem_err:
@@ -752,11 +769,13 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
 
                 for or_mod in dedup_or:
                     try:
+                        anonymizer = IPAnonymizer()
+                        safe_cloud_prompt = anonymizer.anonymize_text(full_prompt)
                         resp = requests.post(
                             url,
                             json={
                                 "model": or_mod,
-                                "messages": [{"role": "user", "content": full_prompt}],
+                                "messages": [{"role": "user", "content": safe_cloud_prompt}],
                                 "max_tokens": 1500
                             },
                             headers=headers,
@@ -768,11 +787,13 @@ Hệ thống chưa thể đối chiếu Rule `{rid}` với ruleset Wazuh Manager
                             if choices and choices[0].get("message", {}).get("content"):
                                 content_text = choices[0]["message"]["content"].strip()
                                 if content_text:
+                                    content_text = anonymizer.deanonymize_text(content_text)
                                     provider_name = "OpenRouter" if or_key else "OpenAI"
                                     execution_meta["model_used"] = f"{provider_name} (Cloud Fallback) · {or_mod}"
                                     execution_meta["fallback_used"] = True
                                     execution_meta["fallback_chain"] = list(fallback_history)
                                     execution_meta["provider"] = provider_name.lower()
+                                    execution_meta["ip_anonymized_count"] = len(anonymizer.real_to_alias)
                                     return content_text
                         fallback_history.append(f"openrouter_openai:{or_mod}:http_{resp.status_code}")
                     except Exception as or_err:

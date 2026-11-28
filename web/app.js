@@ -1086,7 +1086,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="alert-header-row">
                     <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                         <span class="badge-level ${levelClass}">PRIORITY: ${score}/100</span>
-                        <span class="badge-confidence ${confClass}" title="Độ tin cậy tương quan dựa trên bằng chứng đa nguồn"><i class="fa-solid fa-bullseye"></i> TIN CẬY: ${confidence}%</span>
+                        <span class="badge-confidence ${confClass}" title="Độ phủ bằng chứng tổng hợp từ log đa nguồn để chứng minh sự cố"><i class="fa-solid fa-bullseye"></i> BẰNG CHỨNG: ${confidence}%</span>
                     </div>
                     <span class="alert-time">${groupTime}</span>
                 </div>
@@ -2054,7 +2054,7 @@ window.applyXmlRule = async function() {
     if (meta) {
         meta.innerHTML = `
             <span class="badge-level level-high">Priority: ${priority}/100</span>
-            <span class="badge-confidence ${confBadgeClass}"><i class="fa-solid fa-bullseye"></i> Độ tin cậy: ${conf}%</span>
+            <span class="badge-confidence ${confBadgeClass}" title="Tỷ lệ bằng chứng log đã thu thập để chứng minh cảnh báo"><i class="fa-solid fa-bullseye"></i> Độ phủ bằng chứng: ${conf}%</span>
             <span><i class="fa-solid fa-shield-halved"></i> Số cảnh báo: <b>${group.alert_count || (group.alerts ? group.alerts.length : 1)}</b></span>
             <span><i class="fa-solid fa-network-wired"></i> Thực thể: <b>${String(group.entity || "N/A").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</b></span>
             <span><i class="fa-solid fa-tag"></i> Tương quan: <b>${String(group.correlation_reason || "Multi-stage").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</b></span>

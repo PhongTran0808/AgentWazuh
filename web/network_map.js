@@ -930,7 +930,7 @@ function renderDeviceDetail(dev) {
             <h3>Sự cố đang ảnh hưởng</h3>
             <p class="metric-note"><span class="ref">${escHtml(incident.incident_id || "Incident")}</span>
                 · ${incident.alert_count ?? 0} cảnh báo
-                · Độ tin cậy tương quan: <b>${incident.correlation_confidence ?? incident.confidence_score ?? 0}%</b>
+                · Độ phủ bằng chứng: <b>${incident.correlation_confidence ?? incident.confidence_score ?? 0}%</b>
             </p>
             <p class="metric-note">${escHtml(incident.correlation_reason || incident.correlation_type || "Tương quan theo chuỗi sự kiện")}</p>
             ${incident.mitre_techniques?.length ? `<p class="metric-note">MITRE: <span class="ref">${escHtml(incident.mitre_techniques.join(", "))}</span></p>` : ""}

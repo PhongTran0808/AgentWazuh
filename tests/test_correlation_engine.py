@@ -526,3 +526,105 @@ class ExternalInboundKillChainTests(unittest.TestCase):
         # Level-12 stages must be retained over lower-priority steps
         self.assertIn("Rule 100200", mermaid)
         self.assertIn("Rule 100201", mermaid)
+
+    def test_win01_gofile_download_does_not_merge_with_web01_or_fgt_port_scans(self):
+        # Reproduce exact INC-94363AF81B26 false-merge scenario:
+        # 1) WEB-01 Rule 503 (agent started)
+        # 2) FGT-SOC Rule 100105 port scan 10.10.40.10 -> 10.10.30.10 (WEB-01) and -> 10.10.10.10 (WIN-01)
+        # 3) FGT-SOC Rule 100105 outbound block 10.10.10.10 -> external telemetry IP
+        # 4) WIN-01 routine Windows noise (60805, 61104) + browser .tmp/.crdownload FIM
+        # 5) WIN-01 real gofile.io download -> safe-file.zip -> extract safe-file1\safe-file.txt -> VT EICAR 100050
+        alerts = [
+            {
+                "id": "web-503",
+                "timestamp": "2026-11-28T22:20:50+0700",
+                "rule": {"id": "503", "level": 3, "description": "Wazuh agent started."},
+                "agent": {"id": "008", "name": "WEB-01", "ip": "10.10.30.10"},
+            },
+            {
+                "id": "fgt-scan-web",
+                "timestamp": "2026-11-28T22:21:53+0700",
+                "rule": {"id": "100105", "level": 10, "description": "Port scan", "groups": ["fortigate", "port_scan"], "mitre": {"id": ["T1046"], "tactic": ["Discovery"]}},
+                "agent": {"id": "000", "name": "xinloihuy"},
+                "data": {"srcip": "10.10.40.10", "dstip": "10.10.30.10", "devname": "FGT-SOC"},
+            },
+            {
+                "id": "fgt-scan-win",
+                "timestamp": "2026-11-28T22:22:05+0700",
+                "rule": {"id": "100105", "level": 10, "description": "Port scan", "groups": ["fortigate", "port_scan"], "mitre": {"id": ["T1046"], "tactic": ["Discovery"]}},
+                "agent": {"id": "000", "name": "xinloihuy"},
+                "data": {"srcip": "10.10.40.10", "dstip": "10.10.10.10", "devname": "FGT-SOC"},
+            },
+            {
+                "id": "fgt-win-deny",
+                "timestamp": "2026-11-28T22:24:00+0700",
+                "rule": {"id": "100105", "level": 10, "description": "Port scan", "groups": ["fortigate", "port_scan"], "mitre": {"id": ["T1046"], "tactic": ["Discovery"]}},
+                "agent": {"id": "000", "name": "xinloihuy"},
+                "data": {"srcip": "10.10.10.10", "dstip": "52.123.128.14", "devname": "FGT-SOC"},
+            },
+            {
+                "id": "win-noise-60805",
+                "timestamp": "2026-11-28T22:22:35+0700",
+                "rule": {"id": "60805", "level": 3, "description": "The database engine is starting a new instance."},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+            },
+            {
+                "id": "win-tmp-553",
+                "timestamp": "2026-11-28T22:25:59+0700",
+                "rule": {"id": "553", "level": 7, "description": "File deleted.", "groups": ["syscheck"]},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "syscheck": {"path": r"c:\users\administrator\downloads\unconfirmed 154111.crdownload"},
+            },
+            {
+                "id": "win-zip-554",
+                "timestamp": "2026-11-28T22:26:27+0700",
+                "rule": {"id": "554", "level": 5, "description": "File added to the system.", "groups": ["syscheck"]},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "syscheck": {"path": r"c:\users\administrator\downloads\safe-file.zip"},
+            },
+            {
+                "id": "win-zip-motw-100054",
+                "timestamp": "2026-11-28T22:26:27+0700",
+                "rule": {"id": "100054", "level": 6, "description": "FortiGate UTM detected access to file-sharing / staging domain.", "groups": ["sysmon", "soc_correlation"], "mitre": {"id": ["T1105"], "tactic": ["Command and Control"]}},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "data": {"win": {"eventdata": {"targetFilename": r"C:\Users\Administrator\Downloads\safe-file.zip:Zone.Identifier", "contents": "[ZoneTransfer] ZoneId=3 ReferrerUrl=https://gofile.io/d/UYjsGhxE"}}},
+            },
+            {
+                "id": "win-txt-554",
+                "timestamp": "2026-11-28T22:26:38+0700",
+                "rule": {"id": "554", "level": 5, "description": "File added to the system.", "groups": ["syscheck"]},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "syscheck": {"path": r"c:\users\administrator\downloads\safe-file1\safe-file.txt"},
+            },
+            {
+                "id": "win-txt-motw-100051",
+                "timestamp": "2026-11-28T22:26:38+0700",
+                "rule": {"id": "100051", "level": 8, "description": "MOTW Download URL detected", "groups": ["sysmon", "sysmon_event_15"], "mitre": {"id": ["T1105"], "tactic": ["Command and Control"]}},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "data": {"win": {"eventdata": {"targetFilename": r"C:\Users\Administrator\Downloads\safe-file1\safe-file.txt:Zone.Identifier", "contents": r"[ZoneTransfer] ZoneId=3 ReferrerUrl=C:\Users\Administrator\Downloads\safe-file.zip"}}},
+            },
+            {
+                "id": "win-vt-100050",
+                "timestamp": "2026-11-28T22:26:41+0700",
+                "rule": {"id": "100050", "level": 12, "description": "Malware detected by VirusTotal", "groups": ["virustotal"], "mitre": {"id": ["T1204.002"], "tactic": ["Execution"]}},
+                "agent": {"id": "009", "name": "WIN-01", "ip": "10.10.10.10"},
+                "data": {"virustotal": {"positives": 60, "total": 68, "source": {"file": r"c:\users\administrator\downloads\safe-file1\safe-file.txt", "md5": "44d88612fea8a8f36de82e1278abb02f"}}},
+            },
+        ]
+
+        groups = engine.correlate_alerts(alerts, time_window_minutes=5, max_incident_span_minutes=30)
+        malware_groups = [g for g in groups if any("100050" == str((a.get("rule") or {}).get("id")) for a in g["alerts"])]
+        self.assertEqual(len(malware_groups), 1)
+        mg = malware_groups[0]
+        self.assertEqual(mg["entity"], "agent-WIN-01")
+        self.assertEqual(mg["devices"], ["WIN-01"])
+        self.assertNotIn("WEB-01", mg["devices"])
+        self.assertNotIn("10.10.40.10", mg["source_ips"])
+        self.assertNotIn("100105", mg["distinct_rule_ids"])
+        self.assertNotIn("503", mg["distinct_rule_ids"])
+        self.assertIn("gofile.io", mg["extracted_iocs"]["domains"])
+        mermaid = mg["attack_graph_mermaid"]
+        self.assertIn("Endpoint WIN-01 (10.10.10.10)", mermaid)
+        self.assertNotIn("Endpoint WEB-01", mermaid)
+        self.assertIn("gofile.io", mermaid)
+        self.assertIn("Malware: safe-file1/safe-file.txt", mermaid)

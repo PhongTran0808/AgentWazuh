@@ -132,10 +132,11 @@ def _extract_file_path(alert: Dict[str, Any]) -> str:
 
 
 def _file_stem_and_basename(path: str) -> Tuple[str, str]:
-    """Return (basename, stem) normalizing Windows and POSIX path separators."""
+    """Return (basename, stem) normalizing Windows/POSIX separators and ADS suffixes."""
     norm = _clean_scalar(path).replace("\\", "/")
     if not norm:
         return "", ""
+    norm = re.sub(r":Zone\.Identifier$", "", norm, flags=re.IGNORECASE)
     basename = norm.rsplit("/", 1)[-1].strip()
     if "." in basename:
         stem = basename.rsplit(".", 1)[0]
@@ -272,6 +273,46 @@ def _is_private_ip(ip_str: str) -> bool:
         return False
 
 
+def _is_network_sensor_alert(alert: Dict[str, Any]) -> bool:
+    """Return True when alert originates from a network appliance/sensor (e.g. FortiGate) rather than an endpoint host."""
+    agent = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    agent_id = _clean_scalar(agent.get("id"))
+    agent_name = _clean_scalar(agent.get("name")).lower()
+    fg_meta = _extract_fortigate_meta(alert)
+    groups = {str(g).lower() for g in ((alert.get("rule") or {}).get("groups") or [])}
+    if fg_meta.get("devname") and (agent_id == "000" or agent_name in {"", "wazuh-server", "localhost"} or not agent_ip_present(agent)):
+        return True
+    if "fortigate" in groups and (agent_id == "000" or not agent_ip_present(agent)):
+        return True
+    return False
+
+
+_LIFECYCLE_RULE_IDS = {"501", "502", "503", "504", "505", "506"}
+_ROUTINE_HOST_NOISE_RULES = {
+    "60104", "60118", "60642", "60646", "60668", "60702",
+    "60798", "60805", "61102", "61104", "67028",
+}
+
+
+def _is_lifecycle_or_housekeeping_alert(alert: Dict[str, Any]) -> bool:
+    """Return True for agent lifecycle or benign OS/browser housekeeping events that must not bridge incidents."""
+    rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
+    rule_id = _clean_scalar(rule.get("id"))
+    level = _safe_int(rule.get("level"), 0)
+    if rule_id in _LIFECYCLE_RULE_IDS:
+        return True
+    if _is_benign_fim_artifact(alert):
+        return True
+    file_path = _extract_file_path(alert)
+    if file_path and _is_browser_temp_file(file_path) and rule_id in {"550", "553", "554", "87103"}:
+        return True
+    if "__psscriptpolicytest_" in (file_path or "").lower() or "__psscriptpolicytest_" in str(alert.get("full_log") or "").lower():
+        return True
+    if rule_id in _ROUTINE_HOST_NOISE_RULES and level <= 5:
+        return True
+    return False
+
+
 def _is_low_level_fg_noise(alert: Dict[str, Any]) -> bool:
     """Identify low-level FortiGate implicit deny or generic public DNS background traffic."""
     rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
@@ -288,7 +329,7 @@ def _is_low_level_fg_noise(alert: Dict[str, Any]) -> bool:
 
 
 def _extract_sysmon_meta(alert: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract Sysmon Event ID, HostUrl (MOTW), QueryName (DNS), Image, and TargetFilename."""
+    """Extract Sysmon Event ID, HostUrl/ReferrerUrl (MOTW), QueryName (DNS), Image, and TargetFilename."""
     data = alert.get("data") if isinstance(alert.get("data"), dict) else {}
     rule = alert.get("rule") if isinstance(alert.get("rule"), dict) else {}
     groups = {str(g).lower() for g in (rule.get("groups") or [])}
@@ -300,17 +341,36 @@ def _extract_sysmon_meta(alert: Dict[str, Any]) -> Dict[str, Any]:
             if m:
                 event_id = m.group(1)
                 break
-    host_url = _first_value(data, "win.eventdata.contents", "url")
-    if not host_url:
-        m_url = re.search(r"HostUrl\s*=\s*(https?://[^\s\r\n\"'<>]+)", full_log, flags=re.IGNORECASE)
-        if m_url:
-            host_url = m_url.group(1).strip()
+
+    raw_contents = _first_value(data, "win.eventdata.contents")
+    search_blob = f"{raw_contents}\n{full_log}"
+    host_url = ""
+    referrer_url = ""
+    m_host = re.search(r"HostUrl\s*=\s*(https?://[^\s\r\n\"'<>]+)", search_blob, flags=re.IGNORECASE)
+    if m_host:
+        host_url = m_host.group(1).strip()
+    m_ref = re.search(r"ReferrerUrl\s*=\s*([^\s\r\n\"'<>]+)", search_blob, flags=re.IGNORECASE)
+    if m_ref:
+        referrer_url = m_ref.group(1).strip()
+
+    explicit_url = _first_value(data, "url")
+    if not host_url and explicit_url.lower().startswith(("http://", "https://")):
+        host_url = explicit_url
+    if not host_url and referrer_url.lower().startswith(("http://", "https://")):
+        host_url = referrer_url
+
     qname = _first_value(data, "win.eventdata.queryName", "qname")
+    if not qname and host_url:
+        m_dom = re.match(r"^https?://([^/:?#]+)", host_url, flags=re.IGNORECASE)
+        if m_dom:
+            qname = m_dom.group(1).lower()
+
     target_file = _first_value(data, "win.eventdata.targetFilename", "win.eventdata.TargetFilename")
     image = _first_value(data, "win.eventdata.image", "process.name", "process")
     return {
         "event_id": event_id,
         "host_url": host_url,
+        "referrer_url": referrer_url,
         "qname": qname,
         "target_file": target_file,
         "image": image,
@@ -349,17 +409,20 @@ def extract_entities(alert: Dict[str, Any]) -> Set[str]:
     if fg_meta["dstip"]:
         entities.add(f"ip:{fg_meta['dstip']}")
 
+    is_sensor = _is_network_sensor_alert(alert)
     agent_id = _clean_scalar(agent.get("id"))
     if agent_id and agent_id != "000":
         entities.add(f"agent-id:{agent_id.lower()}")
     agent_name = _clean_scalar(agent.get("name"))
     devname = fg_meta.get("devname") or _first_value(data, "hostname", "host", "devname")
     if agent_name and agent_name.lower() not in {"wazuh-server", "localhost"}:
-        if not (agent_id == "000" and devname):
+        if not (is_sensor or (agent_id == "000" and devname)):
             entities.add(f"agent:{agent_name.lower()}")
+    # Keep endpoint agent.ip separate as asset-ip: so host telemetry never falsely bridges
+    # unrelated network scans merely because both mention the host's IP address.
     agent_ip = _valid_ip(agent.get("ip"))
-    if agent_ip:
-        entities.add(f"ip:{agent_ip}")
+    if agent_ip and not is_sensor:
+        entities.add(f"asset-ip:{agent_ip}")
 
     for value in (
         _first_value(data, "srcuser", "dstuser", "user", "username"),
@@ -370,7 +433,10 @@ def extract_entities(alert: Dict[str, Any]) -> Set[str]:
 
     hostname = _first_value(data, "hostname", "host", "devname") or devname
     if hostname:
-        entities.add(f"host:{hostname.lower()}")
+        if is_sensor:
+            entities.add(f"sensor:{hostname.lower()}")
+        else:
+            entities.add(f"host:{hostname.lower()}")
 
     file_path = _extract_file_path(alert)
     if file_path and not _is_browser_temp_file(file_path):
@@ -742,17 +808,20 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     semantics = [derive_alert_semantics(alert) for alert in sorted_alerts]
     semantic_source_ips = [item.get("source_ip") for item in semantics if item.get("source_ip")]
     has_web_scan = any(item.get("category") == "web_scan" for item in semantics)
-    endpoint_agents = [
-        _clean_scalar((a.get("agent") or {}).get("name"))
-        for a in sorted_alerts
-        if _clean_scalar((a.get("agent") or {}).get("id")) != "000"
-        and _clean_scalar((a.get("agent") or {}).get("name")).lower() not in {"", "wazuh-server", "localhost"}
-    ]
-    endpoint_ips = {
-        _valid_ip((a.get("agent") or {}).get("ip"))
-        for a in sorted_alerts
-        if _valid_ip((a.get("agent") or {}).get("ip"))
-    }
+    endpoint_agents_with_ip: List[Tuple[str, str]] = []
+    for a in sorted_alerts:
+        ag = a.get("agent") or {}
+        ag_id = _clean_scalar(ag.get("id"))
+        ag_name = _clean_scalar(ag.get("name"))
+        if ag_id != "000" and ag_name.lower() not in {"", "wazuh-server", "localhost"} and not _is_network_sensor_alert(a):
+            endpoint_agents_with_ip.append((ag_name, _valid_ip(ag.get("ip"))))
+    endpoint_agents = [name for name, _ in endpoint_agents_with_ip]
+    endpoint_ips = {ip for _, ip in endpoint_agents_with_ip if ip}
+    dominant_endpoint = Counter(endpoint_agents).most_common(1)[0][0] if endpoint_agents else ""
+    dominant_endpoint_ip = next(
+        (ip for name, ip in endpoint_agents_with_ip if name == dominant_endpoint and ip),
+        next(iter(endpoint_ips), ""),
+    )
     primary_src_ip = src_ips[0] if src_ips else (semantic_source_ips[0] if semantic_source_ips else "")
     has_external_dst = any(ip and not _is_private_ip(ip) for ip in dst_ips)
     has_file_or_vt = any(
@@ -761,7 +830,7 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
     )
     is_outbound_endpoint = (
         not has_web_scan
-        and bool(endpoint_agents)
+        and bool(dominant_endpoint)
         and (
             (primary_src_ip and _is_private_ip(primary_src_ip) and (primary_src_ip in endpoint_ips or has_external_dst or has_file_or_vt))
             or (not primary_src_ip and has_file_or_vt)
@@ -770,8 +839,8 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
 
     src_node_id = "src_node"
     if is_outbound_endpoint:
-        ep_name = clean_text(endpoint_agents[0])
-        ep_ip = clean_text(primary_src_ip or next(iter(endpoint_ips), ""))
+        ep_name = clean_text(dominant_endpoint)
+        ep_ip = clean_text(dominant_endpoint_ip or (primary_src_ip if primary_src_ip in endpoint_ips else ""))
         src_label = f"Endpoint {ep_name} ({ep_ip})" if ep_ip else f"Endpoint {ep_name}"
         lines.append(f'    {src_node_id}["Nguồn: {src_label}"]:::victim')
     else:
@@ -919,10 +988,31 @@ def generate_incident_attack_graph_mermaid(incident_group: Dict[str, Any]) -> st
         ]
         if malware_files:
             target_names.append(f"Malware: {malware_files[-1]}")
+        else:
+            downloaded_files = [
+                _short_display_path(p)
+                for sem in semantics
+                for p in (sem.get("paths") or [])
+                if p and not _is_browser_temp_file(p)
+            ]
+            if downloaded_files:
+                target_names.append(f"Tệp: {downloaded_files[-1]}")
+        for sem in semantics:
+            dom = sem.get("domain") or ""
+            if not dom and sem.get("host_url"):
+                m_dom = re.match(r"^https?://([^/:?#]+)", str(sem.get("host_url")), flags=re.I)
+                if m_dom:
+                    dom = m_dom.group(1).lower()
+            if dom and dom not in target_names:
+                target_names.append(dom)
         for d in devices:
             if d not in target_names and d not in endpoint_agents:
                 target_names.append(d)
-        for ip in dst_ips[:2]:
+        meaningful_dst_ips = [
+            ip for ip in dst_ips
+            if ip not in {"1.1.1.1", "8.8.8.8", "8.8.4.4", "9.9.9.9"} and ip not in endpoint_ips
+        ]
+        for ip in meaningful_dst_ips[:2]:
             if ip not in target_names:
                 target_names.append(ip)
         if not target_names:
@@ -1085,15 +1175,52 @@ def derive_alert_semantics(alert: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     sysmon_meta = _extract_sysmon_meta(alert)
+    clean_file_for_label = re.sub(r":Zone\.Identifier$", "", file_path or "", flags=re.IGNORECASE)
+    short_clean_file = _short_display_path(clean_file_for_label) or short_path or "Downloads"
+    if rule_id == "100054":
+        if sysmon_meta["host_url"] or (not _is_network_sensor_alert(alert) and file_path):
+            url_or_file = sysmon_meta["host_url"] or short_clean_file
+            return {
+                "category": "sysmon_motw_download",
+                "label": f"Tải từ tên miền chia sẻ tệp: {url_or_file} ({short_clean_file})",
+                "incident_type": "Tải tệp từ dịch vụ chia sẻ/staging công khai",
+                "source_ip": None,
+                "paths": [file_path] if file_path else paths,
+                "host_url": sysmon_meta["host_url"],
+                "domain": sysmon_meta["qname"],
+                "mitre_techniques": ["T1105"],
+                "mitre_tactics": ["Command and Control"],
+                "raw_log_count": len(logs),
+            }
+        fg = _extract_fortigate_meta(alert)
+        dom = fg.get("qname") or fg.get("hostname") or "staging domain"
+        return {
+            "category": "fortigate_traffic",
+            "label": f"FGT-SOC: Truy cập tên miền chia sẻ tệp [{dom}]",
+            "incident_type": "Truy cập tên miền chia sẻ tệp qua Firewall",
+            "source_ip": fg.get("srcip") or None,
+            "paths": paths,
+            "domain": dom,
+            "mitre_techniques": ["T1105"],
+            "mitre_tactics": ["Command and Control"],
+            "raw_log_count": len(logs),
+        }
+
     if sysmon_meta["is_sysmon"] and (sysmon_meta["event_id"] == "15" or rule_id == "100051"):
-        url_or_file = sysmon_meta["host_url"] or short_path or "Downloads"
+        if sysmon_meta["host_url"]:
+            label = f"Tải từ URL (MOTW): {sysmon_meta['host_url']} ({short_clean_file})"
+        elif sysmon_meta["referrer_url"]:
+            label = f"Giải nén/MOTW từ {_short_display_path(sysmon_meta['referrer_url'])}: {short_clean_file}"
+        else:
+            label = f"Ghi nhận MOTW (Zone.Identifier): {short_clean_file}"
         return {
             "category": "sysmon_motw_download",
-            "label": f"Tải từ URL (MOTW): {url_or_file}",
+            "label": label,
             "incident_type": "Ghi nhận URL tải tệp (Zone.Identifier MOTW)",
             "source_ip": None,
             "paths": [file_path] if file_path else paths,
             "host_url": sysmon_meta["host_url"],
+            "domain": sysmon_meta["qname"],
             "mitre_techniques": ["T1105"],
             "mitre_tactics": ["Command and Control"],
             "raw_log_count": len(logs),
@@ -1302,16 +1429,84 @@ def _mitre_values(alert: Dict[str, Any], mitre_mapping: Optional[Dict[str, Any]]
 
 
 def _edge_reasons(a1: Dict[str, Any], a2: Dict[str, Any], semantic_score: float = 0.0) -> Set[str]:
+    if _is_lifecycle_or_housekeeping_alert(a1) or _is_lifecycle_or_housekeeping_alert(a2):
+        return set()
+
     entities1 = extract_entities(a1)
     entities2 = extract_entities(a2)
     shared = entities1 & entities2
     reasons: Set[str] = set()
+
+    sensor1 = _is_network_sensor_alert(a1)
+    sensor2 = _is_network_sensor_alert(a2)
+
+    rule_obj1 = a1.get("rule") or {}
+    rule_obj2 = a2.get("rule") or {}
+    rule1 = _clean_scalar(rule_obj1.get("id"))
+    rule2 = _clean_scalar(rule_obj2.get("id"))
+    lvl1 = _safe_int(rule_obj1.get("level"))
+    lvl2 = _safe_int(rule_obj2.get("level"))
+    max_level = max(lvl1, lvl2)
+    min_level = min(lvl1, lvl2)
+
+    # Sensor <-> Sensor (e.g. FortiGate <-> FortiGate): only link by shared source IP,
+    # never merely because both events came from the same firewall appliance.
+    # Also do not merge port-scan alerts (100105) with normal outbound traffic (81619)
+    # unless they also share the exact destination IP.
+    if sensor1 and sensor2:
+        fg1 = _extract_fortigate_meta(a1)
+        fg2 = _extract_fortigate_meta(a2)
+        if fg1.get("srcip") and fg1.get("srcip") == fg2.get("srcip"):
+            is_scan1 = rule1 == "100105"
+            is_scan2 = rule2 == "100105"
+            if is_scan1 != is_scan2 and not (fg1.get("dstip") and fg1.get("dstip") == fg2.get("dstip")):
+                return reasons
+            reasons.add("shared_ip")
+            if rule1 == rule2:
+                reasons.add("repeated_rule")
+            elif rule1 and rule2:
+                reasons.add("rule_sequence")
+        return reasons
+
     shared_ip = any(item.startswith("ip:") for item in shared)
     shared_asset = any(item.startswith(("agent:", "agent-id:", "host:")) for item in shared)
     shared_user = any(item.startswith("user:") for item in shared)
     shared_file = any(item.startswith(("file:", "stem:")) for item in shared)
     shared_hash = any(item.startswith("hash:") for item in shared)
     shared_domain = any(item.startswith("domain:") for item in shared)
+
+    # Cross-layer link between an endpoint alert and a network sensor alert (e.g. FGT-SOC):
+    # - Always allow direct shared network IP (e.g. external attacker IP 203.0.113.10 seen on FGT and WEB-01).
+    # - Allow matching endpoint agent.ip (asset-ip:) with FGT srcip ONLY for outbound non-deny traffic
+    #   to non-DNS-resolver destinations when paired with a meaningful endpoint event.
+    if sensor1 != sensor2:
+        ep_alert, net_alert = (a2, a1) if sensor1 else (a1, a2)
+        ep_entities, net_entities = (entities2, entities1) if sensor1 else (entities1, entities2)
+        ep_asset_ips = {e[9:] for e in ep_entities if e.startswith("asset-ip:")}
+        net_fg = _extract_fortigate_meta(net_alert)
+        net_rule = _clean_scalar((net_alert.get("rule") or {}).get("id"))
+        if shared_ip:
+            reasons.add("shared_ip")
+            if rule1 and rule2 and rule1 != rule2:
+                reasons.add("rule_sequence")
+        elif (
+            net_fg.get("srcip") in ep_asset_ips
+            and net_fg.get("action") != "deny"
+            and net_rule not in {"100105", "100109"}
+            and net_fg.get("dstip") not in {"1.1.1.1", "8.8.8.8", "8.8.4.4", "9.9.9.9"}
+            and not _is_private_ip(net_fg.get("dstip", ""))
+            and (
+                _safe_int((ep_alert.get("rule") or {}).get("level")) >= 5
+                or any(e.startswith(("file:", "stem:", "hash:", "domain:")) for e in ep_entities)
+            )
+        ):
+            reasons.add("shared_ip")
+            reasons.add("rule_sequence")
+        if shared_domain:
+            reasons.add("shared_domain")
+            reasons.add("rule_sequence")
+        return reasons
+
     if shared_ip:
         reasons.add("shared_ip")
     if shared_user:
@@ -1323,28 +1518,30 @@ def _edge_reasons(a1: Dict[str, Any], a2: Dict[str, Any], semantic_score: float 
     if shared_domain:
         reasons.add("shared_domain")
 
-    rule_obj1 = a1.get("rule") or {}
-    rule_obj2 = a2.get("rule") or {}
-    rule1 = _clean_scalar(rule_obj1.get("id"))
-    rule2 = _clean_scalar(rule_obj2.get("id"))
-    max_level = max(_safe_int(rule_obj1.get("level")), _safe_int(rule_obj2.get("level")))
     techniques1, tactics1 = _mitre_values(a1)
     techniques2, tactics2 = _mitre_values(a2)
 
     # Same-host temporal proximity is supporting context, not enough evidence
     # by itself. Require a repeated rule, a material rule sequence, MITRE
-    # continuity, file/hash lineage, or semantic support before creating an incident edge.
-    if shared_asset and rule1 and rule1 == rule2:
+    # continuity, file/hash/domain lineage, or semantic support before creating an incident edge.
+    if shared_asset and rule1 and rule1 == rule2 and max_level >= 5:
         reasons.update({"shared_asset", "repeated_rule"})
-    if rule1 and rule2 and rule1 != rule2 and (shared_ip or shared_user or shared_file or shared_hash or (shared_asset and max_level >= 7)):
+    if rule1 and rule2 and rule1 != rule2 and (
+        shared_ip
+        or shared_user
+        or shared_file
+        or shared_hash
+        or shared_domain
+        or (shared_asset and max_level >= 7 and min_level >= 5)
+    ):
         reasons.add("rule_sequence")
         if shared_asset:
             reasons.add("shared_asset")
-    if (shared_ip or shared_user or shared_asset) and ((techniques1 & techniques2) or (tactics1 & tactics2)):
+    if (shared_ip or shared_user or (shared_asset and min_level >= 5)) and ((techniques1 & techniques2) or (tactics1 & tactics2)):
         reasons.add("mitre_context")
         if shared_asset:
             reasons.add("shared_asset")
-    if shared_asset and semantic_score >= 0.80:
+    if shared_asset and semantic_score >= 0.80 and min_level >= 5:
         reasons.add("shared_asset")
         reasons.add("semantic_support")
 
@@ -1660,6 +1857,9 @@ def correlate_alerts(
                 confidence += 5
             confidence = min(confidence, 100)
             is_correlated = bool(corr_reasons) and correlation_reason != "singleton"
+            if len(sub_alerts) == 1 and (_is_low_level_fg_noise(sub_alerts[0]) or _is_lifecycle_or_housekeeping_alert(sub_alerts[0])):
+                is_correlated = False
+                correlation_reason = "noise_filtered"
             if len(devices) > 1 and "rule_sequence" in corr_reasons:
                 correlation_type = "cross_device_rule_sequence"
             elif len(rule_ids) > 1 and "rule_sequence" in corr_reasons:

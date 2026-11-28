@@ -928,25 +928,17 @@ function renderDeviceDetail(dev) {
             </div>
         </div>
 
-        <!-- 1-Click Active Response Defense Operations -->
+        <!-- SOC Advisory & Investigation Actions (Human-in-the-Loop, Read-Only) -->
         <section class="evidence-section active-defense-section">
-            <h3>Tác chiến Phòng thủ 1-Click</h3>
+            <h3>Hỗ trợ Giám sát &amp; Đề xuất Phản ứng</h3>
             <div class="active-defense-grid">
-                <button type="button" class="btn btn-action-isolate" title="Cô lập card mạng qua Wazuh Active Response"
-                        onclick="window.triggerDeviceAction('isolate_host', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
-                    Cô lập Host
-                </button>
-                <button type="button" class="btn btn-action-block" title="Chặn IP kẻ tấn công trên Firewall biên"
-                        onclick="window.triggerDeviceAction('block_ip', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
-                    Chặn Attacker
-                </button>
-                <button type="button" class="btn btn-action-fim" title="Kích hoạt quét toàn vẹn file tức thì"
-                        onclick="window.triggerDeviceAction('trigger_fim', '${escHtml(dev.id)}', '${escHtml(dev.name)}', '${escHtml(dev.ip)}')">
-                    Quét FIM Gấp
-                </button>
-                <button type="button" class="btn btn-action-ai" title="Mở điều tra chuyên sâu cùng AI"
+                <button type="button" class="btn btn-action-ai" title="Mở điều tra chuyên sâu cùng AI và nhận đề xuất phương án xử lý"
                         onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
-                    Hỏi AI Sâu
+                    🤖 Hỏi AI &amp; Đề xuất
+                </button>
+                <button type="button" class="btn btn-action-fim" title="Xem danh sách log và bằng chứng gốc của thiết bị"
+                        onclick="document.querySelector('[data-tab=&quot;evidence&quot;]')?.click()">
+                    📋 Xem Bằng chứng Log
                 </button>
             </div>
         </section>

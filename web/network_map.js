@@ -694,36 +694,6 @@ function renderVisNetwork(devices, wazuhHost) {
             updateNodeCalloutBubbles(rawDevices);
         });
 
-        // Draw clean Zone Backdrop Labels in Zone Mode so SOC zones are immediately readable
-        network.on("beforeDrawing", (ctx) => {
-            if (currentTopologyMode !== "zone") return;
-            const zones = [
-                { label: "WAN / EXTERNAL",  x: -560, y: -130, w: 200, h: 250, border: "rgba(239,68,68,0.28)",  fill: "rgba(239,68,68,0.05)",  text: "#fca5a5" },
-                { label: "PERIMETER FW",    x: -315, y: -130, w: 210, h: 250, border: "rgba(56,189,248,0.28)", fill: "rgba(56,189,248,0.05)", text: "#7dd3fc" },
-                { label: "SOC MANAGEMENT",  x: -60,  y: -285, w: 220, h: 165, border: "rgba(129,140,248,0.32)",fill: "rgba(129,140,248,0.06)",text: "#a5b4fc" },
-                { label: "DMZ ZONE",        x: -10,  y: -105, w: 210, h: 340, border: "rgba(245,158,11,0.28)", fill: "rgba(245,158,11,0.05)", text: "#fcd34d" },
-                { label: "INTERNAL LAN",    x: 260,  y: -105, w: 210, h: 340, border: "rgba(34,197,94,0.28)",  fill: "rgba(34,197,94,0.05)",  text: "#86efac" }
-            ];
-            ctx.save();
-            zones.forEach(z => {
-                ctx.fillStyle = z.fill;
-                ctx.strokeStyle = z.border;
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([6, 5]);
-                ctx.beginPath();
-                if (ctx.roundRect) ctx.roundRect(z.x, z.y, z.w, z.h, 12);
-                else ctx.rect(z.x, z.y, z.w, z.h);
-                ctx.fill();
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.fillStyle = z.text;
-                ctx.font = "700 10px Inter, system-ui, sans-serif";
-                ctx.textAlign = "center";
-                ctx.fillText(z.label, z.x + z.w / 2, z.y + 18);
-            });
-            ctx.restore();
-        });
-
         // Update callout bubbles on drawing and zoom events
         network.on("afterDrawing", () => updateNodeCalloutBubbles(rawDevices));
         network.on("zoom", () => updateNodeCalloutBubbles(rawDevices));

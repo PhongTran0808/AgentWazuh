@@ -814,11 +814,11 @@ function renderDeviceDetail(dev) {
             <div class="active-defense-grid">
                 <button type="button" class="btn btn-action-ai" title="Mở điều tra chuyên sâu cùng AI và nhận đề xuất phương án xử lý"
                         onclick="openInvestigation('${escHtml(dev.id)}','${escHtml(dev.name)}','${escHtml(dev.ip)}',${riskVal})">
-                    🤖 Hỏi AI &amp; Đề xuất
+                    Hỏi AI &amp; Đề xuất
                 </button>
                 <button type="button" class="btn btn-action-fim" title="Xem danh sách log và bằng chứng gốc của thiết bị"
                         onclick="document.querySelector('[data-tab=&quot;evidence&quot;]')?.click()">
-                    📋 Xem Bằng chứng Log
+                    Xem Bằng chứng Log
                 </button>
             </div>
         </section>

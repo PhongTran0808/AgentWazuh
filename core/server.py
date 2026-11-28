@@ -1818,18 +1818,19 @@ def _compute_risk_score(ip: str, agent_id: str, agent_name: str, alerts: List[Di
 
 def _get_device_badge(health: Dict[str, Any], risk: Dict[str, Any]) -> str:
     """
-    Badge trạng thái thiết bị:
+    Badge trạng thái thiết bị (tăng độ nhạy cảnh báo thật trên sơ đồ SOC):
     - OFFLINE       : health.status == "offline"
-    - UNDER_ATTACK  : risk >= 70 (tương ứng điểm cao từ severity + MITRE technique nghiêm trọng
-                      + tần suất lặp lại cao trong score_priority() — KHÔNG phải "liên tục theo thời gian")
-    - WARNING       : risk >= 40 (medium alert cluster, chưa đủ MITRE trigger)
+    - UNDER_ATTACK  : risk >= 55 hoặc có cảnh báo thực tế max_rule_level >= 10
+    - WARNING       : risk >= 25 hoặc có cảnh báo thực tế max_rule_level >= 6
     - NORMAL        : còn lại
     """
     if health.get("status") == "offline":
         return "OFFLINE"
-    elif risk.get("risk", 0) >= 70:
+    score = risk.get("risk", 0) or 0
+    max_lvl = (risk.get("breakdown") or {}).get("max_rule_level", 0) or 0
+    if score >= 55 or max_lvl >= 10:
         return "UNDER_ATTACK"
-    elif risk.get("risk", 0) >= 40:
+    elif score >= 25 or max_lvl >= 6:
         return "WARNING"
     else:
         return "NORMAL"

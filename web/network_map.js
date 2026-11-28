@@ -52,6 +52,9 @@ let lastAttackPaths = [];
 let lastWazuhHost = "100.69.72.103";
 let currentTopologyMode = localStorage.getItem("secmap_topology_mode") || "zone"; // "zone" | "fanout"
 let savedPositions = JSON.parse(localStorage.getItem("secmap_positions") || "{}");
+let traceModeActive = false;
+let activeTraceDeviceId = null;
+let sseRefreshTimer = null;
 
 // ─────────────────────────────────────────────
 //  INIT
@@ -287,10 +290,17 @@ document.addEventListener("DOMContentLoaded", () => {
 function connectRealtimeMapStream() {
     if (!window.EventSource) return;
     const stream = new EventSource("/api/events/alerts");
-    stream.addEventListener("alert", () => {
-        // Alert changes can alter node risk/badges; refresh the monitoring map now.
-        pollFullMap();
-    });
+    const triggerImmediateRefresh = () => {
+        if (sseRefreshTimer) clearTimeout(sseRefreshTimer);
+        sseRefreshTimer = setTimeout(() => {
+            pollFullMap();
+        }, 250);
+    };
+    stream.addEventListener("alert", triggerImmediateRefresh);
+    stream.onmessage = triggerImmediateRefresh;
+    stream.onerror = () => {
+        // Browser EventSource auto-reconnects; keep polling fallback alive.
+    };
 }
 
 // ─────────────────────────────────────────────
@@ -426,62 +436,82 @@ function renderVisNetwork(devices, wazuhHost) {
     const edges = [];
 
     if (isZoneMode) {
-        // Collect attacker IPs from detected attack paths
-        let attackerIp = "203.0.113.45";
-        if (lastAttackPaths && lastAttackPaths.length > 0) {
-            const ips = [];
-            lastAttackPaths.forEach(p => (p.source_ips || []).forEach(ip => { if (!ips.includes(ip)) ips.push(ip); }));
-            if (ips.length > 0) attackerIp = ips.join(", ");
-        }
-
-        // WAN Attacker Node
-        nodes.push({
-            id: "__wan_attacker__",
-            label: `External Attacker\n${attackerIp}\n[WAN ZONE]`,
-            shape: "image",
-            image: ICON_MAP["unknown"],
-            size: NODE_ICON_SIZE + 4,
-            borderWidth: 4,
-            color: { border: "#ef4444", background: "transparent", highlight: { border: "#f87171" } },
-            font: { color: "#fca5a5", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: "rgba(239, 68, 68, 0.5)", size: 24 },
-            x: -460,
-            y: -20,
-            physics: false
+        // Collect REAL external attacker IPs from attack paths or active alerts (NEVER fabricate fake IP!)
+        const externalIps = [];
+        const addRealExternalIp = (ip) => {
+            const s = String(ip || "").trim();
+            if (!s || s === "0.0.0.0" || s === "127.0.0.1" || s === wazuhHost) return;
+            // Exclude internal LAN/DMZ/SOC subnets when identifying WAN external attackers
+            if (/^10\.10\.(10|30|40)\./.test(s)) return;
+            if (!externalIps.includes(s)) externalIps.push(s);
+        };
+        (lastAttackPaths || []).forEach(p => (p.source_ips || []).forEach(addRealExternalIp));
+        (devices || []).forEach(d => {
+            if (["UNDER_ATTACK", "WARNING"].includes(d.badge)) {
+                addRealExternalIp(d.top_alert?.src_ip);
+                (d.incident?.source_ips || []).forEach(addRealExternalIp);
+            }
         });
 
-        // Perimeter FortiGate Firewall Node
+        const hasExternalAttack = externalIps.length > 0;
+        const fwDevice = (devices || []).find(d => (d.type || "").toLowerCase() === "firewall" || (d.name || "").toLowerCase().includes("forti"));
+        const fwIp = fwDevice?.ip || "172.16.100.2";
+        const fwName = fwDevice?.name || "FortiGate-VM";
+
+        // Only render WAN Attacker Node when a REAL external attack IP is present
+        if (hasExternalAttack) {
+            nodes.push({
+                id: "__wan_attacker__",
+                label: `🚨 External Attacker\n${externalIps.slice(0, 2).join(", ")}\n[WAN ZONE]`,
+                shape: "image",
+                image: ICON_MAP["unknown"],
+                size: NODE_ICON_SIZE + 4,
+                borderWidth: 4,
+                color: { border: "#ef4444", background: "transparent", highlight: { border: "#f87171" } },
+                font: { color: "#fca5a5", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
+                shadow: { enabled: true, color: "rgba(239, 68, 68, 0.55)", size: 26 },
+                x: -460,
+                y: -20,
+                physics: false
+            });
+        }
+
+        // Perimeter FortiGate Firewall Node (real Lab IP instead of hardcoded 192.168.1.1)
         nodes.push({
             id: "__fortigate_fw__",
-            label: `FortiGate 60F\n192.168.1.1\n[PERIMETER FW]`,
+            label: `${fwName}\n${fwIp}\n[PERIMETER FW]`,
             shape: "image",
             image: ICON_MAP["firewall"],
             size: NODE_ICON_SIZE + 6,
-            borderWidth: 3,
-            color: { border: "#38bdf8", background: "transparent", highlight: { border: "#7dd3fc" } },
+            borderWidth: hasExternalAttack ? 4 : 3,
+            color: { border: hasExternalAttack ? "#f59e0b" : "#38bdf8", background: "transparent", highlight: { border: "#7dd3fc" } },
             font: { color: "#e0f2fe", face: "Inter", size: 11, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: "rgba(56, 189, 248, 0.4)", size: 20 },
+            shadow: { enabled: true, color: hasExternalAttack ? "rgba(245, 158, 11, 0.45)" : "rgba(56, 189, 248, 0.4)", size: 20 },
             x: -210,
             y: -20,
             physics: false
         });
 
-        // Edge: WAN Attacker -> Perimeter FortiGate Firewall
-        edges.push({
-            from: "__wan_attacker__",
-            to: "__fortigate_fw__",
-            color: { color: "#ef4444", highlight: "#f87171" },
-            width: 3.5,
-            dashes: [8, 5],
-            arrows: { to: { enabled: true } },
-            title: "Inbound Attack Traffic (Internet -> Firewall)"
-        });
+        // Edge: WAN Attacker -> Perimeter FortiGate Firewall (only when active external attack!)
+        if (hasExternalAttack) {
+            edges.push({
+                id: "edge__wan_to_fw",
+                from: "__wan_attacker__",
+                to: "__fortigate_fw__",
+                color: { color: "#ef4444", highlight: "#f87171" },
+                width: traceModeActive ? 4.5 : 3.5,
+                dashes: [8, 5],
+                arrows: { to: { enabled: true } },
+                title: `Truy vết tấn công ngoài biên: ${externalIps.join(", ")} → ${fwName}`
+            });
+        }
 
         // Edge: FortiGate Firewall -> Wazuh SIEM Server (Syslog forwarding)
         edges.push({
+            id: "edge__fw_to_siem",
             from: "__fortigate_fw__",
             to: serverNodeId,
-            color: { color: "#38bdf8", highlight: "#7dd3fc" },
+            color: { color: traceModeActive ? "rgba(56,189,248,0.28)" : "#38bdf8", highlight: "#7dd3fc" },
             width: 2,
             dashes: false,
             arrows: { to: { enabled: false } },
@@ -489,7 +519,8 @@ function renderVisNetwork(devices, wazuhHost) {
         });
     }
 
-    let devIdx = 0;
+    let dmzIdx = 0;
+    let lanIdx = 0;
     devices.forEach(dev => {
         // Skip duplicate central Wazuh Server node if returned in devices list
         if (dev.id === "wazuh_manager_node" || dev.type === "wazuh" || dev.ip === wazuhHost) {
@@ -522,6 +553,8 @@ function renderVisNetwork(devices, wazuhHost) {
 
         const pos = savedPositions[dev.id];
         const isUnderAttack = dev.badge === "UNDER_ATTACK";
+        const isThreat = isUnderAttack || dev.badge === "WARNING" || (dev.incident && (dev.incident.priority_score ?? 0) > 40);
+        const isDimmedByTrace = traceModeActive && (!isThreat || (activeTraceDeviceId && activeTraceDeviceId !== dev.id));
 
         const nodeObj = {
             id: dev.id,
@@ -529,6 +562,7 @@ function renderVisNetwork(devices, wazuhHost) {
             shape: "image",
             image: iconSrc,
             size: NODE_ICON_SIZE,
+            opacity: isDimmedByTrace ? 0.25 : 1.0,
             borderWidth: isUnderAttack ? 5 : dev.badge === "WARNING" ? 3 : 2,
             borderWidthSelected: 3,
             color: {
@@ -536,8 +570,8 @@ function renderVisNetwork(devices, wazuhHost) {
                 background: "transparent",
                 highlight: { border: border }
             },
-            font: { color: "#f8fafc", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: glow, size: isUnderAttack ? 28 : dev.badge === "WARNING" ? 18 : 10 },
+            font: { color: isDimmedByTrace ? "#64748b" : "#f8fafc", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
+            shadow: { enabled: !isDimmedByTrace, color: glow, size: isUnderAttack ? 30 : dev.badge === "WARNING" ? 18 : 10 },
             _device: dev
         };
 
@@ -545,63 +579,76 @@ function renderVisNetwork(devices, wazuhHost) {
             nodeObj.x = pos.x;
             nodeObj.y = pos.y;
         } else if (isZoneMode) {
-            // Predictable zone layout if no saved position exists
-            const isServer = (dev.type || "").toLowerCase().includes("server") || (dev.name || "").toLowerCase().includes("srv");
-            if (isServer) {
-                nodeObj.x = 90;
-                nodeObj.y = -30 + (devIdx * 120);
+            // Accurate Subnet/Role Zone Layout: DMZ (10.10.30.x / web / server) vs LAN (10.10.10.x / win / pc)
+            const nameLower = (dev.name || "").toLowerCase();
+            const typeLower = (dev.type || "").toLowerCase();
+            const isDmz = /^10\.10\.30\./.test(dev.ip || "") || nameLower.includes("web") || nameLower.includes("dmz") || typeLower.includes("server") || nameLower.includes("srv");
+            if (isDmz) {
+                nodeObj.x = 95;
+                nodeObj.y = -20 + (dmzIdx * 130);
+                dmzIdx++;
             } else {
-                nodeObj.x = 340;
-                nodeObj.y = -90 + (devIdx * 100);
+                nodeObj.x = 365;
+                nodeObj.y = -20 + (lanIdx * 130);
+                lanIdx++;
             }
         }
 
         nodes.push(nodeObj);
-        devIdx++;
 
         if (isZoneMode) {
-            // Zone mode edges:
-            // 1. From Firewall to device (with attack trajectory if under attack)
-            const isAttacked = isUnderAttack || (dev.incident && (dev.incident.priority_score ?? 0) > 40);
+            const devSrcIp = dev.top_alert?.src_ip || "";
+            const isExternalVector = isThreat && devSrcIp && !/^10\.10\.(10|30|40)\./.test(devSrcIp);
+            const dimEdge = traceModeActive && !isThreat;
+            // 1. From Firewall to device (highlight red attack trajectory only when under external/cross-zone attack)
             edges.push({
+                id: `edge__fw_to_${dev.id}`,
                 from: "__fortigate_fw__",
                 to: dev.id,
-                color: { color: isAttacked ? "#ef4444" : "#1e40af", highlight: isAttacked ? "#f87171" : "#3b82f6" },
-                width: isAttacked ? 3.5 : 1.5,
-                dashes: isAttacked ? [10, 6] : false,
-                arrows: { to: { enabled: isAttacked } },
-                title: isAttacked ? `Tấn công xuyên thấu biên: ${dev.name}` : `LAN/DMZ Routing`
+                color: {
+                    color: dimEdge ? "rgba(30,64,175,0.18)" : (isExternalVector || isThreat) ? "#ef4444" : "#1e40af",
+                    highlight: isThreat ? "#f87171" : "#3b82f6"
+                },
+                width: (traceModeActive && isThreat) ? 4.2 : isThreat ? 3.2 : 1.5,
+                dashes: isThreat ? [10, 6] : false,
+                arrows: { to: { enabled: isThreat } },
+                title: isThreat ? `Truy vết tấn công tới ${dev.name} (${dev.ip})` : `Định tuyến DMZ/LAN`
             });
 
             // 2. From device to Wazuh SIEM (Agent reporting channel)
-            const edgeColor = dev.health?.status === "offline" ? "#334155"
-                            : isAttacked ? "#ef4444"
+            const edgeColor = dimEdge ? "rgba(67,56,202,0.16)"
+                            : dev.health?.status === "offline" ? "#334155"
+                            : isThreat ? "#f59e0b"
                             : "#4338ca";
             edges.push({
+                id: `edge__${dev.id}_to_siem`,
                 from: dev.id,
                 to: serverNodeId,
                 color: { color: edgeColor, highlight: edgeColor },
-                width: isAttacked ? 2.5 : 1.2,
+                width: isThreat ? 2.5 : 1.2,
                 dashes: [4, 4],
-                arrows: { to: { enabled: false } },
-                title: `Wazuh Agent #${dev.agent_id || "N/A"}`
+                arrows: { to: { enabled: isThreat } },
+                title: `Wazuh Agent #${dev.agent_id || "N/A"} → SIEM`
             });
         } else {
             // Fan-out classic star topology: Edge from Wazuh Server to this device
-            const edgeColor = dev.health?.status === "offline" ? "#334155"
+            const dimEdge = traceModeActive && !isThreat;
+            const edgeColor = dimEdge ? "rgba(30,64,175,0.18)"
+                            : dev.health?.status === "offline" ? "#334155"
                             : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
                             : dev.badge === "WARNING"           ? "#f59e0b"
                             : "#1e40af";
 
             edges.push({
+                id: `edge__siem_to_${dev.id}`,
                 from: serverNodeId,
                 to: dev.id,
                 color: { color: edgeColor, highlight: edgeColor },
-                width: dev.badge === "UNDER_ATTACK" ? 3 : dev.badge === "WARNING" ? 2 : 1,
+                width: dev.badge === "UNDER_ATTACK" ? 3.5 : dev.badge === "WARNING" ? 2 : 1,
                 dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
                 smooth: false,
                 font: { size: 0 },
-                arrows: { to: { enabled: false } }
+                arrows: { to: { enabled: dev.badge === "UNDER_ATTACK" } }
             });
         }
     });
@@ -613,7 +660,8 @@ function renderVisNetwork(devices, wazuhHost) {
             randomSeed: 42
         },
         physics: {
-            enabled: Object.keys(savedPositions).length === 0,
+            // Keep Zone Mode crisp and grid-aligned without chaotic forceAtlas2 drifting
+            enabled: !isZoneMode && Object.keys(savedPositions).length === 0,
             solver: "forceAtlas2Based",
             forceAtlas2Based: {
                 gravitationalConstant: -80,
@@ -644,6 +692,36 @@ function renderVisNetwork(devices, wazuhHost) {
                 localStorage.setItem("secmap_positions", JSON.stringify(savedPositions));
             }
             updateNodeCalloutBubbles(rawDevices);
+        });
+
+        // Draw clean Zone Backdrop Labels in Zone Mode so SOC zones are immediately readable
+        network.on("beforeDrawing", (ctx) => {
+            if (currentTopologyMode !== "zone") return;
+            const zones = [
+                { label: "WAN / EXTERNAL",  x: -560, y: -130, w: 200, h: 250, border: "rgba(239,68,68,0.28)",  fill: "rgba(239,68,68,0.05)",  text: "#fca5a5" },
+                { label: "PERIMETER FW",    x: -315, y: -130, w: 210, h: 250, border: "rgba(56,189,248,0.28)", fill: "rgba(56,189,248,0.05)", text: "#7dd3fc" },
+                { label: "SOC MANAGEMENT",  x: -60,  y: -285, w: 220, h: 165, border: "rgba(129,140,248,0.32)",fill: "rgba(129,140,248,0.06)",text: "#a5b4fc" },
+                { label: "DMZ ZONE",        x: -10,  y: -105, w: 210, h: 340, border: "rgba(245,158,11,0.28)", fill: "rgba(245,158,11,0.05)", text: "#fcd34d" },
+                { label: "INTERNAL LAN",    x: 260,  y: -105, w: 210, h: 340, border: "rgba(34,197,94,0.28)",  fill: "rgba(34,197,94,0.05)",  text: "#86efac" }
+            ];
+            ctx.save();
+            zones.forEach(z => {
+                ctx.fillStyle = z.fill;
+                ctx.strokeStyle = z.border;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 5]);
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(z.x, z.y, z.w, z.h, 12);
+                else ctx.rect(z.x, z.y, z.w, z.h);
+                ctx.fill();
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = z.text;
+                ctx.font = "700 10px Inter, system-ui, sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(z.label, z.x + z.w / 2, z.y + 18);
+            });
+            ctx.restore();
         });
 
         // Update callout bubbles on drawing and zoom events
@@ -705,9 +783,11 @@ function renderVisNetwork(devices, wazuhHost) {
         });
         nodesDS.update(nodes);
         edgesDS.update(edges);
-        // Remove stale nodes
+        // Remove stale nodes and stale edges so resolved attacks disappear cleanly
         const currentIds = new Set(nodes.map(n => n.id));
         nodesDS.forEach(n => { if (!currentIds.has(n.id)) nodesDS.remove(n.id); });
+        const currentEdgeIds = new Set(edges.map(e => e.id).filter(Boolean));
+        edgesDS.forEach(e => { if (e.id && !currentEdgeIds.has(e.id)) edgesDS.remove(e.id); });
     }
 
     // Always update Callout Alert Bubbles after dataset updates
@@ -744,8 +824,22 @@ function updateNodeCalloutBubbles(devices) {
         const warningCount = threatDevices.filter(dev => dev.badge === "WARNING").length;
         const names = threatDevices.slice(0, 2).map(dev => `${dev.name} (${dev.risk?.risk ?? 0})`).join(" · ");
         threatBanner.className = attackCount > 0 ? "secmap-threat-banner is-attack" : "secmap-threat-banner is-warning";
-        threatBanner.innerHTML = `<strong>${attackCount > 0 ? "🚨 NGUY HIỂM ĐANG HOẠT ĐỘNG" : "⚠ CẢNH BÁO AN NINH"}</strong><span>${attackCount} Attack · ${warningCount} Warning · ${escHtml(names)}</span>`;
+        threatBanner.innerHTML = `<strong>${attackCount > 0 ? "🚨 NGUY HIỂM ĐANG HOẠT ĐỘNG" : "⚠ CẢNH BÁO AN NINH"}</strong><span>${attackCount} Attack · ${warningCount} Warning · ${escHtml(names)}</span><button type="button" id="btn-toggle-trace-mode" class="btn btn--sm" style="margin-left:10px;padding:3px 9px;font-size:11px;pointer-events:auto;">${traceModeActive ? "✕ Tắt Truy vết" : "🔍 Truy vết chuỗi"}</button>`;
+        const traceBtn = document.getElementById("btn-toggle-trace-mode");
+        if (traceBtn) {
+            traceBtn.onclick = (e) => {
+                e.stopPropagation();
+                traceModeActive = !traceModeActive;
+                activeTraceDeviceId = traceModeActive ? (threatDevices[0]?.id || null) : null;
+                renderVisNetwork(rawDevices, lastWazuhHost);
+                if (traceModeActive && threatDevices[0]) {
+                    renderDeviceDetail(threatDevices[0]);
+                }
+            };
+        }
     } else {
+        traceModeActive = false;
+        activeTraceDeviceId = null;
         threatBanner.className = "secmap-threat-banner is-hidden";
         threatBanner.innerHTML = "";
     }

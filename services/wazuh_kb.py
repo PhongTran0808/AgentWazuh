@@ -215,7 +215,7 @@ def render_wazuh_kb_answer(query: str, host: str = "127.0.0.1") -> Optional[Dict
 def get_compact_kb_context(query: str) -> str:
     """
     Return a compact 2-line knowledge snippet to inject into LLM prompts
-    when a complex hybrid question touches Wazuh concepts.
+    when a complex hybrid question touches Wazuh or AgentWazuh concepts.
     """
     q = _normalize(query)
     kb = load_wazuh_kb()

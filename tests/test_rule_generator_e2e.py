@@ -102,8 +102,17 @@ class RuleGeneratorTests(unittest.TestCase):
             "rules",
             '''<!-- Existing local rules -->
 <group name="local,"><rule id="100001" level="5"><description>Existing</description></rule></group>
-<group name="custom,"><rule id="100002" level="10" frequency="5" timeframe="60"><if_matched_sid>5503</if_matched_sid></rule></group>''',
+<group name="custom,"><rule id="100002" level="10" frequency="5" timeframe="60"><if_matched_sid>5503</if_matched_sid></rule></group>
+<group name="portal,"><rule id="100108" level="12" timeframe="120"><if_matched_sid>100107</if_matched_sid></rule></group>''',
         )
+
+    def test_privileged_helper_rejects_frequency_without_timeframe(self):
+        helper = runpy.run_path("deploy/agentwazuh-wazuh-config")
+        with self.assertRaises(SystemExit):
+            helper["validate"](
+                "rules",
+                '<group name="custom,"><rule id="100109" level="10" frequency="5"><if_matched_sid>5503</if_matched_sid></rule></group>',
+            )
 
     def test_privileged_helper_rejects_malformed_multi_group_xml(self):
         helper = runpy.run_path("deploy/agentwazuh-wazuh-config")

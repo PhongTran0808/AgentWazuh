@@ -43,6 +43,26 @@ class WazuhRuleCorrelationTests(unittest.TestCase):
         with self.assertRaises(WazuhConfigError):
             _validate("rules", invalid)
 
+    def test_validation_accepts_timeframe_only_with_if_matched_sid(self):
+        valid = '''<group name="custom,">
+          <rule id="100108" level="12" timeframe="120">
+            <if_matched_sid>100107</if_matched_sid>
+            <match>[AUTH_SUCCESS]</match>
+            <description>Login succeeded after brute-force</description>
+          </rule>
+        </group>'''
+        _validate("rules", valid)
+
+    def test_validation_rejects_frequency_without_timeframe(self):
+        invalid = '''<group name="custom,">
+          <rule id="100109" level="10" frequency="5">
+            <if_matched_sid>5716</if_matched_sid>
+            <description>Missing timeframe</description>
+          </rule>
+        </group>'''
+        with self.assertRaises(WazuhConfigError):
+            _validate("rules", invalid)
+
     def test_merge_supports_multiple_top_level_groups(self):
         current = '''<!-- Local rules -->
 <group name="local,">

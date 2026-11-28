@@ -64,16 +64,17 @@ def validate(kind: str, content: str) -> None:
                 fail(f"Rule {rule_id}: frequency/timeframe must be rule attributes")
             frequency = (rule.get("frequency") or "").strip()
             timeframe = (rule.get("timeframe") or "").strip()
-            if frequency or timeframe:
-                if not frequency or not timeframe:
-                    fail(f"Rule {rule_id}: both frequency and timeframe are required")
-                try:
-                    if int(frequency) <= 0 or int(timeframe) <= 0:
-                        raise ValueError
-                except ValueError:
-                    fail(f"Rule {rule_id}: frequency/timeframe must be positive integers")
-                if rule.find("if_matched_sid") is None and rule.find("if_matched_group") is None:
-                    fail(f"Rule {rule_id}: correlation requires if_matched_sid or if_matched_group")
+            if frequency and not timeframe:
+                fail(f"Rule {rule_id}: frequency requires timeframe")
+            for attr_val in (frequency, timeframe):
+                if attr_val:
+                    try:
+                        if int(attr_val) <= 0:
+                            raise ValueError
+                    except ValueError:
+                        fail(f"Rule {rule_id}: frequency/timeframe must be positive integers")
+            if (frequency or timeframe) and rule.find("if_matched_sid") is None and rule.find("if_matched_group") is None:
+                fail(f"Rule {rule_id}: correlation requires if_matched_sid or if_matched_group")
     elif kind == "decoders":
         if root.tag != "decoder" and not root.findall(".//decoder"):
             fail("Decoder configuration must contain at least one <decoder>")

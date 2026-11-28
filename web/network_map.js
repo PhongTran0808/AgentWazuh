@@ -434,91 +434,6 @@ function renderVisNetwork(devices, wazuhHost) {
     ];
 
     const edges = [];
-
-    if (isZoneMode) {
-        // Collect REAL external attacker IPs from attack paths or active alerts (NEVER fabricate fake IP!)
-        const externalIps = [];
-        const addRealExternalIp = (ip) => {
-            const s = String(ip || "").trim();
-            if (!s || s === "0.0.0.0" || s === "127.0.0.1" || s === wazuhHost) return;
-            // Exclude internal LAN/DMZ/SOC subnets when identifying WAN external attackers
-            if (/^10\.10\.(10|30|40)\./.test(s)) return;
-            if (!externalIps.includes(s)) externalIps.push(s);
-        };
-        (lastAttackPaths || []).forEach(p => (p.source_ips || []).forEach(addRealExternalIp));
-        (devices || []).forEach(d => {
-            if (["UNDER_ATTACK", "WARNING"].includes(d.badge)) {
-                addRealExternalIp(d.top_alert?.src_ip);
-                (d.incident?.source_ips || []).forEach(addRealExternalIp);
-            }
-        });
-
-        const hasExternalAttack = externalIps.length > 0;
-        const fwDevice = (devices || []).find(d => (d.type || "").toLowerCase() === "firewall" || (d.name || "").toLowerCase().includes("forti"));
-        const fwIp = fwDevice?.ip || "172.16.100.2";
-        const fwName = fwDevice?.name || "FortiGate-VM";
-
-        // Only render WAN Attacker Node when a REAL external attack IP is present
-        if (hasExternalAttack) {
-            nodes.push({
-                id: "__wan_attacker__",
-                label: `🚨 External Attacker\n${externalIps.slice(0, 2).join(", ")}\n[WAN ZONE]`,
-                shape: "image",
-                image: ICON_MAP["unknown"],
-                size: NODE_ICON_SIZE + 4,
-                borderWidth: 4,
-                color: { border: "#ef4444", background: "transparent", highlight: { border: "#f87171" } },
-                font: { color: "#fca5a5", face: "Inter", size: 10, strokeWidth: 3, strokeColor: "#020617" },
-                shadow: { enabled: true, color: "rgba(239, 68, 68, 0.55)", size: 26 },
-                x: -460,
-                y: -20,
-                physics: false
-            });
-        }
-
-        // Perimeter FortiGate Firewall Node (real Lab IP instead of hardcoded 192.168.1.1)
-        nodes.push({
-            id: "__fortigate_fw__",
-            label: `${fwName}\n${fwIp}\n[PERIMETER FW]`,
-            shape: "image",
-            image: ICON_MAP["firewall"],
-            size: NODE_ICON_SIZE + 6,
-            borderWidth: hasExternalAttack ? 4 : 3,
-            color: { border: hasExternalAttack ? "#f59e0b" : "#38bdf8", background: "transparent", highlight: { border: "#7dd3fc" } },
-            font: { color: "#e0f2fe", face: "Inter", size: 11, strokeWidth: 3, strokeColor: "#020617" },
-            shadow: { enabled: true, color: hasExternalAttack ? "rgba(245, 158, 11, 0.45)" : "rgba(56, 189, 248, 0.4)", size: 20 },
-            x: -210,
-            y: -20,
-            physics: false
-        });
-
-        // Edge: WAN Attacker -> Perimeter FortiGate Firewall (only when active external attack!)
-        if (hasExternalAttack) {
-            edges.push({
-                id: "edge__wan_to_fw",
-                from: "__wan_attacker__",
-                to: "__fortigate_fw__",
-                color: { color: "#ef4444", highlight: "#f87171" },
-                width: traceModeActive ? 4.5 : 3.5,
-                dashes: [8, 5],
-                arrows: { to: { enabled: true } },
-                title: `Truy vết tấn công ngoài biên: ${externalIps.join(", ")} → ${fwName}`
-            });
-        }
-
-        // Edge: FortiGate Firewall -> Wazuh SIEM Server (Syslog forwarding)
-        edges.push({
-            id: "edge__fw_to_siem",
-            from: "__fortigate_fw__",
-            to: serverNodeId,
-            color: { color: traceModeActive ? "rgba(56,189,248,0.28)" : "#38bdf8", highlight: "#7dd3fc" },
-            width: 2,
-            dashes: false,
-            arrows: { to: { enabled: false } },
-            title: "Security Syslog 514 / Netflow & API Audit"
-        });
-    }
-
     let dmzIdx = 0;
     let lanIdx = 0;
     devices.forEach(dev => {
@@ -596,61 +511,26 @@ function renderVisNetwork(devices, wazuhHost) {
 
         nodes.push(nodeObj);
 
-        if (isZoneMode) {
-            const devSrcIp = dev.top_alert?.src_ip || "";
-            const isExternalVector = isThreat && devSrcIp && !/^10\.10\.(10|30|40)\./.test(devSrcIp);
-            const dimEdge = traceModeActive && !isThreat;
-            // 1. From Firewall to device (highlight red attack trajectory only when under external/cross-zone attack)
-            edges.push({
-                id: `edge__fw_to_${dev.id}`,
-                from: "__fortigate_fw__",
-                to: dev.id,
-                color: {
-                    color: dimEdge ? "rgba(30,64,175,0.18)" : (isExternalVector || isThreat) ? "#ef4444" : "#1e40af",
-                    highlight: isThreat ? "#f87171" : "#3b82f6"
-                },
-                width: (traceModeActive && isThreat) ? 4.2 : isThreat ? 3.2 : 1.5,
-                dashes: isThreat ? [10, 6] : false,
-                arrows: { to: { enabled: isThreat } },
-                title: isThreat ? `Truy vết tấn công tới ${dev.name} (${dev.ip})` : `Định tuyến DMZ/LAN`
-            });
+        // Clean edge from Wazuh SIEM Server to each real monitored device
+        const dimEdge = traceModeActive && !isThreat;
+        const edgeColor = dimEdge ? "rgba(30,64,175,0.18)"
+                        : dev.health?.status === "offline" ? "#334155"
+                        : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
+                        : dev.badge === "WARNING"           ? "#f59e0b"
+                        : "#1e40af";
 
-            // 2. From device to Wazuh SIEM (Agent reporting channel)
-            const edgeColor = dimEdge ? "rgba(67,56,202,0.16)"
-                            : dev.health?.status === "offline" ? "#334155"
-                            : isThreat ? "#f59e0b"
-                            : "#4338ca";
-            edges.push({
-                id: `edge__${dev.id}_to_siem`,
-                from: dev.id,
-                to: serverNodeId,
-                color: { color: edgeColor, highlight: edgeColor },
-                width: isThreat ? 2.5 : 1.2,
-                dashes: [4, 4],
-                arrows: { to: { enabled: isThreat } },
-                title: `Wazuh Agent #${dev.agent_id || "N/A"} → SIEM`
-            });
-        } else {
-            // Fan-out classic star topology: Edge from Wazuh Server to this device
-            const dimEdge = traceModeActive && !isThreat;
-            const edgeColor = dimEdge ? "rgba(30,64,175,0.18)"
-                            : dev.health?.status === "offline" ? "#334155"
-                            : dev.badge === "UNDER_ATTACK"     ? "#ef4444"
-                            : dev.badge === "WARNING"           ? "#f59e0b"
-                            : "#1e40af";
-
-            edges.push({
-                id: `edge__siem_to_${dev.id}`,
-                from: serverNodeId,
-                to: dev.id,
-                color: { color: edgeColor, highlight: edgeColor },
-                width: dev.badge === "UNDER_ATTACK" ? 3.5 : dev.badge === "WARNING" ? 2 : 1,
-                dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
-                smooth: false,
-                font: { size: 0 },
-                arrows: { to: { enabled: dev.badge === "UNDER_ATTACK" } }
-            });
-        }
+        edges.push({
+            id: `edge__siem_to_${dev.id}`,
+            from: serverNodeId,
+            to: dev.id,
+            color: { color: edgeColor, highlight: edgeColor },
+            width: (traceModeActive && isThreat) ? 4.0 : dev.badge === "UNDER_ATTACK" ? 3.2 : dev.badge === "WARNING" ? 2 : 1.3,
+            dashes: dev.badge === "UNDER_ATTACK" ? [8, 5] : false,
+            smooth: false,
+            font: { size: 0 },
+            arrows: { to: { enabled: dev.badge === "UNDER_ATTACK" } },
+            title: isThreat ? `Cảnh báo trên ${dev.name} (${dev.ip})` : `Wazuh Agent #${dev.agent_id || "N/A"}`
+        });
     });
 
     const options = {
@@ -1038,75 +918,14 @@ function renderServerDetail() {
         <section class="evidence-section">
             <h3>Vai trò Quản trị</h3>
             <p class="metric-note">
-                Nút đầu não tiếp nhận mọi sự kiện syslog từ FortiGate và agent daemon từ các máy chủ nội bộ.
-                Tích hợp AI Agent tương quan đa nguồn và tự động phát lệnh Active Response.
+                Nút đầu não tiếp nhận mọi sự kiện syslog từ tường lửa và agent daemon từ các máy chủ nội bộ.
+                Tích hợp AI Agent tương quan đa nguồn, hỗ trợ giám sát viên phát hiện và đề xuất phương án xử lý.
             </p>
         </section>
         <section class="evidence-section">
             <h3>Thao tác Quản trị</h3>
             <button type="button" class="btn btn-action-fim btn--block" onclick="window.openWazuhApiInspectorModal()">
                 Mở Wazuh REST API Inspector
-            </button>
-        </section>`;
-}
-
-function renderFirewallDetail() {
-    const panel = document.getElementById("device-detail-panel");
-    if (!panel) return;
-    panel.innerHTML = `
-        <div class="device-detail-header">
-            <img src="${ICON_MAP["firewall"]}" class="device-type-icon-lg" alt="Firewall">
-            <div class="device-detail-heading">
-                <div class="device-detail-name">FortiGate 60F</div>
-                <code class="device-detail-ip">192.168.1.1 · Perimeter Gateway</code>
-                <div><span class="badge-pill NORMAL">ONLINE · PROTECTING</span></div>
-            </div>
-        </div>
-        <section class="evidence-section">
-            <h3>Trạng thái Tường lửa biên</h3>
-            <table class="kv-table">
-                <tr><td>Vùng bảo vệ</td><td>WAN ➔ Perimeter ➔ DMZ & LAN</td></tr>
-                <tr><td>Inspection Mode</td><td>Flow-based IPS + Antivirus + Web Filtering</td></tr>
-                <tr><td>Chính sách Dropped</td><td>Tự động nhận diện từ Wazuh Active Response</td></tr>
-                <tr><td>Syslog Forwarding</td><td>Gửi log bảo mật trực tiếp về Wazuh SIEM port 514</td></tr>
-            </table>
-        </section>
-        <section class="evidence-section">
-            <h3>Tác vụ nhanh</h3>
-            <button type="button" class="btn btn-action-fim btn--block" onclick="window.triggerDeviceAction('quick_cmd', '__fortigate_fw__', 'FortiGate 60F', '192.168.1.1', 'diagnose sys status')">
-                Kiểm tra trạng thái Firewall (mxterm)
-            </button>
-        </section>`;
-}
-
-function renderAttackerDetail() {
-    const panel = document.getElementById("device-detail-panel");
-    if (!panel) return;
-    const paths = lastAttackPaths || [];
-    const srcIps = [];
-    paths.forEach(p => (p.source_ips || []).forEach(ip => { if (!srcIps.includes(ip)) srcIps.push(ip); }));
-    const displayIps = srcIps.length > 0 ? srcIps.join(", ") : "203.0.113.45";
-    const techniques = [];
-    paths.forEach(p => (p.techniques || []).forEach(t => { if (!techniques.includes(t)) techniques.push(t); }));
-
-    panel.innerHTML = `
-        <div class="device-detail-header">
-            <img src="${ICON_MAP["unknown"]}" class="device-type-icon-lg" alt="Attacker">
-            <div class="device-detail-heading">
-                <div class="device-detail-name">External Attacker (WAN Threat)</div>
-                <code class="device-detail-ip">${escHtml(displayIps)}</code>
-                <div><span class="badge-pill UNDER_ATTACK">THREAT ACTOR</span></div>
-            </div>
-        </div>
-        <section class="evidence-section">
-            <h3>Thông tin đe dọa từ WAN</h3>
-            <p class="metric-note">Nguồn phát sinh tấn công dò quét cổng, Brute Force SSH, và khai thác lỗ hổng nhắm vào DMZ và Endpoints.</p>
-            ${techniques.length > 0 ? `<p class="metric-note">Kỹ thuật MITRE: <span class="ref">${escHtml(techniques.join(", "))}</span></p>` : ""}
-        </section>
-        <section class="evidence-section">
-            <h3>Hành động phòng thủ khẩn cấp</h3>
-            <button type="button" class="btn btn-action-block btn--block" onclick="window.triggerDeviceAction('block_ip', '__wan_attacker__', 'External Attacker', '${displayIps.split(',')[0].trim()}')">
-                Chặn toàn bộ IP Attacker trên Perimeter FW
             </button>
         </section>`;
 }
